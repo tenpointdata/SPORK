@@ -436,6 +436,11 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
       // Vector, hybrid and full-text retrieval (issue #7306)
       "POST /api/v1/vector/{database}/search", "POST /api/v1/vector/{database}/hybrid",
       "POST /api/v1/vector/{database}/fulltext",
+      // Selections (F1, docs/spork/03-f1-selections-design.md)
+      "POST /api/v1/selection/{database}/save", "POST /api/v1/selection/{database}/combine",
+      "POST /api/v1/selection/{database}/compare", "POST /api/v1/selection/{database}/venn",
+      "POST /api/v1/selection/{database}/get", "POST /api/v1/selection/{database}/members",
+      "POST /api/v1/selection/{database}/drop", "POST /api/v1/selection/{database}/purge",
       // Auth
       "POST /api/v1/login", "POST /api/v1/logout", "GET /api/v1/sessions",
       "POST /api/v1/cluster/auth-session",
@@ -530,7 +535,7 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
     assertThat(EXPECTED_OPERATIONS)
         .as("the inventory itself must hold no duplicate")
         .doesNotHaveDuplicates()
-        .hasSize(96);
+        .hasSize(104);
 
     assertThat(declared)
         .as("operations missing from the specification")
@@ -597,7 +602,7 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
         .as("client generators derive a method name per operationId, so a collision breaks codegen")
         .doesNotHaveDuplicates()
         .doesNotContainNull()
-        .hasSize(96);
+        .hasSize(104);
   }
 
   @Test

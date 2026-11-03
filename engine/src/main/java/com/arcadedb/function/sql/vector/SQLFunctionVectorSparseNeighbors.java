@@ -71,7 +71,7 @@ import java.util.concurrent.TimeoutException;
 public class SQLFunctionVectorSparseNeighbors extends SQLFunctionVectorAbstract {
   public static final String NAME = "vector.sparseNeighbors";
 
-  private static final Set<String> OPTIONS = Set.of("filter", "where", "groupBy", "groupSize", "minScore");
+  private static final Set<String> OPTIONS = Set.of("filter", "where", "selection", "groupBy", "groupSize", "minScore");
 
   // Hard cap on the candidate pool when grouping is enabled. Same rationale as
   // SQLFunctionVectorNeighbors.MAX_FETCH_CANDIDATES: bounds memory at a few MB on pathological
@@ -109,9 +109,8 @@ public class SQLFunctionVectorSparseNeighbors extends SQLFunctionVectorAbstract 
     if (params.length >= 5 && params[4] != null) {
       if (params[4] instanceof Map<?, ?> rawMap) {
         final FunctionOptions opts = new FunctionOptions(NAME, rawMap, OPTIONS);
-        // Same `where` predicate as vector.neighbors (issue #10169)
-        allowedRIDs = RecordPredicateRidSet.of(opts.get("where"), parseRidFilter(opts.getList("filter"), NAME, context), NAME,
-            context);
+        // Same `where`, `filter` and `selection` pre-filter as vector.neighbors (issue #10169, docs/spork/03-f1-selections-design.md)
+        allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
         groupBy = opts.getString("groupBy", null);
         groupSize = opts.getInt("groupSize", 1);
         if (groupSize < 1)

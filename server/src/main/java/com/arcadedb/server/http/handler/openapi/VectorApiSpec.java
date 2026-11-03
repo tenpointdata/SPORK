@@ -168,6 +168,7 @@ public class VectorApiSpec implements OpenApiContributor {
         expanded neighbor row, where record properties are flattened and @rid, @type, record, plus distance \
         (dense) or score (sparse) are available. At most """ + VectorLeg.MAX_FILTER_EXPRESSION + " characters."));
     schema.addProperty("sparse", SpecBuilders.bool("Search an LSM_SPARSE_VECTOR index instead of a dense one"));
+    schema.addProperty("selection", selectionProperty());
     // k is optional: VectorSearch.validateArguments defaults an absent one to VectorLeg.DEFAULT_K.
     schema.setRequired(List.of("indexName", "queryVector"));
     return schema;
@@ -228,6 +229,7 @@ public class VectorApiSpec implements OpenApiContributor {
         + HybridSearch.DIRECTION_OUT + "'", HybridSearch.EXPAND_DIRECTIONS));
     expand.addProperty("maxDepth", boundedInteger("Hops to walk from a seed", 1, HybridSearch.MAX_DEPTH, 1));
     schema.addProperty("expand", expand);
+    schema.addProperty("selection", selectionProperty());
 
     // k is optional here too, defaulted by HybridSearch.validateArguments to VectorLeg.DEFAULT_K.
     schema.setRequired(List.of("vectorIndexName", "queryVector"));
@@ -341,6 +343,7 @@ public class VectorApiSpec implements OpenApiContributor {
         "Indexed properties, to pick between several full-text indexes on the same type"));
     schema.addProperty("limit", boundedInteger("Maximum number of results to return", 1, FullTextQuery.MAX_LIMIT,
         FullTextQuery.DEFAULT_LIMIT));
+    schema.addProperty("selection", selectionProperty());
     schema.setRequired(List.of("queryText"));
     return schema;
   }
@@ -391,6 +394,16 @@ public class VectorApiSpec implements OpenApiContributor {
     // exclusive, and 'depth'/'path' belong to an expansion hit only.
     hit.setRequired(List.of("rid", "sources", "properties"));
     return hit;
+  }
+
+  /**
+   * The {@code selection} argument every search takes (docs/spork/03-f1-selections-design.md, 2.5). A fresh schema per call, so
+   * no two points of the document share one mutable object.
+   */
+  private static Schema<?> selectionProperty() {
+    return SpecBuilders.string("""
+        Name of a saved selection (see the Selection routes) to search inside: every hit is a member of it. The index tests \
+        each candidate against it as it searches, so it costs no over-fetch""");
   }
 
   /**

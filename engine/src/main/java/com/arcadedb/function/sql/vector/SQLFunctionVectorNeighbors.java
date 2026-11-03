@@ -67,8 +67,8 @@ import java.util.Set;
 public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
   public static final String NAME = "vector.neighbors";
 
-  private static final Set<String> OPTIONS = Set.of("efSearch", "filter", "where", "groupBy", "groupSize", "maxDistance",
-      "rerank");
+  private static final Set<String> OPTIONS = Set.of("efSearch", "filter", "where", "selection", "groupBy", "groupSize",
+      "maxDistance", "rerank");
 
   // Hard cap on the candidate pool the index is asked to materialize when grouping is enabled.
   // Prevents memory exhaustion on pathological combinations of `k` and `groupSize` (e.g. k=1000,
@@ -120,7 +120,7 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
         rerank = opts.getInt("rerank", -1);
         if (opts.get("rerank") != null && rerank < 0)
           throw new CommandSQLParsingException(NAME + " rerank must be >= 0, got " + rerank);
-        allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), NAME, context);
+        allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
         groupBy = opts.getString("groupBy", null);
         groupSize = opts.getInt("groupSize", 1);
         if (groupSize < 1)

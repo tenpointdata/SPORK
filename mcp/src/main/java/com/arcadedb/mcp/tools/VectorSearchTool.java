@@ -36,7 +36,7 @@ import com.arcadedb.query.search.VectorSearch;
  */
 public class VectorSearchTool {
   public static JSONObject getDefinition() {
-    return new JSONObject()
+    return MCPToolUtils.withSelectionArgument(new JSONObject()
         .put("name", "vector_search")
         .put("description",
             """
@@ -90,7 +90,7 @@ public class VectorSearchTool {
                     .put("type", "boolean")
                     .put("default", false)
                     .put("description", "Use vector.sparseNeighbors against an LSM_SPARSE_VECTOR index")))
-            .put("required", new JSONArray().put("database").put("indexName").put("queryVector").put("k")));
+            .put("required", new JSONArray().put("database").put("indexName").put("queryVector").put("k"))));
   }
 
   public static JSONObject execute(final ArcadeDBServer server, final ServerSecurityUser user, final JSONObject args,

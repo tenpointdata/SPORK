@@ -190,7 +190,8 @@ class Issue10080ExpressionSubqueryHeapLimitTest extends TestHelper {
         "ProfileStatement.java", "runs the profiled statement to completion and keeps no row",//
         "TraverseProjectionItem.java", "reads the elements of a value a record already holds",//
         "FindReferencesStatement.java", "keeps the RID of each row of an administrative statement, not the row",//
-        "CountExpression.java", "counts the rows of a COUNT { ... } subquery and keeps none");
+        "CountExpression.java", "counts the rows of a COUNT { ... } subquery and keeps none",//
+        "SelectionSave.java", "keeps the RID of each row of a selection.save query in a compressed bitmap, not the row");
 
     final Pattern loop = Pattern.compile("while\\s*\\(\\s*(\\w+)\\.hasNext\\(\\)\\s*\\)");
     final List<String> offenders = new ArrayList<>();

@@ -592,7 +592,8 @@ public final class HybridSearch {
     // analyzer or search-engine fault - is a server fault and stays a 500 with its stack trace.
     final Map<RID, Float> hits;
     try {
-      hits = FullTextSearch.search(typeIndex, queryText, limit);
+      // the same saved selection the vector leg stays inside, so the fused list holds only its members
+      hits = SearchSelection.fullTextSearch(database, typeIndex, queryText, limit, SearchSelection.of(args));
     } catch (final FullTextQueryParseException e) {
       throw invalidExpression("full-text leg", e);
     }

@@ -29,12 +29,14 @@ import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.exception.RecordNotFoundException;
 import com.arcadedb.function.sql.SQLFunctionAbstract;
 import com.arcadedb.index.vector.GroupAdmissionState;
+import com.arcadedb.query.selection.SelectionStore;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.parser.Identifier;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.utility.IntHashSet;
 import com.arcadedb.utility.NumberUtils;
+import com.arcadedb.utility.RidBitmapSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -491,9 +493,29 @@ public abstract class SQLFunctionVectorAbstract extends SQLFunctionAbstract {
    */
   public static Set<RID> parsePreFilter(final List<?> filter, final Object where, final String functionName,
       final CommandContext context) {
+    return parsePreFilter(filter, where, null, functionName, context);
+  }
+
+  /**
+   * {@link #parsePreFilter(List, Object, String, CommandContext)} restricted to a saved selection as well
+   * (docs/spork/03-f1-selections-design.md, 2.5): the {@code selection} option. Alone it is the allow-list as the read-only
+   * view over its bitmap, never copied; with {@code filter} the filter's RIDs outside it are dropped.
+   *
+   * @param selection the name of a saved selection, or null for none
+   */
+  public static Set<RID> parsePreFilter(final List<?> filter, final Object where, final String selection, final String functionName,
+      final CommandContext context) {
+    Set<RID> candidates = parseRidFilter(filter, functionName, context);
+    if (selection != null) {
+      final RidBitmapSet members = new RidBitmapSet(new SelectionStore(context.getDatabase(), functionName).require(selection).members());
+      if (candidates == null)
+        candidates = members;
+      else
+        candidates.removeIf(rid -> !members.contains(rid));
+    }
     // `where` restricts the candidates by a predicate on their record, tested as the search meets them instead of listing
     // every RID in scope up front as a `filter` subquery has to (issue #10169)
-    return RecordPredicateRidSet.of(where, parseRidFilter(filter, functionName, context), functionName, context);
+    return RecordPredicateRidSet.of(where, candidates, functionName, context);
   }
 
   /**

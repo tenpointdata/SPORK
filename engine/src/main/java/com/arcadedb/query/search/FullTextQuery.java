@@ -80,6 +80,7 @@ public final class FullTextQuery {
     final int limit = args.getInt("limit", DEFAULT_LIMIT);
     if (limit < 1 || limit > MAX_LIMIT)
       throw new IllegalArgumentException("'limit' must be between 1 and " + MAX_LIMIT + ", got " + limit);
+    SearchSelection.of(args);
   }
 
   /**
@@ -104,7 +105,7 @@ public final class FullTextQuery {
     // entries instead of every match in the index.
     final Map<RID, Float> hits;
     try {
-      hits = FullTextSearch.search(typeIndex, queryText, limit);
+      hits = SearchSelection.fullTextSearch(database, typeIndex, queryText, limit, SearchSelection.of(args));
     } catch (final FullTextQueryParseException e) {
       // Lucene syntax the parser rejects is the caller's mistake and must be answered as one - HTTP 400, gRPC
       // INVALID_ARGUMENT - rather than as an internal error with a stack trace in the server log (issue #7393).

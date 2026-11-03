@@ -35,6 +35,7 @@ import com.arcadedb.server.http.handler.openapi.SecurityAdminApiSpec;
 import com.arcadedb.server.http.handler.openapi.SpecBuilders;
 import com.arcadedb.server.http.handler.openapi.SupportApiSpec;
 import com.arcadedb.server.http.handler.openapi.TimeSeriesApiSpec;
+import com.arcadedb.server.http.handler.openapi.SelectionApiSpec;
 import com.arcadedb.server.http.handler.openapi.VectorApiSpec;
 import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
@@ -90,6 +91,7 @@ public class OpenApiSpecGenerator {
       new SecurityAdminApiSpec(), //
       new TimeSeriesApiSpec(), //
       new VectorApiSpec(), //
+      new SelectionApiSpec(), //
       new GrafanaApiSpec(), //
       new PrometheusApiSpec(), //
       new AiApiSpec(), //
@@ -245,6 +247,7 @@ public class OpenApiSpecGenerator {
         tag("Auth", "Session login, logout, and enumeration"), //
         tag("Security", "Users, groups, and API tokens"), //
         tag("Vector", "Vector, hybrid and full-text retrieval"), //
+        tag("Selection", "Saved selections, their set algebra and the compare of 2 to 8 selections"), //
         tag("TimeSeries", "Time-series ingestion and querying"), //
         tag("Grafana", "Grafana data source endpoints"), //
         tag("Prometheus", "Prometheus remote read and write"), //

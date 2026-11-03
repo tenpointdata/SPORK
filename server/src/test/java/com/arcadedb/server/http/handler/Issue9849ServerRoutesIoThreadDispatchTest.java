@@ -105,6 +105,15 @@ class Issue9849ServerRoutesIoThreadDispatchTest extends BaseGraphServerTest {
     put("POST /api/v1/vector/{database}/search", Dispatch.ALWAYS);
     put("POST /api/v1/vector/{database}/hybrid", Dispatch.ALWAYS);
     put("POST /api/v1/vector/{database}/fulltext", Dispatch.ALWAYS);
+    // Selections (F1, docs/spork/03-f1-selections-design.md): every operation reads a body and runs a query
+    put("POST /api/v1/selection/{database}/save", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/combine", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/compare", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/venn", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/get", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/members", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/drop", Dispatch.ALWAYS);
+    put("POST /api/v1/selection/{database}/purge", Dispatch.ALWAYS);
 
     // In-memory: the set of installed database names, one name looked up in it, the operations registry.
     put("GET /api/v1/databases", Dispatch.NEVER);

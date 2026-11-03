@@ -549,7 +549,7 @@ class LetQueryStepCorrelatedResultCacheTest extends TestHelper {
       "math_toradians", "math_ulp", "math_unsignedmultiplyexact", "math_unsignedmultiplyhigh",
       "math_unsignedpowexact", "max", "median", "min", "mode", "out", "oute", "outv", "percentile", "point",
       "polygon", "pow", "rectangle", "search_fields", "search_fields_more", "search_index",
-      "search_index_more", "set", "shortestpath", "sqrt", "stddev", "stddevp", "strcmpci", "sum",
+      "search_index_more", "selection.rids", "set", "shortestpath", "sqrt", "stddev", "stddevp", "strcmpci", "sum",
       "symmetricdifference", "ts.correlate", "ts.delta", "ts.first", "ts.interpolate", "ts.lag", "ts.last",
       "ts.lead", "ts.movingavg", "ts.percentile", "ts.rank", "ts.rate", "ts.rownumber", "ts.timebucket",
       "unionall", "variance", "variancep", "vector.add", "vector.approxdistance", "vector.avg",

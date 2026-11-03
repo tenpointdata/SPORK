@@ -102,6 +102,7 @@ The following table lists runtime dependencies bundled with ArcadeDB distributio
 | org.antlr | antlr4-runtime | 4.13.2 | BSD 3-Clause | https://www.antlr.org/ |
 | com.google.code.gson | gson | 2.13.2 | Apache 2.0 | https://github.com/google/gson |
 | org.yaml | snakeyaml | 2.4 | Apache 2.0 | https://bitbucket.org/snakeyaml/snakeyaml |
+| org.roaringbitmap | RoaringBitmap | 1.3.0 | Apache 2.0 | https://github.com/RoaringBitmap/RoaringBitmap |
 
 ### Apache Lucene (Full-Text Search)
 

@@ -35,6 +35,8 @@ import com.arcadedb.query.sql.parser.LeOperator;
 import com.arcadedb.query.sql.parser.LtOperator;
 import com.arcadedb.query.sql.parser.NeOperator;
 import com.arcadedb.query.sql.parser.NeqOperator;
+import com.arcadedb.utility.RidBitmap;
+import com.arcadedb.utility.RidBitmapSet;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -124,7 +126,10 @@ public final class RIDFilter {
       filter.restrictAllowed(candidates);
     filter.evaluated = evaluated.toArray(new BooleanExpression[0]);
     filter.acceptsNothing = filter.computeAcceptsNothing();
-    if (filter.allowed != null) {
+    if (filter.allowed instanceof final RidBitmapSet selection)
+      // A saved selection knows its buckets from its bitmap's keys: no walk over every member, no RID allocated per member
+      filter.allowedBuckets = selection.bucketIds();
+    else if (filter.allowed != null) {
       final int[] buckets = new int[filter.allowed.size()];
       int i = 0;
       for (final RID rid : filter.allowed)
@@ -322,6 +327,9 @@ public final class RIDFilter {
   private static Set<RID> ridsOf(final Object value) {
     if (value instanceof final RID rid)
       return Set.of(rid);
+    if (value instanceof final RidBitmapSet selection)
+      // selection.rids(): RIDs only by construction, and kept as the bitmap it is rather than copied member by member
+      return selection;
     final Iterator<?> iterator;
     if (value instanceof final Iterable<?> iterable)
       iterator = iterable.iterator();
@@ -354,17 +362,39 @@ public final class RIDFilter {
     }
   }
 
+  /**
+   * A {@link RidBitmapSet} (a saved selection) is kept as it is, read-only: copying it would cost about 100 bytes per member.
+   * Two of them meet as bitmaps; a selection meeting a plain set keeps the plain set's members it holds.
+   */
   private void restrictAllowed(final Set<RID> rids) {
     if (allowed == null)
-      allowed = new HashSet<>(rids);
-    else
+      allowed = rids instanceof RidBitmapSet ? rids : new HashSet<>(rids);
+    else if (allowed instanceof final RidBitmapSet current) {
+      if (rids instanceof final RidBitmapSet other)
+        allowed = new RidBitmapSet(RidBitmap.and(current.bitmap(), other.bitmap()));
+      else {
+        final Set<RID> kept = new HashSet<>();
+        for (final RID rid : rids)
+          if (current.contains(rid))
+            kept.add(rid);
+        allowed = kept;
+      }
+    } else
       allowed.retainAll(rids);
   }
 
   private void exclude(final Set<RID> rids) {
     if (excluded == null)
-      excluded = new HashSet<>(rids);
-    else
+      excluded = rids instanceof RidBitmapSet ? rids : new HashSet<>(rids);
+    else if (excluded instanceof final RidBitmapSet current) {
+      if (rids instanceof final RidBitmapSet other)
+        excluded = new RidBitmapSet(RidBitmap.or(current.bitmap(), other.bitmap()));
+      else {
+        final Set<RID> union = new HashSet<>(current);
+        union.addAll(rids);
+        excluded = union;
+      }
+    } else
       excluded.addAll(rids);
   }
 

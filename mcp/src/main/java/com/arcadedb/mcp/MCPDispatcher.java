@@ -43,6 +43,8 @@ import com.arcadedb.mcp.tools.ProfilerStatusTool;
 import com.arcadedb.mcp.tools.ProfilerStopTool;
 import com.arcadedb.mcp.tools.QueryTool;
 import com.arcadedb.mcp.tools.SampleRecordsTool;
+import com.arcadedb.mcp.tools.SelectionQueryTool;
+import com.arcadedb.mcp.tools.SelectionUpdateTool;
 import com.arcadedb.mcp.tools.ServerStatusTool;
 import com.arcadedb.mcp.tools.SetServerSettingTool;
 import com.arcadedb.mcp.tools.UpsertEntityTool;
@@ -102,7 +104,8 @@ public class MCPDispatcher {
   // LISTING DATABASES, READING THE SCHEMA, THE SERVER STATUS, THE PROFILER AND THE SETTINGS DO NOT: THEY MUST STAY ANSWERABLE ON
   // A SERVER BUSY WITH QUERIES. EVERY ONE OF THESE IS ALSO IN LISTED_TOOL_NAMES
   private static final Set<String> ADMITTED_TOOL_NAMES = Set.of("query", "execute_command", "sample_records", "vector_search",
-      "full_text_search", "hybrid_search", "upsert_entity", "upsert_relationship");
+      "full_text_search", "hybrid_search", "upsert_entity", "upsert_relationship", SelectionQueryTool.NAME,
+      SelectionUpdateTool.NAME);
 
   // THE TOOLS THAT RUN IN A DATABASE, ADMITTED OR NOT: LISTED BY "list queries" AND STOPPED BY A TERMINATE (ISSUES #9774, #10928).
   // A SEPARATE DECISION FROM THE ADMISSION: get_schema SKIPS THE GATE BUT STILL OPENS A DATABASE AND WALKS ITS SCHEMA. DERIVED
@@ -119,7 +122,9 @@ public class MCPDispatcher {
       "hybrid_search",
       "full_text_search",
       "upsert_entity",
-      "upsert_relationship");
+      "upsert_relationship",
+      SelectionQueryTool.NAME,
+      SelectionUpdateTool.NAME);
 
   private static final Set<String> ADMIN_TOOL_NAMES = Set.of(
       "list_databases",
@@ -145,6 +150,8 @@ public class MCPDispatcher {
     TOOLS_LIST.put(HybridSearchTool.getDefinition());
     TOOLS_LIST.put(UpsertEntityTool.getDefinition());
     TOOLS_LIST.put(UpsertRelationshipTool.getDefinition());
+    TOOLS_LIST.put(SelectionQueryTool.getDefinition());
+    TOOLS_LIST.put(SelectionUpdateTool.getDefinition());
     TOOLS_LIST.put(ServerStatusTool.getDefinition());
     TOOLS_LIST.put(ProfilerStartTool.getDefinition());
     TOOLS_LIST.put(ProfilerStopTool.getDefinition());
@@ -398,6 +405,8 @@ public class MCPDispatcher {
       case "hybrid_search" -> HybridSearchTool.execute(server, user, args, config);
       case "upsert_entity" -> UpsertEntityTool.execute(server, user, args, config);
       case "upsert_relationship" -> UpsertRelationshipTool.execute(server, user, args, config);
+      case SelectionQueryTool.NAME -> SelectionQueryTool.execute(server, user, args, config);
+      case SelectionUpdateTool.NAME -> SelectionUpdateTool.execute(server, user, args, config);
       case "server_status" -> ServerStatusTool.execute(server, user, args, config);
       case "profiler_start" -> ProfilerStartTool.execute(server, user, args, config);
       case "profiler_stop" -> ProfilerStopTool.execute(server, user, args, config);
@@ -724,6 +733,13 @@ public class MCPDispatcher {
       case "full_text_search" -> result.getInt("count", 0) + " hit(s)";
       case "hybrid_search" -> result.getInt("count", 0) + " fused hit(s)";
       case "upsert_entity", "upsert_relationship" -> result.getInt("count", 0) + " record(s)";
+      case SelectionQueryTool.NAME -> result.has("rows") ? result.getInt("count", 0) + " shared element(s)"
+          : result.has("regions") ? result.getJSONArray("regions").length() + " region(s)"
+          : result.has("members") ? result.getInt("count", 0) + " member(s)"
+          : result.getLong("cardinality", 0L) + " member(s)";
+      case SelectionUpdateTool.NAME -> result.has("purged") ? result.getLong("purged", 0L) + " purged"
+          : result.has("dropped") ? (result.getBoolean("dropped", false) ? "dropped" : "not found")
+          : result.getLong("cardinality", 0L) + " member(s) saved";
       case "server_status" -> "ok";
       case "profiler_start" -> result.getString("status", "ok");
       case "profiler_stop" -> result.getInt("totalQueries", 0) + " queries captured";

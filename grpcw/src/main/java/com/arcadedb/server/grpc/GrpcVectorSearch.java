@@ -55,6 +55,8 @@ final class GrpcVectorSearch {
       args.put("filter", request.getFilter());
     if (request.getQueryIndicesCount() > 0)
       args.put("queryIndices", ints(request.getQueryIndicesList()));
+    if (!request.getSelection().isEmpty())
+      args.put("selection", request.getSelection());
 
     final JSONObject result = VectorSearch.search(database, args);
 
@@ -88,6 +90,8 @@ final class GrpcVectorSearch {
       args.put("fulltextIndexName", request.getFulltextIndexName());
     if (!request.getFusionStrategy().isEmpty())
       args.put("fusionStrategy", request.getFusionStrategy());
+    if (!request.getSelection().isEmpty())
+      args.put("selection", request.getSelection());
     if (request.getWeightsCount() > 0) {
       final JSONObject weights = new JSONObject();
       for (final Map.Entry<String, Float> entry : request.getWeightsMap().entrySet())
@@ -138,6 +142,9 @@ final class GrpcVectorSearch {
     if (request.getLimit() > 0)
       args.put("limit", request.getLimit());
 
+    if (!request.getSelection().isEmpty())
+      args.put("selection", request.getSelection());
+
     final JSONObject result = FullTextQuery.search(database, args);
 
     return FullTextSearchResponse.newBuilder()
@@ -185,19 +192,23 @@ final class GrpcVectorSearch {
           builder.addPath(path.getString(s));
 
       final JSONObject properties = hit.getJSONObject("properties", null);
-      if (properties != null) {
-        final GrpcRecord.Builder record = GrpcRecord.newBuilder().setRid(hit.getString("rid", ""));
-        final Object typeName = properties.opt("@type");
-        if (typeName instanceof final String type)
-          record.setType(type);
-        for (final String property : properties.keySet())
-          record.putProperties(property, GrpcTypeConverter.toGrpcValue(properties.get(property)));
-        builder.setRecord(record);
-      }
+      if (properties != null)
+        builder.setRecord(record(hit.getString("rid", ""), properties));
 
       converted.add(builder.build());
     }
     return converted;
+  }
+
+  /** A record the shared services serialized as JSON ({@code JsonSerializer.serializeDocument}), as a {@link GrpcRecord}. */
+  static GrpcRecord record(final String rid, final JSONObject properties) {
+    final GrpcRecord.Builder record = GrpcRecord.newBuilder().setRid(rid);
+    final Object typeName = properties.opt("@type");
+    if (typeName instanceof final String type)
+      record.setType(type);
+    for (final String property : properties.keySet())
+      record.putProperties(property, GrpcTypeConverter.toGrpcValue(properties.get(property)));
+    return record.build();
   }
 
   private static JSONArray floats(final List<Float> values) {

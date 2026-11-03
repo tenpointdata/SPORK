@@ -51,6 +51,7 @@ import com.arcadedb.query.sql.parser.Expression;
 import com.arcadedb.query.sql.parser.FromClause;
 import com.arcadedb.query.sql.parser.FromItem;
 import com.arcadedb.query.sql.parser.FunctionCall;
+import com.arcadedb.query.sql.parser.LevelZeroIdentifier;
 import com.arcadedb.query.sql.parser.GeOperator;
 import com.arcadedb.query.sql.parser.GeneratedAlias;
 import com.arcadedb.query.sql.parser.GroupBy;
@@ -98,12 +99,14 @@ import com.arcadedb.engine.timeseries.TagFilter;
 import com.arcadedb.engine.timeseries.TimeSeriesEngine;
 import com.arcadedb.engine.timeseries.codec.TimeSeriesCodec;
 import com.arcadedb.function.sql.DefaultSQLFunctionFactory;
+import com.arcadedb.function.sql.misc.SQLFunctionSelectionRids;
 import com.arcadedb.function.sql.time.SQLFunctionTimeBucket;
 import com.arcadedb.function.sql.time.SQLFunctionTsLast;
 import com.arcadedb.function.sql.vector.RecordPredicateRidSet;
 import com.arcadedb.query.sql.parser.BaseIdentifier;
 import com.arcadedb.graph.Vertex;
 import com.arcadedb.schema.DocumentType;
+import com.arcadedb.utility.RidBitmapSet;
 import com.arcadedb.schema.LocalTimeSeriesType;
 import com.arcadedb.schema.Property;
 import com.arcadedb.schema.Schema;
@@ -2460,6 +2463,24 @@ public class SelectExecutionPlanner {
    *
    * @return true if the optimization was applied
    */
+  /**
+   * Whether {@code expr} is {@code @rid IN selection.rids(...)} (a saved selection) in an AND block that also holds an
+   * index-backed function such as {@code SEARCH_INDEX} or a geo predicate (docs/spork/03-f1-selections-design.md, 2.5). The
+   * RID fetch would load every member of the selection and then test the function on each; the indexed fetch decides the
+   * selection on each match's RID before loading it (the {@link RIDFilter} pushdown), so it loads at most the matches inside
+   * the selection - never more records, and far fewer when the selection is large and the search selective. Decided on the
+   * right-hand side's TYPE, which is the same for every execution of the statement text, so the cached plan stays right.
+   */
+  private static boolean isSelectionBesideAnIndexedFunction(final BooleanExpression expr, final AndBlock andBlock,
+      final Identifier identifier, final CommandContext context) {
+    if (!(expr instanceof final InCondition in) || in.not
+        || !(in.evaluateRight((Identifiable) null, context) instanceof RidBitmapSet))
+      return false;
+    final DocumentType type = context.getDatabase().getSchema().getType(identifier.getStringValue());
+    final List<BinaryCondition> functions = andBlock.getIndexedFunctionConditions(type, context);
+    return functions != null && !functions.isEmpty();
+  }
+
   private boolean handleTypeWithRidFilter(final SelectExecutionPlan plan, final Identifier identifier, final QueryPlanningInfo info,
       final CommandContext context) {
     if (info.flattenedWhereClause == null || info.flattenedWhereClause.size() != 1)
@@ -2492,6 +2513,9 @@ public class SelectExecutionPlanner {
       final boolean unresolvedAtPlanTime = ridVariable != null && context.getVariable(ridVariable) == null;
       if (unresolvedAtPlanTime ? !isGlobalLetVariable(ridVariable, info) : extractRidEqualityOrInList(expr, context) == null)
         continue; // not one of the @rid = <RID> / @rid IN [<RID list>] / @rid IN $globalLetVar shapes
+
+      if (isSelectionBesideAnIndexedFunction(expr, andBlock, identifier, context))
+        continue;
 
       // A condition OTHER than the one matched above that references a per-record LET variable can't be evaluated
       // here: that LET is computed after the fetch step, in handleLet(), which runs after this method. Chaining such
@@ -4671,7 +4695,26 @@ public class SelectExecutionPlanner {
     final InCondition in = (InCondition) condition;
     if (in.getRightParam() != null)
       return true;
-    return in.getRightMathExpression().isLiteral(true) || isVariableKnownBeforeFetch(in.getRightMathExpression(), info);
+    return in.getRightMathExpression().isLiteral(true) || isVariableKnownBeforeFetch(in.getRightMathExpression(), info)
+        || isSelectionRidsCall(in.getRightMathExpression());
+  }
+
+  /**
+   * {@code selection.rids(<literal or parameter>)} (docs/spork/03-f1-selections-design.md, 2.5): it names one saved selection
+   * whatever the row, so it is known before the fetch like a literal list, and the indexed function can test it on each
+   * match's RID before loading the record.
+   */
+  private static boolean isSelectionRidsCall(final MathExpression expression) {
+    if (!(expression instanceof final BaseExpression base) || base.getIdentifier() == null || base.getModifier() != null)
+      return false;
+    final LevelZeroIdentifier levelZero = base.getIdentifier().getLevelZero();
+    final FunctionCall call = levelZero != null ? levelZero.getFunctionCall() : null;
+    if (call == null || call.getName() == null || !SQLFunctionSelectionRids.NAME.equalsIgnoreCase(call.getName().getStringValue()))
+      return false;
+    for (final Expression param : call.getParams())
+      if (!param.isLiteral(true))
+        return false;
+    return true;
   }
 
   /**

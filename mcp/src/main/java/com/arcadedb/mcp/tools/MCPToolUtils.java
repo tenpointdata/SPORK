@@ -173,6 +173,17 @@ public class MCPToolUtils {
    * lookup of an absent key would throw, and {@link #optionalString} the one a member of the wrong shape would, so the caller
    * gets a clean, self-correcting error that every server mode keeps (issue #9772).
    */
+  /**
+   * Adds the {@code selection} argument every search tool takes (docs/spork/03-f1-selections-design.md, 2.5) to a finished
+   * tool definition, so the three search tools describe it in one wording.
+   */
+  public static JSONObject withSelectionArgument(final JSONObject definition) {
+    definition.getJSONObject("inputSchema").getJSONObject("properties").put("selection", new JSONObject()
+        .put("type", "string")
+        .put("description", "Search only inside this saved selection (see selection_update and selection_query)"));
+    return definition;
+  }
+
   public static String requireString(final JSONObject args, final String field) {
     final String value = optionalString(args, field, null);
     if (value == null || value.isBlank())

@@ -6089,6 +6089,63 @@ public class ArcadeDbGrpcService extends ArcadeDbServiceGrpc.ArcadeDbServiceImpl
         e -> toSearchStatus("FullTextSearch", e));
   }
 
+  // Saved selections (docs/spork/03-f1-selections-design.md): the eight RPCs share SelectionService with the HTTP
+  // /api/v1/selection/* routes and the MCP selection tools, through GrpcSelections. None joins a client transaction, like the
+  // HTTP routes: a write runs as a Cypher write-procedure call, which under HA a follower forwards to the leader itself.
+
+  @Override
+  public void saveSelection(final SaveSelectionRequest request, final StreamObserver<SelectionHandle> resp) {
+    selectionCall(resp, "SaveSelection", request.getDatabase(), request.getCredentials(), db -> GrpcSelections.save(db, request));
+  }
+
+  @Override
+  public void combineSelections(final CombineSelectionsRequest request, final StreamObserver<SelectionHandle> resp) {
+    selectionCall(resp, "CombineSelections", request.getDatabase(), request.getCredentials(),
+        db -> GrpcSelections.combine(db, request));
+  }
+
+  @Override
+  public void compareSelections(final CompareSelectionsRequest request, final StreamObserver<CompareSelectionsResponse> resp) {
+    selectionCall(resp, "CompareSelections", request.getDatabase(), request.getCredentials(),
+        db -> GrpcSelections.compare(db, request));
+  }
+
+  @Override
+  public void selectionVenn(final SelectionVennRequest request, final StreamObserver<SelectionVennResponse> resp) {
+    selectionCall(resp, "SelectionVenn", request.getDatabase(), request.getCredentials(), db -> GrpcSelections.venn(db, request));
+  }
+
+  @Override
+  public void getSelection(final GetSelectionRequest request, final StreamObserver<SelectionHandle> resp) {
+    selectionCall(resp, "GetSelection", request.getDatabase(), request.getCredentials(), db -> GrpcSelections.get(db, request));
+  }
+
+  @Override
+  public void selectionMembers(final SelectionMembersRequest request, final StreamObserver<SelectionMembersResponse> resp) {
+    selectionCall(resp, "SelectionMembers", request.getDatabase(), request.getCredentials(),
+        db -> GrpcSelections.members(db, request));
+  }
+
+  @Override
+  public void dropSelection(final DropSelectionRequest request, final StreamObserver<DropSelectionResponse> resp) {
+    selectionCall(resp, "DropSelection", request.getDatabase(), request.getCredentials(), db -> GrpcSelections.drop(db, request));
+  }
+
+  @Override
+  public void purgeSelections(final PurgeSelectionsRequest request, final StreamObserver<PurgeSelectionsResponse> resp) {
+    selectionCall(resp, "PurgeSelections", request.getDatabase(), request.getCredentials(),
+        db -> GrpcSelections.purge(db, request));
+  }
+
+  /**
+   * One selection RPC: authenticated and resolved like the search RPCs, outside any client transaction, and answered with the
+   * same status mapping, under which a refusal of the shared service (an IllegalArgumentException) is INVALID_ARGUMENT.
+   */
+  private <T> void selectionCall(final StreamObserver<T> resp, final String operation, final String databaseName,
+      final DatabaseCredentials credentials, final DatabaseRead<T> body) {
+    GrpcUnaryCall.respond(resp, () -> readInTransaction(null, databaseName, credentials, body), e -> toSearchStatus(operation, e));
+  }
+
   /**
    * A read body dispatched by {@link #readInTransaction}. Declared instead of {@link Function} so a body may
    * raise a checked exception - {@code TimeSeriesGateway.latest} throws {@link java.io.IOException} - without

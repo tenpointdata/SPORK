@@ -42,7 +42,7 @@ public class FullTextSearchTool {
   public static final int MAX_LIMIT = FullTextQuery.MAX_LIMIT;
 
   public static JSONObject getDefinition() {
-    return new JSONObject()
+    return MCPToolUtils.withSelectionArgument(new JSONObject()
         .put("name", "full_text_search")
         .put("description",
             """
@@ -83,7 +83,7 @@ public class FullTextSearchTool {
                     .put("description",
                         "Maximum number of results to return (default: " + DEFAULT_LIMIT + ", maximum: " + MAX_LIMIT
                             + ")")))
-            .put("required", new JSONArray().put("database").put("queryText")));
+            .put("required", new JSONArray().put("database").put("queryText"))));
   }
 
   public static JSONObject execute(final ArcadeDBServer server, final ServerSecurityUser user, final JSONObject args,

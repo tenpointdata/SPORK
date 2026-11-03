@@ -39,7 +39,7 @@ public class HybridSearchTool {
   public static final int MAX_DEPTH          = HybridSearch.MAX_DEPTH;
 
   public static JSONObject getDefinition() {
-    return new JSONObject()
+    return MCPToolUtils.withSelectionArgument(new JSONObject()
         .put("name", "hybrid_search")
         .put("description",
             """
@@ -136,7 +136,7 @@ public class HybridSearchTool {
                         .put("vector", new JSONObject().put("type", "number").put("default", 1.0))
                         .put("fulltext", new JSONObject().put("type", "number").put("default", 1.0))
                         .put("expand", new JSONObject().put("type", "number").put("default", 0.5)))))
-            .put("required", new JSONArray().put("database").put("vectorIndexName").put("queryVector").put("k")));
+            .put("required", new JSONArray().put("database").put("vectorIndexName").put("queryVector").put("k"))));
   }
 
   /**

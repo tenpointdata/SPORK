@@ -92,6 +92,7 @@ public final class VectorLeg {
     if (!sparse && args.has("queryIndices"))
       throw new IllegalArgumentException("'queryIndices' requires sparse=true");
     normalizeFilter(args.getString("filter", null));
+    SearchSelection.of(args);
 
     // The shape of the query vector (and of the sparse indices) needs no schema either, so it is reported here with the
     // other argument faults and not after the index has resolved. What needs the index - the dimension count - stays in build.
@@ -129,6 +130,10 @@ public final class VectorLeg {
     final Map<String, Object> options = new LinkedHashMap<>();
     if (efSearch != null)
       options.put("efSearch", efSearch);
+    // the index tests each candidate against the saved selection as it walks, so no over-fetch is needed for it
+    final String selection = SearchSelection.of(args);
+    if (selection != null)
+      options.put(SearchSelection.ARGUMENT, selection);
     parameters.put("options", options);
 
     final String functionCall;

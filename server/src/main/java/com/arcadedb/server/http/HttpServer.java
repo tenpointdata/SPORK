@@ -59,6 +59,7 @@ import com.arcadedb.server.http.handler.PostClusterAuthSessionHandler;
 import com.arcadedb.server.http.handler.PostLogoutHandler;
 import com.arcadedb.server.http.handler.PostQueryHandler;
 import com.arcadedb.server.http.handler.PostRollbackHandler;
+import com.arcadedb.server.http.handler.PostSelectionHandler;
 import com.arcadedb.server.http.handler.PostServerCommandHandler;
 import com.arcadedb.server.http.handler.PostTimeSeriesQueryHandler;
 import com.arcadedb.server.http.handler.PostTimeSeriesWriteHandler;
@@ -368,6 +369,14 @@ public class HttpServer implements ServerPlugin {
         .post("/vector/{database}/search", new PostVectorSearchHandler(this))
         .post("/vector/{database}/hybrid", new PostVectorHybridSearchHandler(this))
         .post("/vector/{database}/fulltext", new PostVectorFullTextSearchHandler(this))
+        .post("/selection/{database}/save", new PostSelectionHandler(this, PostSelectionHandler.Operation.SAVE))
+        .post("/selection/{database}/combine", new PostSelectionHandler(this, PostSelectionHandler.Operation.COMBINE))
+        .post("/selection/{database}/compare", new PostSelectionHandler(this, PostSelectionHandler.Operation.COMPARE))
+        .post("/selection/{database}/venn", new PostSelectionHandler(this, PostSelectionHandler.Operation.VENN))
+        .post("/selection/{database}/get", new PostSelectionHandler(this, PostSelectionHandler.Operation.GET))
+        .post("/selection/{database}/members", new PostSelectionHandler(this, PostSelectionHandler.Operation.MEMBERS))
+        .post("/selection/{database}/drop", new PostSelectionHandler(this, PostSelectionHandler.Operation.DROP))
+        .post("/selection/{database}/purge", new PostSelectionHandler(this, PostSelectionHandler.Operation.PURGE))
         .get("/server", new GetServerHandler(this))
         .post("/server", new PostServerCommandHandler(this))
         .get("/ready", readyHandler)

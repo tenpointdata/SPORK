@@ -98,7 +98,7 @@ public class DbIndexVectorQueryNodes implements CypherProcedure {
   public static final String NAME = "db.index.vector.querynodes";
   /** {@link #NAME} is lower-cased for registry lookup; error messages quote the call the way the caller wrote it. */
   private static final String DISPLAY_NAME = "db.index.vector.queryNodes";
-  private static final Set<String> OPTIONS = Set.of("where", "filter");
+  private static final Set<String> OPTIONS = Set.of("where", "filter", "selection");
 
   @Override
   public String getName() {
@@ -214,7 +214,8 @@ public class DbIndexVectorQueryNodes implements CypherProcedure {
       throw new CommandSQLParsingException(
           DISPLAY_NAME + "(): options must be a map such as {where: {tenant: $tenant}}, got " + options.getClass().getSimpleName());
     final FunctionOptions opts = new FunctionOptions(DISPLAY_NAME, map, OPTIONS);
-    return SQLFunctionVectorAbstract.parsePreFilter(opts.getList("filter"), opts.get("where"), DISPLAY_NAME, context);
+    return SQLFunctionVectorAbstract.parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null),
+        DISPLAY_NAME, context);
   }
 
   /**

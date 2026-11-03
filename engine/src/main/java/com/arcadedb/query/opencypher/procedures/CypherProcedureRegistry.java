@@ -112,6 +112,14 @@ import com.arcadedb.query.opencypher.procedures.path.PathSubgraphAll;
 import com.arcadedb.query.opencypher.procedures.path.PathSubgraphNodes;
 import com.arcadedb.query.opencypher.procedures.refactor.RefactorCloneNodesWithRelationships;
 import com.arcadedb.query.opencypher.procedures.refactor.RefactorMergeNodes;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionCombine;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionCompare;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionDrop;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionGet;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionMembers;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionPurge;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionSave;
+import com.arcadedb.query.opencypher.procedures.selection.SelectionVenn;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -308,6 +316,8 @@ public final class CypherProcedureRegistry {
     registerControlProcedures();
     // Refactor procedures (APOC compatibility)
     registerRefactorProcedures();
+    // Selection procedures (set algebra and compare over 2 to 8 selections)
+    registerSelectionProcedures();
   }
 
   private static void registerMergeProcedures() {
@@ -422,5 +432,16 @@ public final class CypherProcedureRegistry {
   private static void registerRefactorProcedures() {
     register(new RefactorMergeNodes());
     register(new RefactorCloneNodesWithRelationships());
+  }
+
+  private static void registerSelectionProcedures() {
+    register(new SelectionVenn());
+    register(new SelectionCompare());
+    register(new SelectionSave());
+    register(new SelectionCombine());
+    register(new SelectionGet());
+    register(new SelectionMembers());
+    register(new SelectionDrop());
+    register(new SelectionPurge());
   }
 }

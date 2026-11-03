@@ -61,9 +61,11 @@ final class FullTextQueryOptions {
   static final String ANALYZER  = "analyzer";
   static final String WHERE     = "where";
   static final String FILTER    = "filter";
+  /** A saved selection to search within (docs/spork/03-f1-selections-design.md, 2.5), ANDed with filter and where. */
+  static final String SELECTION = "selection";
 
-  private static final Set<String> SUPPORTED_KEYS = Set.of(SKIP, LIMIT, WHERE, FILTER);
-  private static final String      SUPPORTED      = SKIP + ", " + LIMIT + ", " + WHERE + ", " + FILTER;
+  private static final Set<String> SUPPORTED_KEYS = Set.of(SKIP, LIMIT, WHERE, FILTER, SELECTION);
+  private static final String      SUPPORTED      = SKIP + ", " + LIMIT + ", " + WHERE + ", " + FILTER + ", " + SELECTION;
 
   /** Means "no limit", the same sentinel {@code FullTextSearch.search} takes. */
   static final int UNBOUNDED = -1;
@@ -147,14 +149,21 @@ final class FullTextQueryOptions {
   private static RIDFilter filterOption(final String procedureName, final Map<?, ?> options, final CommandContext context) {
     final Object where = options.get(WHERE);
     final Object filter = options.get(FILTER);
-    if (where == null && filter == null)
+    final Object selection = options.get(SELECTION);
+    if (where == null && filter == null && selection == null)
       return null;
     if (filter != null && !(filter instanceof List<?>))
       throw new CommandSemanticException(
           procedureName + "(): option '" + FILTER + "' must be a list of RIDs, got " + filter.getClass().getSimpleName());
+    if (selection != null && !(selection instanceof String))
+      throw new CommandSemanticException(
+          procedureName + "(): option '" + SELECTION + "' must be the name of a saved selection, got " + selection.getClass()
+              .getSimpleName());
     if (context == null)
-      throw new IllegalStateException(procedureName + "(): the '" + WHERE + "' and '" + FILTER + "' options need a command context");
-    final Set<RID> candidates = SQLFunctionVectorAbstract.parsePreFilter((List<?>) filter, where, procedureName, context);
+      throw new IllegalStateException(
+          procedureName + "(): the '" + WHERE + "', '" + FILTER + "' and '" + SELECTION + "' options need a command context");
+    final Set<RID> candidates = SQLFunctionVectorAbstract.parsePreFilter((List<?>) filter, where, (String) selection, procedureName,
+        context);
     return RIDFilter.resolve(List.of(), candidates, context);
   }
 
