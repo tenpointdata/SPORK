@@ -31,6 +31,7 @@ import com.orientechnologies.orient.core.intent.OIntentMassiveInsert;
 import com.orientechnologies.orient.core.metadata.schema.OClass;
 import com.orientechnologies.orient.core.metadata.schema.OSchema;
 import com.orientechnologies.orient.core.metadata.schema.OType;
+import com.orientechnologies.orient.core.record.OEdge;
 import com.orientechnologies.orient.core.record.OElement;
 import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.record.impl.ODocument;
@@ -195,6 +196,7 @@ public final class OrientReconGenerator {
     final int[] scratchPhone = new int[2];
     final int[] scratchImage = new int[4];
     final ODatabaseDocumentAbstract internal = (ODatabaseDocumentAbstract) db;
+    internal.setUseLightweightEdges(lightweight);
     final StringBuilder text = new StringBuilder(512);
     long tsMin = Long.MAX_VALUE, tsMax = Long.MIN_VALUE, edges = 0;
 
@@ -295,10 +297,10 @@ public final class OrientReconGenerator {
   private void link(final ODatabaseSession db, final ODatabaseDocumentAbstract internal, final OVertex record, final String type,
       final long packedIdentifier) {
     final OVertex identifier = ((OElement) db.load(unpack(packedIdentifier))).asVertex().orElseThrow();
-    if (lightweight)
-      internal.newLightweightEdge(type, record, identifier);
-    else
-      record.addEdge(identifier, type).save();
+    // with useLightweightEdges on the session, newEdge links the two vertices directly (no edge record)
+    final OEdge edge = internal.newEdge(record, identifier, type);
+    if (!lightweight)
+      edge.save();
     identifier.save();
     record.save();
   }
