@@ -705,6 +705,8 @@ alterTypeItem
     | BUCKET ((PLUS | MINUS) identifier)+
     | CUSTOM identifier EQ expression
     | ALIASES (identifier (COMMA identifier)* | NULL)
+    // Native record versioning: the engine keeps the transaction-time history of the type's records
+    | VERSIONED (TRUE | FALSE)
     ;
 
 // Trailing settings block. Supports "WITH repartition = true" (#4087) so an ALTER TYPE that
@@ -1799,6 +1801,7 @@ identifier
     | FAIL
     | ITEM
     | ALIASES
+    | VERSIONED
     | ALIGN
     | EXCEPTION
     | FIND

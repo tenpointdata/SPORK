@@ -1812,6 +1812,8 @@ public class GraphEngine {
     final RID newOut = direction == Vertex.DIRECTION.OUT ? newVertexRID : edge.getOut();
     final RID newIn = direction == Vertex.DIRECTION.IN ? newVertexRID : edge.getIn();
 
+    // the edge being replaced keeps its history like any delete: this path does not go through deleteRecordNoLock
+    ((LocalDatabase) database.getEmbedded()).getVersioning().beforeDelete(edge);
     cleanUpBeforePhysicalDelete(edge);
     deleteEdge(edge);
 

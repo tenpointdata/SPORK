@@ -350,5 +350,21 @@ public interface DocumentType {
 
   Object setCustomValue(String key, Object value);
 
+  /**
+   * Whether the engine keeps the transaction-time history of this type's records (native record versioning), because the
+   * type itself or one of its super types was marked versioned. See {@link com.arcadedb.versioning.RecordVersioning}.
+   */
+  default boolean isVersioned() {
+    return false;
+  }
+
+  /**
+   * Turns native record versioning on or off for this type and its subtypes. Turning it off keeps the history already
+   * recorded; no new version is recorded until it is turned on again.
+   */
+  default DocumentType setVersioned(final boolean versioned) {
+    throw new UnsupportedOperationException("Record versioning is not supported by " + getClass().getSimpleName());
+  }
+
   JSONObject toJSON();
 }

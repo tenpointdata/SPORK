@@ -102,6 +102,8 @@ public class AlterTypeStatement extends DDLStatement {
             }
             identifierListValue.get(i).toString(params, builder);
           }
+        } else if (booleanValue != null) {
+          builder.append(booleanValue);
         } else if ("aliases".equalsIgnoreCase(property)) {
           // ALIASES <identifier list> | NULL - an empty list is how "ALIASES NULL" (clear all aliases) is stored.
           builder.append("NULL");
@@ -444,6 +446,11 @@ public class AlterTypeStatement extends DDLStatement {
       }
       break;
     }
+
+    case "versioned":
+      type.setVersioned(Boolean.TRUE.equals(item.booleanValue));
+      result.setProperty("versioned", type.isVersioned());
+      break;
 
     default:
       throw new CommandExecutionException("Error on alter type: property '" + item.property + "' not valid");

@@ -6588,6 +6588,9 @@ public class SQLASTBuilder extends SQLParserBaseVisitor<Object> {
             item.identifierListAddRemove.add(true); // Always add for ALIASES
           }
         }
+      } else if (itemCtx.VERSIONED() != null) {
+        item.property = "versioned";
+        item.booleanValue = itemCtx.TRUE() != null;
       }
     }
 
