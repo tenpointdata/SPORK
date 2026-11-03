@@ -206,8 +206,7 @@ public final class GeoNearestSearch {
     for (int i = 0; i < indexes.size() && overflowAt < 0; i++) {
       final LSMTreeGeoIndex index = indexes.get(i);
       final int indexStart = scannedCount;
-      if (readCell(index.openNearestCellRange(token), index, token, canSplit)
-          || readCell(index.openNearestPendingRange(token), index, token, canSplit)) {
+      if (readCell(index.openNearestCellRange(token), index, token, canSplit)) {
         overflowAt = i;
         overflowIndexStart = indexStart;
       }

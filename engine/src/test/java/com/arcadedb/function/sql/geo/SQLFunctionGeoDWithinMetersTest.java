@@ -94,8 +94,8 @@ class SQLFunctionGeoDWithinMetersTest extends TestHelper {
   }
 
   /**
-   * A record written earlier in the same transaction is a candidate of the index: the prefix range scan of a covering cell
-   * reads the committed pages only, so the entries the transaction queued are merged in.
+   * A record written earlier in the same transaction is a candidate of the index: the prefix range scan of a covering cell, or
+   * of a run of them, merges the entries the transaction queued.
    */
   @Test
   void seesTheRecordsOfTheCurrentTransaction() {

@@ -205,9 +205,13 @@ included) and streams the candidates of the covering cells, restricted to the la
 
 ### Transaction visibility
 
-`LSMTreeIndex.range()` reads committed pages only, while `get()` merges the transaction's pending entries. The geo cell
-scans are range scans, so a point written earlier in the same transaction was invisible to `geo.within` & co. Both the
-nearest walk and the predicate cursor now merge the pending entries of the scanned prefix.
+`LSMTreeIndex.range()` merges the transaction's pending entries itself (`LSMTreeIndexCursor`, #5055, #6927, with the
+removal rules of `PendingIndexRemovals`), exactly as `get()` does: a point written earlier in the same transaction is a
+candidate of every geo cell scan, single cell or coalesced run, and a committed point the transaction deleted or moved is
+not. The geo index adds no merge of its own (an earlier one read every pending entry twice and was removed).
+`LSMTreeGeoIndexPendingTransactionTest` pins it: pending points inside a coalesced run, at its boundaries, in a gap between
+covering cells, a committed point deleted or moved in the transaction, both layouts and isolation levels, through the index
+cursor, `geo.within`, `geo.dWithinMeters`, `geo.nearest` and the Cypher geo seek.
 
 ## Native point type: assessment (not done)
 
