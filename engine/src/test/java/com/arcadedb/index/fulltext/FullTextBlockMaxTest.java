@@ -23,9 +23,11 @@ import com.arcadedb.TestHelper;
 import com.arcadedb.database.DatabaseContext;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.RID;
+import com.arcadedb.database.async.DatabaseAsyncExecutorImpl;
 import com.arcadedb.engine.ComponentFile;
 import com.arcadedb.index.IndexInternal;
 import com.arcadedb.index.TypeIndex;
+import com.arcadedb.index.lsm.LSMTreeIndex;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.log.Logger;
 import com.arcadedb.query.sql.executor.ResultSet;
@@ -77,6 +79,7 @@ class FullTextBlockMaxTest extends TestHelper {
   void restoreTheBlockMaxThreshold() {
     LSMTreeFullTextIndex.minBlockMaxBlocks = 16;
     LSMTreeFullTextIndex.blockMaxBuildProbe = null;
+    LSMTreeFullTextIndex.blockMaxCompactionProbe = null;
     BlockMaxScorer.exactLeadBound = true;
     BlockMaxBuildScheduler.awaitIdle(60_000);
   }
@@ -696,7 +699,9 @@ class FullTextBlockMaxTest extends TestHelper {
           .isEqualTo(search("Doc[text]", query, limit, false));
     }
 
-    // A rare term with a common one: the common term's blocks are mostly passed over
+    // A rare term with a common one: the common term's blocks are mostly passed over. Both counts are of the same sidecars:
+    // nothing is left for the background builder to publish between them
+    assertThat(BlockMaxBuildScheduler.awaitIdle(60_000)).isTrue();
     final long[] decoded = new long[2];
     for (int mode = 0; mode < 2; mode++) {
       BlockMaxScorer.exactLeadBound = mode == 1;
@@ -708,6 +713,44 @@ class FullTextBlockMaxTest extends TestHelper {
     BlockMaxScorer.exactLeadBound = true;
     assertThat(decoded[1]).as("blocks decoded with the exact lead check %d, without %d", decoded[1], decoded[0])
         .isLessThan(decoded[0]);
+  }
+
+  /**
+   * The commit that fills the mutable pages queues an automatic compaction, which could claim the index between buildBlockMax's
+   * wait for a running compaction and its own compaction: that one then did not run, nothing waited for the automatic one, and the
+   * sidecar was written while it was still merging, from no compacted part at all. The build answered false (a REBUILD INDEX
+   * returned before the sidecar existed), seen as a rare failure of the tests that build right after their inserts. The automatic compaction is
+   * started here at that point of the build.
+   */
+  @Test
+  void anAutomaticCompactionThatStartsJustBeforeTheBuildCompactsIsWaitedFor() throws Exception {
+    // No automatic compaction of the inserts: the one below is started at the point of the build where it used to be missed
+    database.getConfiguration().setValue(GlobalConfiguration.INDEX_COMPACTION_MIN_PAGES_SCHEDULE, 0);
+    final Random random = new Random(151);
+    createSingleBucketDoc();
+    insert("Doc", 3000, random);
+    final LSMTreeFullTextIndex bucket = bucket("Doc[text]");
+    final LSMTreeIndex underlying = bucket.getUnderlyingIndex();
+    assertThat(underlying.getMutableIndex().getSubIndex()).isNull();
+
+    final AtomicBoolean started = new AtomicBoolean();
+    LSMTreeFullTextIndex.blockMaxCompactionProbe = () -> {
+      if (!started.compareAndSet(false, true))
+        return;
+      // What the commit's trigger does: the async worker claims the index and compacts it
+      ((DatabaseAsyncExecutorImpl) database.async()).compact(underlying);
+      // Until the worker has claimed the index, or already published its compaction
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+      while (!underlying.isCompacting() && underlying.getMutableIndex().getSubIndex() == null && System.nanoTime() < deadline)
+        Thread.onSpinWait();
+    };
+    assertThat(bucket.buildBlockMax()).isTrue();
+    assertThat(started.get()).isTrue();
+    assertThat(bucket.isBlockMaxCurrent()).isTrue();
+
+    final long blockMaxBefore = FullTextTopK.getBlockMaxInvocations();
+    assertSameAnswers("Doc[text]", random, 20);
+    assertThat(FullTextTopK.getBlockMaxInvocations()).isGreaterThan(blockMaxBefore);
   }
 
   /**
