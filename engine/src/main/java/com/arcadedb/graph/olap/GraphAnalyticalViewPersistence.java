@@ -20,14 +20,19 @@ package com.arcadedb.graph.olap;
 
 import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.Database;
+import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.schema.TypeNameDependant;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
@@ -98,6 +103,7 @@ public class GraphAnalyticalViewPersistence {
    */
   public static int restoreAll(final Database database) {
     final JSONObject allGavs = database.getSchema().getExtension(EXTENSION_KEY);
+    rememberDefinedNames(database, allGavs);
     if (allGavs == null || allGavs.isEmpty())
       return 0;
 
@@ -165,6 +171,69 @@ public class GraphAnalyticalViewPersistence {
     }
 
     return count;
+  }
+
+  /**
+   * Brings the live views of a Raft follower in line with the definitions it just received in a replicated schema entry
+   * (docs/spork/07-f3-csr-on-followers.md, step 2). {@link #restoreAll} runs only when a database opens, so before this a view
+   * created on the leader never reached a follower that was already running.
+   * <p>
+   * A definition with no live view is restored as at open: built from this node's files, persistence skipped. A live view whose
+   * definition is gone is shut down, but only one that came from a definition ({@link #restoreAll} or an earlier reconcile):
+   * a view an embedded caller built on this node alone was never defined and is left alone. Nothing is written to the schema,
+   * which a follower cannot write, so a definition that fails to restore is logged and kept for the leader to own.
+   *
+   * @return the number of views restored or shut down
+   */
+  public static int reconcileReplicated(final Database database) {
+    final JSONObject definitions = database.getSchema().getExtension(EXTENSION_KEY);
+    final Map<String, GraphAnalyticalView> live = new HashMap<>(GraphAnalyticalViewRegistry.getAll(database));
+    final Set<String> previouslyDefined = definedNames(database);
+    int changed = 0;
+
+    if (definitions != null)
+      for (final String name : definitions.keySet()) {
+        if (live.remove(name) != null)
+          continue;
+        try {
+          builderFor(database, name, definitions.getJSONObject(name)).skipPersistence().restoreFromDiskOrBuildAsync();
+          changed++;
+          LogManager.instance().log(GraphAnalyticalViewPersistence.class, Level.INFO,
+              "Restoring GraphAnalyticalView '%s' (async) defined by a replicated schema change", name);
+        } catch (final Exception e) {
+          LogManager.instance().log(GraphAnalyticalViewPersistence.class, Level.WARNING,
+              "Failed to restore GraphAnalyticalView '%s' from a replicated schema change; it stays unavailable on this node", e,
+              name);
+        }
+      }
+
+    for (final Map.Entry<String, GraphAnalyticalView> entry : live.entrySet())
+      if (previouslyDefined.contains(entry.getKey())) {
+        entry.getValue().shutdown();
+        changed++;
+        LogManager.instance().log(GraphAnalyticalViewPersistence.class, Level.INFO,
+            "GraphAnalyticalView '%s' was dropped by a replicated schema change: shut down", entry.getKey());
+      }
+
+    rememberDefinedNames(database, definitions);
+    return changed;
+  }
+
+  /** The view names each open database's definitions held at its last restore or reconcile, keyed by the unwrapped database. */
+  private static final Map<Database, Set<String>> DEFINED_NAMES = new WeakHashMap<>();
+
+  private static void rememberDefinedNames(final Database database, final JSONObject definitions) {
+    final Set<String> names = definitions != null ? new HashSet<>(definitions.keySet()) : Set.of();
+    synchronized (DEFINED_NAMES) {
+      DEFINED_NAMES.put(DatabaseInternal.unwrap(database), names);
+    }
+  }
+
+  private static Set<String> definedNames(final Database database) {
+    synchronized (DEFINED_NAMES) {
+      final Set<String> names = DEFINED_NAMES.get(DatabaseInternal.unwrap(database));
+      return names != null ? names : Set.of();
+    }
   }
 
   /**

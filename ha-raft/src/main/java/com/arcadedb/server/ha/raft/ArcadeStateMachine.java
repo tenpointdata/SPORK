@@ -34,6 +34,7 @@ import com.arcadedb.engine.PageVersionReservations;
 import com.arcadedb.engine.PaginatedComponent;
 import com.arcadedb.engine.PaginatedComponentFile;
 import com.arcadedb.engine.WALFile;
+import com.arcadedb.graph.olap.GraphAnalyticalViewPersistence;
 import com.arcadedb.engine.timeseries.TimeSeriesSealedInstallLock;
 import com.arcadedb.engine.timeseries.TimeSeriesSealedStore;
 import com.arcadedb.exception.ConcurrentModificationException;
@@ -4545,7 +4546,26 @@ public class ArcadeStateMachine extends BaseStateMachine {
       throw new RuntimeException("Failed to apply schema entry for database '" + decoded.databaseName() + "'", e);
     }
 
+    // A schema change may create or drop a graph analytical view, which a node restores only when it opens a database: bring this
+    // node's live views in line with the definitions it now holds (docs/spork/07-f3-csr-on-followers.md, step 2)
+    if (!sealedOnlyEntry && !deliveryOnlyEntry && !walOnlyEntry)
+      reconcileGraphViews(db, decoded.databaseName());
+
     HALog.log(this, HALog.DETAILED, "Applied schema change to database '%s'", decoded.databaseName());
+  }
+
+  /**
+   * Never fails the entry: a view that cannot be restored here is only unavailable on this node, which costs the record walk and
+   * never a wrong answer, because a live view stops serving on every replicated change it does not see (step 1 of the same note,
+   * in {@code TransactionManager.applyChanges}). Quarantining the database for it would cost far more than the view is worth.
+   */
+  private void reconcileGraphViews(final DatabaseInternal db, final String databaseName) {
+    try {
+      GraphAnalyticalViewPersistence.reconcileReplicated(db);
+    } catch (final RuntimeException e) {
+      LogManager.instance().log(this, Level.WARNING,
+          "Cannot bring the graph analytical views of database '%s' in line with a replicated schema change", e, databaseName);
+    }
   }
 
   /**

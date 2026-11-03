@@ -28,6 +28,7 @@ import com.arcadedb.exception.LockTimeoutException;
 import com.arcadedb.exception.SchemaException;
 import com.arcadedb.exception.TransactionException;
 import com.arcadedb.exception.WALVersionGapException;
+import com.arcadedb.graph.olap.GraphAnalyticalViewRegistry;
 import com.arcadedb.index.fulltext.FullTextCorpusDeltas;
 import com.arcadedb.index.vector.LSMVectorIndex;
 import com.arcadedb.index.vector.LSMVectorIndexCompacted;
@@ -1269,6 +1270,7 @@ public class TransactionManager {
    */
   public boolean applyChanges(final WALFile.WALTransaction tx, final Map<Integer, Integer> bucketRecordDelta,
       final List<FullTextCorpusDeltas.CorpusDelta> corpusDeltas, final boolean ignoreErrors) {
+    final boolean changed;
     applyLock.readLock().lock();
     final Object requester = Thread.currentThread();
     BucketLocks bucketLocks = null;
@@ -1276,7 +1278,7 @@ public class TransactionManager {
       // Null on the steady-state path (every counter known), which then allocates nothing. Inside the try: a throw
       // from the lock phase must still release the shared apply lock, or the snapshot t0 barrier waits forever
       bucketLocks = lockBucketsWithUnknownCount(bucketRecordDelta, requester);
-      return applyChangesInternal(tx, bucketRecordDelta, corpusDeltas, ignoreErrors);
+      changed = applyChangesInternal(tx, bucketRecordDelta, corpusDeltas, ignoreErrors);
     } finally {
       if (bucketLocks != null) {
         // After the fold: a recompute that published while the pages were being written is discarded (#8640)
@@ -1287,6 +1289,12 @@ public class TransactionManager {
       }
       applyLock.readLock().unlock();
     }
+    // Pages written with no record event: the views that cover what they touched are told, after every lock is released, so a
+    // view's rebuild dispatch never runs under the apply lock (docs/spork/07-f3-csr-on-followers.md). A replay of an entry
+    // already applied changes nothing and tells nobody
+    if (changed)
+      GraphAnalyticalViewRegistry.onReplicatedChanges(database, tx);
+    return changed;
   }
 
   private static final class BucketLocks {

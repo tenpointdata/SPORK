@@ -20,11 +20,18 @@ package com.arcadedb.graph.olap;
 
 import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseInternal;
+import com.arcadedb.engine.WALFile;
 import com.arcadedb.exception.AlreadyExistsException;
+import com.arcadedb.schema.DocumentType;
+import com.arcadedb.schema.EdgeType;
+import com.arcadedb.schema.LocalSchema;
+import com.arcadedb.schema.VertexType;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -217,6 +224,62 @@ public class GraphAnalyticalViewRegistry {
       REGISTRY.remove(unwrap(database));
       FAILURES.remove(unwrap(database));
     }
+  }
+
+  /**
+   * Changes were applied to {@code database} as pages, with no record event: a Raft follower applying a replicated commit
+   * (docs/spork/07-f3-csr-on-followers.md). The listeners that keep a view current on the node where a transaction runs do not
+   * fire here, so a view covering what {@code tx} touched is told the way an OFF view is told of a commit it did not collect
+   * ({@link GraphAnalyticalView#onRelevantCommitCallback()}): it stops serving, and an incremental view rebuilds. Without this a
+   * follower's view stayed READY over the graph as it stood at its build.
+   * <p>
+   * A page's file is resolved to the type it serves through {@code getInvolvedTypeByBucketId}, which answers a vertex type for
+   * the edge-list buckets of its vertex buckets too. A bucket the schema attributes to no type is treated as relevant; an index
+   * or any other non-bucket file is not, and neither is a document type that is neither a vertex nor an edge type. WAL recovery
+   * at open reaches here before any view is registered, and a database without views returns at once.
+   */
+  public static void onReplicatedChanges(final Database database, final WALFile.WALTransaction tx) {
+    if (tx == null || tx.pages == null || tx.pages.length == 0)
+      return;
+    final GraphAnalyticalView[] views;
+    synchronized (REGISTRY) {
+      final HashMap<String, GraphAnalyticalView> registered = REGISTRY.get(unwrap(database));
+      if (registered == null || registered.isEmpty())
+        return;
+      views = registered.values().toArray(new GraphAnalyticalView[0]);
+    }
+
+    final LocalSchema schema = database.getSchema().getEmbedded();
+    final Set<String> vertexTypes = new HashSet<>();
+    final Set<String> edgeTypes = new HashSet<>();
+    boolean unattributedBucket = false;
+    int previousFileId = Integer.MIN_VALUE;
+    for (final WALFile.WALPage page : tx.pages) {
+      // A transaction's pages come grouped by file: skip the repeats of the file just resolved
+      if (page.fileId == previousFileId)
+        continue;
+      previousFileId = page.fileId;
+      final DocumentType type = schema.getInvolvedTypeByBucketId(page.fileId);
+      if (type instanceof VertexType)
+        vertexTypes.add(type.getName());
+      else if (type instanceof EdgeType)
+        edgeTypes.add(type.getName());
+      else if (type == null && schema.getBucketById(page.fileId, false) != null)
+        unattributedBucket = true;
+    }
+    if (vertexTypes.isEmpty() && edgeTypes.isEmpty() && !unattributedBucket)
+      return;
+
+    for (final GraphAnalyticalView view : views)
+      if (unattributedBucket || coversAny(view, vertexTypes, true) || coversAny(view, edgeTypes, false))
+        view.onRelevantCommitCallback();
+  }
+
+  private static boolean coversAny(final GraphAnalyticalView view, final Set<String> typeNames, final boolean vertex) {
+    for (final String typeName : typeNames)
+      if (vertex ? view.coversVertexType(typeName) : view.coversEdgeType(typeName))
+        return true;
+    return false;
   }
 
   private static Database unwrap(final Database database) {
