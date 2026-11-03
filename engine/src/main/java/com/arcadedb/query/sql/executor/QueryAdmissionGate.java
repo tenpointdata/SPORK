@@ -82,8 +82,11 @@ public final class QueryAdmissionGate {
   private final ReentrantLock          lock  = new ReentrantLock();
   // ONE CONDITION PER WAITING QUERY, IN ARRIVAL ORDER. GUARDED BY lock
   private final ArrayDeque<Condition>  queue = new ArrayDeque<>();
-  // WRITTEN UNDER lock, READ WITHOUT IT BY THE METRICS
-  private volatile int                 running;
+  // THE ADMITTED QUERIES STILL RUNNING. TAKEN AND GIVEN BACK WITH A CAS, WITH OR WITHOUT THE LOCK (SPORK S8): A QUERY THAT FINDS
+  // NOBODY WAITING TAKES ITS SLOT WITHOUT THE LOCK, THE HEAD OF THE QUEUE TAKES ITS UNDER THE LOCK, AND THE COUNT IS THE ONE WORD
+  // BOTH AGREE ON
+  private final AtomicInteger          running = new AtomicInteger();
+  // WRITTEN UNDER lock, READ WITHOUT IT BY THE FAST PATH AND THE METRICS
   private volatile int                 queued;
   private final LongAdder              admitted             = new LongAdder();
   private final LongAdder              admittedAfterWaiting = new LongAdder();
@@ -141,15 +144,36 @@ public final class QueryAdmissionGate {
       currentSlot.remove();
     }
 
+    // FAST PATH (SPORK S8): NOBODY WAITS AND THE HEAP IS UNDER THE WATERMARK, SO THE SLOT IS TAKEN WITH ONE CAS ON THE RUNNING
+    // COUNT AND NO LOCK. THE COUNT IS RE-READ IN THE CAS LOOP, SO THE LIMIT HOLDS EXACTLY HOWEVER MANY THREADS RACE FOR THE LAST
+    // SLOT. A WAITER THAT QUEUED BETWEEN THE CHECK AND THE CAS IS GIVEN THE SLOT BACK AND THIS QUERY QUEUES BEHIND IT: ARRIVAL ORDER
+    if (queued == 0 && tryTakeSlot(maxConcurrent)) {
+      if (queued == 0)
+        return admitted();
+      release();
+    }
+
     lock.lock();
     try {
       // A QUERY THAT ARRIVES WHILE OTHERS WAIT QUEUES BEHIND THEM EVEN WHEN IT COULD START: ARRIVAL ORDER
-      if (queue.isEmpty() && blocker(maxConcurrent) == Blocker.NONE)
-        return admitLocked();
+      if (queue.isEmpty() && tryTakeSlot(maxConcurrent))
+        return admitted();
       return waitForTurn(timeoutMs);
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * Takes a slot with a CAS on the running count when one is free and the heap allows it: the one step every admission goes
+   * through, with or without the lock, so the limit holds exactly however many threads race for the last slot - a check under
+   * the lock followed by an increment would race the lock-free fast path.
+   */
+  private boolean tryTakeSlot(final int maxConcurrent) {
+    for (int n = running.get(); n < maxConcurrent && heapBelowWatermark(n); n = running.get())
+      if (running.compareAndSet(n, n + 1))
+        return true;
+    return false;
   }
 
   /**
@@ -242,7 +266,7 @@ public final class QueryAdmissionGate {
 
   /** Queries admitted and not finished yet. */
   public int getRunning() {
-    return running;
+    return running.get();
   }
 
   /** Queries waiting in the queue right now. */
@@ -319,23 +343,32 @@ public final class QueryAdmissionGate {
 
   /** What keeps a query from starting now. Called with the lock held. */
   private Blocker blocker(final int maxConcurrent) {
-    if (running >= maxConcurrent)
+    final int runningNow = running.get();
+    if (runningNow >= maxConcurrent)
       return Blocker.SLOTS;
+    return heapBelowWatermark(runningNow) ? Blocker.NONE : Blocker.HEAP;
+  }
+
+  /**
+   * Whether the heap lets a query start beside {@code runningNow} admitted ones. Lock-free: it reads the settings and the budget,
+   * nothing of the gate's own, so the fast path asks it without the lock.
+   */
+  private static boolean heapBelowWatermark(final int runningNow) {
     // NOTHING ADMITTED IS RUNNING: THE HEAP IS HELD BY WORK OUTSIDE THE GATE, WHICH THE QUEUE MUST NOT WAIT FOR
-    if (running == 0)
-      return Blocker.NONE;
+    if (runningNow == 0)
+      return true;
 
     final int watermark = GlobalConfiguration.QUERY_ADMISSION_HEAP_WATERMARK.getValueAsInteger();
     if (watermark <= 0)
-      return Blocker.NONE;
+      return true;
     final long limit = QueryHeapBudget.getLimitBytes();
     if (limit <= 0)
-      return Blocker.NONE;
-    return QueryHeapBudget.getReservedBytes() < limit / 100 * Math.min(watermark, 100) ? Blocker.NONE : Blocker.HEAP;
+      return true;
+    return QueryHeapBudget.getReservedBytes() < limit / 100 * Math.min(watermark, 100);
   }
 
-  private Ticket admitLocked() {
-    running++;
+  /** The ticket of a query whose slot the caller has just counted into {@link #running}. */
+  private Ticket admitted() {
     admitted.increment();
     final Slot slot = new Slot();
     currentSlot.set(slot);
@@ -364,16 +397,17 @@ public final class QueryAdmissionGate {
         if (head) {
           // RE-READ: A SETTING CHANGED WHILE WAITING APPLIES TO THE QUERIES ALREADY IN THE QUEUE TOO
           final int maxConcurrent = GlobalConfiguration.QUERY_MAX_CONCURRENT.getValueAsInteger();
-          final Blocker blocker = maxConcurrent <= 0 ? Blocker.NONE : blocker(maxConcurrent);
-          if (blocker == Blocker.NONE) {
+          // THE GATE DISABLED MEANWHILE: THE WAITING QUERIES START, COUNTED AS RUNNING SO THEIR TICKETS GIVE BACK WHAT THEY TOOK
+          final boolean taken = maxConcurrent <= 0 ? running.incrementAndGet() > 0 : tryTakeSlot(maxConcurrent);
+          if (taken) {
             queue.pollFirst();
             queued = queue.size();
             admittedNow = true;
             admittedAfterWaiting.increment();
             waitNanos.add(System.nanoTime() - start);
-            return admitLocked();
+            return admitted();
           }
-          if (blocker == Blocker.HEAP)
+          if (blocker(maxConcurrent) == Blocker.HEAP)
             heapDeferrals.increment();
         }
 
@@ -399,9 +433,14 @@ public final class QueryAdmissionGate {
   }
 
   private void release() {
+    running.decrementAndGet();
+    // NOBODY WAITS: NOTHING TO WAKE AND NO LOCK TO TAKE (SPORK S8). A WAITER THAT QUEUES AFTER THIS READ CHECKS THE RUNNING COUNT
+    // UNDER THE LOCK AFTER IT HAS ENQUEUED, SO IT SEES THE SLOT GIVEN BACK HERE: BOTH WORDS ARE VOLATILE, AND ONE OF THE TWO
+    // SIDES ALWAYS SEES THE OTHER'S WRITE
+    if (queued == 0)
+      return;
     lock.lock();
     try {
-      running--;
       signalHead();
     } finally {
       lock.unlock();
@@ -419,7 +458,7 @@ public final class QueryAdmissionGate {
   private QueryAdmissionException refuse(final String reason) {
     refused.increment();
     final long limit = QueryHeapBudget.getLimitBytes();
-    return new QueryAdmissionException("Query not started because " + reason + ": " + running + " running ("
+    return new QueryAdmissionException("Query not started because " + reason + ": " + running.get() + " running ("
         + GlobalConfiguration.QUERY_MAX_CONCURRENT.getKey() + "=" + GlobalConfiguration.QUERY_MAX_CONCURRENT.getValueAsInteger() + "), "
         + queue.size() + " waiting, heap budget " + (limit > 0 ? (QueryHeapBudget.getReservedBytes() * 100 / limit) + "% reserved" : "disabled")
         + ". Retry later");

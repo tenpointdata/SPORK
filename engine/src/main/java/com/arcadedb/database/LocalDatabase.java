@@ -693,7 +693,7 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
    */
   @Override
   public void countRecordsRead(final long count) {
-    stats.readRecord.addAndGet(count);
+    stats.readRecord.add(count);
   }
 
   @Override
@@ -1150,7 +1150,21 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
     if (user == null)
       return;
 
-    if (user.requestAccessOnFile(fileId, access))
+    // SPORK S14: the last GRANTED (file, access) verdict of this user is kept on the thread's context, so a hydrate of a thousand
+    // records of one bucket asks the user once. It is kept with the user's access version, read BEFORE asking, so any change of
+    // the user's permissions forgets it at the next check, rebind or not. A denial is never kept, binding a user forgets the
+    // verdict, and a user without an access version is asked every time
+    final Object accessVersion = user.getAccessVersion();
+    if (accessVersion != null) {
+      final long fileAccess = ((long) fileId << 8) | access.ordinal();
+      if (dbContext.isFileAccessGranted(user, accessVersion, fileAccess))
+        return;
+
+      if (user.requestAccessOnFile(fileId, access)) {
+        dbContext.rememberFileAccessGranted(user, accessVersion, fileAccess);
+        return;
+      }
+    } else if (user.requestAccessOnFile(fileId, access))
       return;
 
     String resource = "file '" + schema.getFileById(fileId).getName() + "'";
@@ -1233,7 +1247,7 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
 
   @Override
   public Record lookupByRID(final RID rid, final boolean loadContent) {
-    stats.readRecord.incrementAndGet();
+    stats.readRecord.increment();
 
     if (rid == null)
       throw new IllegalArgumentException("Record id is null");
@@ -1290,7 +1304,7 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
 
   @Override
   public IndexCursor lookupByKey(final String type, final String[] keyNames, final Object[] keyValues) {
-    stats.readRecord.incrementAndGet();
+    stats.readRecord.increment();
 
     return (IndexCursor) executeInReadLock((Callable<Object>) () -> {
 

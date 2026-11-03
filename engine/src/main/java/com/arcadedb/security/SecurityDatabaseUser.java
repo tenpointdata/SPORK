@@ -68,6 +68,19 @@ public interface SecurityDatabaseUser {
   boolean requestAccessOnFile(int fileId, ACCESS access);
 
   /**
+   * An identity of the permission state {@link #requestAccessOnFile} answers from, for a caller that keeps a verdict across
+   * calls: the database keeps the last GRANTED (file, access) of a thread's bound user and reuses it only while this returns
+   * the very same reference (compared by identity). An implementation must therefore return a different reference whenever
+   * any answer of {@link #requestAccessOnFile} could change - a revocation, a grant, a refreshed file map that now covers a
+   * file it allowed by default - and it is read on every record access, so it must cost no more than a field read.
+   * <p>
+   * Defaults to {@code null}: the state has no such identity, no verdict is kept and every check asks the user.
+   */
+  default Object getAccessVersion() {
+    return null;
+  }
+
+  /**
    * Per-type access check keyed on the type name rather than a bucket file id. Only path available to gate a type
    * that owns no bucket of its own - a TimeSeries type stores its data in its own engine, not in a
    * {@code LocalBucket}, so it has no file id {@link #requestAccessOnFile} could check against.

@@ -75,7 +75,10 @@ public class HashIndex implements IndexInternal {
   private static final IndexCursor EMPTY_CURSOR = new EmptyIndexCursor();
 
   private final String                        name;
-  private final RWLockContext                  lock   = new RWLockContext();
+  // SPORK S17: striped per thread and non-fair. Every lookup takes the read lock, and the writers are rare (close, drop): one
+  // fair single-stripe lock made 32 hydrate threads on one index queue on one lock word, the lock bounding the warm lookup rate.
+  // At most RWLockContext.MAX_INDEX_STRIPES stripes: one such lock exists per index object of every open database
+  private final RWLockContext                  lock   = new RWLockContext(RWLockContext.indexStripeCount(), false);
   protected final AtomicReference<INDEX_STATUS> status = new AtomicReference<>(INDEX_STATUS.AVAILABLE);
   private TypeIndex                            typeIndex;
   private boolean                              valid  = true;

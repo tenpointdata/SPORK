@@ -19,6 +19,8 @@
 package com.arcadedb.index.vector;
 
 import com.arcadedb.database.RID;
+import com.arcadedb.query.sql.executor.RidSet;
+import com.arcadedb.utility.RidHashSet;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -908,6 +910,40 @@ public class VectorLocationIndex {
       return false;
     return (int) INTS.getAcquire(chunk.bucketId, slot) == bucketId
         && (long) LONGS.getAcquire(chunk.position, slot) == position;
+  }
+
+  /**
+   * Whether {@code vectorId} is live and its RID is in {@code allowed}, without materializing anything: the primitive
+   * allow-list test of a set-scoped search (SPORK S10). The {@code Set<RID>} form of the same question built a {@link RID} per
+   * visited node and hashed it boxed, which was 20 to 30% of a filtered walk.
+   *
+   * @param vectorId The vector ID
+   * @param allowed  the RIDs the search may answer with
+   *
+   * @return true if the id is live and its RID is in the set
+   */
+  public boolean isLocationIn(final int vectorId, final RidHashSet allowed) {
+    final Chunk chunk = chunkOf(vectorId);
+    if (chunk == null)
+      return false;
+    final int slot = vectorId & CHUNK_MASK;
+    if (!isPresent(chunk, slot))
+      return false;
+    return allowed.contains((int) INTS.getAcquire(chunk.bucketId, slot), (long) LONGS.getAcquire(chunk.position, slot));
+  }
+
+  /**
+   * {@link #isLocationIn(int, RidHashSet)} for the bitmap-backed {@link RidSet} the query executor builds, which answers a
+   * primitive pair as well.
+   */
+  public boolean isLocationIn(final int vectorId, final RidSet allowed) {
+    final Chunk chunk = chunkOf(vectorId);
+    if (chunk == null)
+      return false;
+    final int slot = vectorId & CHUNK_MASK;
+    if (!isPresent(chunk, slot))
+      return false;
+    return allowed.contains((int) INTS.getAcquire(chunk.bucketId, slot), (long) LONGS.getAcquire(chunk.position, slot));
   }
 
   /**

@@ -21,6 +21,7 @@ package com.arcadedb.database;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Per-session counters for one open database instance.
@@ -38,7 +39,9 @@ public class DatabaseStats {
   public final AtomicLong readTx        = new AtomicLong();
   public final AtomicLong txRollbacks   = new AtomicLong();
   public final AtomicLong createRecord  = new AtomicLong();
-  public final AtomicLong readRecord    = new AtomicLong();
+  // A LongAdder, not an AtomicLong (SPORK S14): every record read of every thread bumps it, and one CAS word shared by 32 reading
+  // threads was a measurable part of a warm read. sum() is exact, it is only not atomic with respect to the other counters
+  public final LongAdder  readRecord    = new LongAdder();
   public final AtomicLong updateRecord  = new AtomicLong();
   public final AtomicLong deleteRecord  = new AtomicLong();
   public final AtomicLong existsRecord  = new AtomicLong();
@@ -56,7 +59,7 @@ public class DatabaseStats {
    * nothing used it in between (issue #11068). Read without allocating, for a server that samples thousands of databases.
    */
   public long total() {
-    return writeTx.get() + readTx.get() + txRollbacks.get() + createRecord.get() + readRecord.get() + updateRecord.get()
+    return writeTx.get() + readTx.get() + txRollbacks.get() + createRecord.get() + readRecord.sum() + updateRecord.get()
         + deleteRecord.get() + existsRecord.get() + queries.get() + commands.get() + scanType.get() + scanBucket.get()
         + iterateType.get() + iterateBucket.get() + countType.get() + countBucket.get();
   }
@@ -67,7 +70,7 @@ public class DatabaseStats {
     map.put("readTx", readTx.get());
     map.put("txRollbacks", txRollbacks.get());
     map.put("createRecord", createRecord.get());
-    map.put("readRecord", readRecord.get());
+    map.put("readRecord", readRecord.sum());
     map.put("updateRecord", updateRecord.get());
     map.put("deleteRecord", deleteRecord.get());
     map.put("existsRecord", existsRecord.get());

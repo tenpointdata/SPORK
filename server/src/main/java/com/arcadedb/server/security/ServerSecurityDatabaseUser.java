@@ -133,6 +133,18 @@ public class ServerSecurityDatabaseUser implements SecurityDatabaseUser {
     return this.access.databaseAccess()[access.ordinal()];
   }
 
+  /**
+   * The published {@link AccessSnapshot}: every refresh, {@link #updateDatabaseConfiguration} and {@link #updateFileAccess}
+   * swaps in a new one, and {@link #denyAll} is fixed for life, so the reference moves exactly when an answer of
+   * {@link #requestAccessOnFile} can. That includes the "not yet in security configuration, allowing by default" answer for a
+   * file the map does not cover yet: the refresh that covers it publishes a new snapshot, so a verdict kept from the default is
+   * forgotten with it. One volatile read.
+   */
+  @Override
+  public Object getAccessVersion() {
+    return access;
+  }
+
   @Override
   public boolean requestAccessOnFile(final int fileId, final ACCESS access) {
     if (denyAll)

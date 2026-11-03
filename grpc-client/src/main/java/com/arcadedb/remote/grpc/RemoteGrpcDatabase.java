@@ -1503,7 +1503,7 @@ public class RemoteGrpcDatabase extends RemoteDatabase {
   @Override
   public Record lookupByRID(final RID rid, final boolean loadContent) {
     checkDatabaseIsOpen();
-    stats.readRecord.incrementAndGet();
+    stats.readRecord.increment();
 
     if (rid == null)
       throw new IllegalArgumentException("Record is null");
@@ -2156,7 +2156,7 @@ public class RemoteGrpcDatabase extends RemoteDatabase {
           throw new NoSuchElementException();
         }
         // ONE readRecord PER RECORD THE ITERATION YIELDS, AS THE EMBEDDED BucketIterator COUNTS EVERY RECORD IT READS (ISSUE #11056)
-        stats.readRecord.incrementAndGet();
+        stats.readRecord.increment();
         return grpcRecordToDBRecord(currentBatch.next());
       }
     };

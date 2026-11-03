@@ -35,7 +35,15 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * with an exception instead of letting the thread wait for itself forever (#10012).
  */
 public class RWLockContext {
-  private static final int MAX_STRIPES = 64;
+  private static final int MAX_STRIPES       = 64;
+  /**
+   * Stripe cap of a per-INDEX lock ({@link #indexStripeCount()}). A database has one lock, but an index lock exists per index
+   * object - a type index holds one sub-index per bucket - and each stripe is a {@link ReentrantReadWriteLock} with its sync,
+   * its two views and its hold counter (110 to 150 bytes), so a 64-core host would keep 7 to 10 KB per index. Measured lookup
+   * scaling stops at the machine's performance cores well before 8 stripes stop spreading the readers (see the SPORK S17
+   * notes), so 8 stripes (about 1.2 KB per index) keep the gain at an eighth of the footprint.
+   */
+  public static final int  MAX_INDEX_STRIPES = 8;
 
   private final ReentrantReadWriteLock[] stripes;
   private final int                      stripeMask;
@@ -52,20 +60,46 @@ public class RWLockContext {
    * @param stripeCount number of lock stripes, rounded up to a power of two and capped at {@link #MAX_STRIPES}
    */
   protected RWLockContext(final int stripeCount) {
+    this(stripeCount, true);
+  }
+
+  /**
+   * @param stripeCount number of lock stripes, rounded up to a power of two and capped at {@link #MAX_STRIPES}
+   * @param fair        whether each stripe hands the lock out in arrival order. A FAIR lock makes every reader queue behind a
+   *                    reader that arrived before it and is still being handed the lock, so a stream of readers on one stripe
+   *                    convoys even though none of them excludes another; NON-fair lets a reader barge in while the lock is
+   *                    shared, which is what a lookup path with rare writers (an index: writers are close, drop and the
+   *                    compaction's file swap) wants. A non-fair {@link ReentrantReadWriteLock} still refuses new readers once a
+   *                    writer is first in its queue, so the writer is not starved either
+   */
+  public RWLockContext(final int stripeCount, final boolean fair) {
     int n = 1;
     while (n < stripeCount && n < MAX_STRIPES)
       n <<= 1;
     stripes = new ReentrantReadWriteLock[n];
     for (int i = 0; i < n; i++)
-      stripes[i] = new ReentrantReadWriteLock(true);
+      stripes[i] = new ReentrantReadWriteLock(fair);
     stripeMask = n - 1;
   }
 
   /**
    * Stripe count that fits the CPUs of this JVM, fixed when the lock is built.
    */
-  protected static int defaultStripeCount() {
+  public static int defaultStripeCount() {
     return Math.max(4, Runtime.getRuntime().availableProcessors());
+  }
+
+  /**
+   * Stripe count of a per-index lock: {@link #defaultStripeCount()} capped at {@link #MAX_INDEX_STRIPES}, since a server keeps
+   * one such lock per index of every open database.
+   */
+  public static int indexStripeCount() {
+    return Math.min(MAX_INDEX_STRIPES, defaultStripeCount());
+  }
+
+  /** The number of stripes this lock was built with: a power of two. */
+  public int getStripeCount() {
+    return stripes.length;
   }
 
   protected ReentrantReadWriteLock.ReadLock readLock() {

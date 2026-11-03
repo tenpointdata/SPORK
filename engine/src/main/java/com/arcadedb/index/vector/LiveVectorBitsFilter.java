@@ -19,7 +19,9 @@
 package com.arcadedb.index.vector;
 
 import com.arcadedb.database.RID;
+import com.arcadedb.query.sql.executor.RidSet;
 import com.arcadedb.query.sql.executor.WorkGuard;
+import com.arcadedb.utility.RidHashSet;
 import io.github.jbellis.jvector.util.Bits;
 
 import java.util.Set;
@@ -63,12 +65,17 @@ import java.util.Set;
  * <p>
  * Since issue #5588 the location index holds no resident objects, so the unrestricted case asks it for the single
  * presence bit rather than for a location tuple it would have to materialize. Only the allow-list case pays for a
- * {@link RID}, and it pays for it because {@code Set<RID>} membership needs the object.
+ * {@link RID}, and it pays for it because {@code Set<RID>} membership needs the object - unless the allow-list answers a
+ * primitive pair (a {@link RidHashSet}, or the bitmap-backed {@link RidSet} the query executor builds): then the
+ * location index tests the two words it holds against the set and nothing is materialized per visited node (SPORK S10).
  *
  * @author Luca Garulli (l.garulli@arcadedata.com)
  */
 public class LiveVectorBitsFilter implements Bits {
   private final Set<RID>            allowedRIDs;
+  // THE ALLOW-LIST IN A FORM THAT ANSWERS A PRIMITIVE (bucket, position) PAIR: AT MOST ONE OF THE THREE IS SET
+  private final RidHashSet          allowedPrimitive;
+  private final RidSet              allowedBitmap;
   private final int[]               ordinalToVectorIdSnapshot;
   // NOT a snapshot, unlike the ordinal map: this is the live location map, read at traversal time so the filter
   // answers exactly what the post-filter on the search output will.
@@ -159,11 +166,39 @@ public class LiveVectorBitsFilter implements Bits {
   LiveVectorBitsFilter(final Set<RID> allowedRIDs, final int[] ordinalToVectorIdSnapshot,
       final VectorLocationIndex vectorIndex, final Set<RID> supersededRIDs, final WorkGuard guard, final int listedWalkBeam,
       final int listedWalkVectors, final int listedWalkMaxCandidates) {
+    this(allowedRIDs, null, ordinalToVectorIdSnapshot, vectorIndex, supersededRIDs, guard, listedWalkBeam, listedWalkVectors,
+        listedWalkMaxCandidates);
+  }
+
+  /**
+   * The filter of a search scoped to a primitive allow-list (SPORK S10): a caller that already holds the RIDs it wants as a
+   * {@link RidHashSet} - a set-scoped kNN over hydrated ids - is answered without a {@link RID} per visited node.
+   *
+   * @param allowed optional RID allow-list; {@code null} or empty means "every live vector"
+   */
+  LiveVectorBitsFilter(final RidHashSet allowed, final int[] ordinalToVectorIdSnapshot, final VectorLocationIndex vectorIndex,
+      final Set<RID> supersededRIDs, final WorkGuard guard) {
+    this(null, allowed, ordinalToVectorIdSnapshot, vectorIndex, supersededRIDs, guard, 0, 0, 0);
+  }
+
+  private LiveVectorBitsFilter(final Set<RID> allowedRIDs, final RidHashSet allowedPrimitive, final int[] ordinalToVectorIdSnapshot,
+      final VectorLocationIndex vectorIndex, final Set<RID> supersededRIDs, final WorkGuard guard, final int listedWalkBeam,
+      final int listedWalkVectors, final int listedWalkMaxCandidates) {
     this.guard = guard;
     this.listedWalkBeam = listedWalkMaxCandidates > 0 ? listedWalkBeam : 0;
     this.listedWalkVectors = listedWalkVectors;
     this.listedWalkMaxCandidates = listedWalkMaxCandidates;
-    this.allowedRIDs = allowedRIDs != null && !allowedRIDs.isEmpty() ? allowedRIDs : null;
+    this.allowedPrimitive = allowedPrimitive != null && !allowedPrimitive.isEmpty() ? allowedPrimitive : null;
+    // EXACTLY RidSet, NOT A SUBCLASS: RidSet IS PUBLIC AND NOT FINAL, AND A SUBCLASS THAT OVERRIDES contains(Object) (TO ADD A
+    // PREDICATE, AS RecordPredicateRidSet DOES AS A CLASS OF ITS OWN) WOULD BE ANSWERED FROM THE BITMAP WITH ITS OVERRIDE SKIPPED
+    if (allowedRIDs != null && allowedRIDs.getClass() == RidSet.class && !allowedRIDs.isEmpty()) {
+      // THE QUERY EXECUTOR'S SET ANSWERS A PRIMITIVE PAIR: NO RID PER VISITED NODE
+      this.allowedBitmap = (RidSet) allowedRIDs;
+      this.allowedRIDs = null;
+    } else {
+      this.allowedBitmap = null;
+      this.allowedRIDs = allowedRIDs != null && !allowedRIDs.isEmpty() ? allowedRIDs : null;
+    }
     this.ordinalToVectorIdSnapshot = ordinalToVectorIdSnapshot;
     this.vectorIndex = vectorIndex;
     this.supersededRIDs = supersededRIDs != null && !supersededRIDs.isEmpty() ? supersededRIDs : null;
@@ -224,6 +259,18 @@ public class LiveVectorBitsFilter implements Bits {
       return false;
 
     final int vectorId = ordinalToVectorIdSnapshot[ordinal];
+    if (allowedPrimitive != null) {
+      // A primitive allow-list: liveness and membership answered from the two words the location index holds, nothing
+      // materialized (SPORK S10). A superseded RID is rare (a transaction that wrote to this index) and keeps the object test.
+      if (!vectorIndex.isLocationIn(vectorId, allowedPrimitive))
+        return false;
+      return supersededRIDs == null || !supersededRIDs.contains(vectorIndex.getRid(vectorId));
+    }
+    if (allowedBitmap != null) {
+      if (!vectorIndex.isLocationIn(vectorId, allowedBitmap))
+        return false;
+      return supersededRIDs == null || !supersededRIDs.contains(vectorIndex.getRid(vectorId));
+    }
     if (allowedRIDs == null && supersededRIDs == null)
       // The common case, and the one every unrestricted search takes: liveness alone, answered by one presence bit
       // with nothing materialized (issue #5588). The constructor already collapsed an empty allow-list to null.
