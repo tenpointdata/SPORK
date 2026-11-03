@@ -22,20 +22,15 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.database.RID;
-import com.arcadedb.database.TransactionContext;
-import com.arcadedb.database.TransactionIndexContext;
 import com.arcadedb.engine.ComponentFile;
 import com.arcadedb.engine.PaginatedComponent;
 import com.arcadedb.function.sql.geo.GeoUtils;
 import com.arcadedb.index.EmptyIndexCursor;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexCursor;
-import com.arcadedb.index.IndexCursorEntry;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.IndexFactoryHandler;
 import com.arcadedb.index.IndexInternal;
-import com.arcadedb.index.MultiIndexCursor;
-import com.arcadedb.index.TempIndexCursor;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndexAbstract;
@@ -66,7 +61,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -299,11 +293,6 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
    * coalescing of adjacent frontier cells can be measured against one scan per cell on the same index.
    */
   GeoIndexCursor newCursor(final Object[] keys, final Shape searchShape, final boolean coalesceFrontierRuns) {
-    // Determine the detail level for the query (same heuristic as RecursivePrefixTreeStrategy)
-    final SpatialArgs args = new SpatialArgs(SpatialOperation.Intersects, searchShape);
-    final double distErr = args.resolveDistErr(GeoUtils.getSpatialContext(), strategy.getDistErrPct());
-    final int detailLevel = grid.getLevelForDistance(distErr);
-
     // #5601: the covering cells are walked LAZILY, one underlying scan open at a time, instead of draining every cell
     // into a candidate set before the caller sees the first row. A wide-area query resolves into thousands of cells,
     // and a consumer that stops early no longer pays for the ones it never reached.
@@ -311,7 +300,18 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
     // that the SQL geo.* predicate re-checks, so truncating it here would drop rows that would have survived the
     // filter - silently, and only on some queries. The caller applies the limit to the FILTERED rows instead, which
     // now stops this cursor at the right place rather than after the fact.
-    return new GeoIndexCursor(keys, newCoveringCellWalk(searchShape, detailLevel), cellCursors, coalesceFrontierRuns);
+    return new GeoIndexCursor(keys, newCoveringCellWalk(searchShape), cellCursors, coalesceFrontierRuns);
+  }
+
+  /**
+   * The covering cells of a search shape, in the order {@link GeoIndexCursor} scans them. Package-private so a test can place
+   * records under the exact cells, and runs of cells, a query reads.
+   */
+  GeoCoveringCellWalk newCoveringCellWalk(final Shape searchShape) {
+    // Determine the detail level for the query (same heuristic as RecursivePrefixTreeStrategy)
+    final SpatialArgs args = new SpatialArgs(SpatialOperation.Intersects, searchShape);
+    final double distErr = args.resolveDistErr(GeoUtils.getSpatialContext(), strategy.getDistErrPct());
+    return newCoveringCellWalk(searchShape, grid.getLevelForDistance(distErr));
   }
 
   /** The scans {@link GeoIndexCursor} opens on this index: one cell, or one run of adjacent frontier cells. */
@@ -351,18 +351,11 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
   IndexCursor openFrontierRunCursor(final String firstToken, final String lastToken) {
     assert isAsciiToken(firstToken) && isAsciiToken(lastToken) :
         "a FRONTIER token must be ASCII for the prefix range scan bound to hold: " + firstToken + ", " + lastToken;
-    final IndexCursor committed = underlyingIndex.range(true, new Object[] { firstToken }, true,
-        new Object[] { lastToken + PREFIX_SCAN_UPPER_BOUND }, true);
-    // the range scan reads the committed pages only, where the exact lookup above merges the transaction's pending entries:
-    // a record written earlier in the transaction is a candidate too. GeoIndexCursor de-duplicates the RIDs
-    final IndexCursor pending = openPendingRange(firstToken, lastToken);
-    if (pending == null)
-      return committed;
-    // a mutable list: the merged cursor releases each child as it closes it
-    final List<IndexCursor> children = new ArrayList<>(2);
-    children.add(committed);
-    children.add(pending);
-    return new MultiIndexCursor(children, -1, true, false);
+    // The range cursor merges the current transaction's pending entries itself, over the whole range (LSMTreeIndexCursor,
+    // #5055, #6927, rules in PendingIndexRemovals): a record written earlier in the transaction is a candidate, and a committed
+    // entry the transaction removed - a record it deleted or moved - is not, so its RID is never loaded. Merging them a second
+    // time here only read every pending entry twice
+    return underlyingIndex.range(true, new Object[] { firstToken }, true, new Object[] { lastToken + PREFIX_SCAN_UPPER_BOUND }, true);
   }
 
   /**
@@ -370,6 +363,8 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
    * ({@link GeoNearestSearch}): one prefix range scan, whatever the layout. The legacy FULL layout stores the whole ancestor
    * chain of each cell, so every record below the cell carries the cell's own plain token, which sorts first in the range:
    * the scan starts after it, at the leaf form {@code token+}, and the records are met through their deeper cells instead.
+   * Like every range scan of the index, it answers the current transaction's pending entries too, see
+   * {@link #openFrontierRunCursor}.
    */
   IndexCursor openNearestCellRange(final String token) {
     return underlyingIndex.range(true, new Object[] { nearestCellRangeStart(token) }, true,
@@ -386,39 +381,6 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
    */
   IndexCursor openNearestCellOwnEntries(final String token) {
     return underlyingIndex.get(new Object[] { tokenization == GeoIndexMetadata.TOKENIZATION.FULL ? token + '+' : token });
-  }
-
-  /**
-   * The entries the current transaction queued under the cells at or below {@code token}, not committed yet: the range
-   * scan of {@link #openNearestCellRange} reads the committed pages only, while an exact lookup merges them. Only the
-   * additions are needed: an entry the transaction removed belongs to a record it deleted or moved, which the walk measures
-   * from its current value when it loads it. Null when there are none.
-   */
-  IndexCursor openNearestPendingRange(final String token) {
-    return openPendingRange(nearestCellRangeStart(token), token);
-  }
-
-  /** The current transaction's pending additions keyed from {@code fromKey} to the prefix upper bound of {@code toToken}. */
-  private IndexCursor openPendingRange(final String fromKey, final String toToken) {
-    final TransactionContext tx = underlyingIndex.getComponent().getDatabase().getTransactionIfExists();
-    if (tx == null || tx.getStatus() != TransactionContext.STATUS.BEGUN)
-      return null;
-    final TreeMap<TransactionIndexContext.ComparableKey, Map<TransactionIndexContext.IndexKey, TransactionIndexContext.IndexKey>> pending =
-        tx.getIndexChanges().getIndexKeys(underlyingIndex.getName());
-    if (pending == null || pending.isEmpty())
-      return null;
-
-    List<IndexCursorEntry> entries = null;
-    for (final Map<TransactionIndexContext.IndexKey, TransactionIndexContext.IndexKey> values : pending.subMap(
-        new TransactionIndexContext.ComparableKey(new Object[] { fromKey }), true,
-        new TransactionIndexContext.ComparableKey(new Object[] { toToken + PREFIX_SCAN_UPPER_BOUND }), true).values())
-      for (final TransactionIndexContext.IndexKey value : values.values())
-        if (value != null && value.operation != TransactionIndexContext.IndexKey.IndexKeyOperation.REMOVE) {
-          if (entries == null)
-            entries = new ArrayList<>();
-          entries.add(new IndexCursorEntry(value.keyValues, value.rid, 1));
-        }
-    return entries == null ? null : new TempIndexCursor(entries);
   }
 
   /** Whether {@code key}, met in the range of {@link #openNearestCellRange}, is one of the cell's own entries. */
