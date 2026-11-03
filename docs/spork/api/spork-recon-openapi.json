@@ -414,11 +414,11 @@
           },
           "state" : {
             "type" : "string",
-            "description" : "stateCode"
+            "description" : "state"
           },
           "country" : {
             "type" : "string",
-            "description" : "countryCode"
+            "description" : "country"
           },
           "postedAt" : {
             "type" : "string",

@@ -47,6 +47,18 @@
             <version>${project.parent.version}</version>
             <scope>provided</scope>
         </dependency>
+        <!-- SPORK keys (record_id, upstream RID) and the schema v1 installer. Its engine dependency is the server's -->
+        <dependency>
+            <groupId>com.arcadedb</groupId>
+            <artifactId>arcadedb-spork-keys</artifactId>
+            <version>${project.parent.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.arcadedb</groupId>
+                    <artifactId>arcadedb-engine</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>com.arcadedb</groupId>
             <artifactId>arcadedb-server</artifactId>

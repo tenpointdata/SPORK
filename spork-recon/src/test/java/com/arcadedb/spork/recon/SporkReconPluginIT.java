@@ -29,6 +29,9 @@ import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.ArcadeDBServer;
 import com.arcadedb.server.audit.AuditChain;
 import com.arcadedb.server.security.entry.EntryConfiguration;
+import com.arcadedb.spork.keys.RecordId;
+import com.arcadedb.spork.keys.TextHash;
+import com.arcadedb.spork.schema.SporkSchema;
 import com.arcadedb.utility.FileUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +40,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HexFormat;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -104,23 +108,20 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
   }
 
   static long recordId(final int n) {
-    return (1L << 48) | n;
+    return RecordId.of(1, n);
   }
 
   static String rid(final int n) {
     return "168:" + n;
   }
 
-  /** {@code recdir} and one partition, with the types and indexes of schema v1 ({@code spork-keys} rec.sql and recdir.sql). */
+  /** {@code recdir} and one partition, installed with schema v1 exactly as production installs them. */
   private static void createCorpus(final String databaseDirectory) {
     for (final String name : new String[] { DIRECTORY, PARTITION })
       FileUtils.deleteRecursively(new File(databaseDirectory, name));
 
     try (final Database recdir = new DatabaseFactory(databaseDirectory + File.separator + DIRECTORY).create()) {
-      recdir.command("sql", "CREATE DOCUMENT TYPE RecordDir IF NOT EXISTS BUCKETS 1");
-      recdir.command("sql", "CREATE PROPERTY RecordDir.upstreamRid IF NOT EXISTS LONG (mandatory true, notnull true)");
-      recdir.command("sql", "CREATE PROPERTY RecordDir.period IF NOT EXISTS SHORT (mandatory true, notnull true)");
-      recdir.command("sql", "CREATE INDEX IF NOT EXISTS ON RecordDir (upstreamRid) UNIQUE_HASH");
+      SporkSchema.install(recdir);
       recdir.transaction(() -> {
         for (int n = 1; n <= MARKED; n++)
           recdir.newDocument("RecordDir").set("upstreamRid", (168L << 40) | n).set("period", (short) 1).save();
@@ -128,31 +129,17 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
     }
 
     try (final Database partition = new DatabaseFactory(databaseDirectory + File.separator + PARTITION).create()) {
-      for (final String ddl : new String[] { "CREATE VERTEX TYPE Record IF NOT EXISTS BUCKETS 1",
-          "CREATE PROPERTY Record.record_id IF NOT EXISTS LONG (mandatory true, notnull true)",
-          "CREATE PROPERTY Record.upstreamRid IF NOT EXISTS LONG",
-          "CREATE PROPERTY Record.textHash IF NOT EXISTS BINARY",
-          "CREATE PROPERTY Record.imageHashes IF NOT EXISTS LIST OF STRING",
-          "CREATE PROPERTY Record.tsPosted IF NOT EXISTS LONG",
-          "CREATE PROPERTY Record.views IF NOT EXISTS INTEGER",
-          "CREATE PROPERTY Record.stateCode IF NOT EXISTS STRING",
-          "CREATE PROPERTY Record.phones IF NOT EXISTS LIST OF STRING",
-          "CREATE PROPERTY Record.tenantId IF NOT EXISTS STRING",
-          "CREATE PROPERTY Record.importedId IF NOT EXISTS STRING",
-          "CREATE PROPERTY Record.markings IF NOT EXISTS LONG",
-          "CREATE INDEX IF NOT EXISTS ON Record (record_id) UNIQUE_HASH",
-          "CREATE INDEX IF NOT EXISTS ON Record (upstreamRid) UNIQUE_HASH NULL_STRATEGY SKIP",
-          "CREATE INDEX IF NOT EXISTS ON Record (tenantId, importedId) UNIQUE_HASH NULL_STRATEGY SKIP" })
-        partition.command("sql", ddl);
+      SporkSchema.install(partition);
       partition.transaction(() -> {
         for (int n = 1; n <= OTHER_TENANT; n++) {
           final MutableDocument record = partition.newVertex("Record")//
               .set("record_id", recordId(n))//
               .set("tsPosted", POSTED + n)//
               .set("views", n)//
+              .set("state", "TX")//
               .set("stateCode", "TX")//
               .set("phones", List.of("555" + String.format("%07d", n)))//
-              .set("textHash", new byte[] { 0x0a, (byte) 0xff, 0, (byte) n })//
+              .set("textHash", textHash(n))//
               .set("markings", n == MARKED ? 1L : 0L);
           if (n <= MARKED)
             record.set("upstreamRid", (168L << 40) | n);
@@ -162,6 +149,10 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
         }
       });
     }
+  }
+
+  private static byte[] textHash(final int n) {
+    return TextHash.of("title " + n, "body " + n);
   }
 
   private Database audit() {
@@ -258,7 +249,7 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
     assertThat(first.getString("postedAt")).isEqualTo("2026-11-03T12:00:00.001Z");
     assertThat(first.getString("state")).isEqualTo("TX");
     assertThat(first.getInt("viewCount")).isEqualTo(1);
-    assertThat(first.getString("textHash")).isEqualTo("0aff0001");
+    assertThat(first.getString("textHash")).isEqualTo(HexFormat.of().formatHex(textHash(1))).hasSize(64);
     assertThat(first.has("styleVec")).as("not in the default projection").isFalse();
 
     assertThat(records.getJSONObject(1).getString("id")).isEqualTo(Long.toString(recordId(2)));

@@ -90,7 +90,10 @@ class ProtocolContextCensusTest {
           + "branch is a clear(), which this count does not see), called by every MongoBackend entry point the library makes "
           + "with a client's request: Issue10390MongoProtocolContextTest enumerates them by reflection"),
       "postgresw", new ExpectedTags(1, "PostgresNetworkExecutor.run(), the one loop that serves a connection"),
-      "redisw", new ExpectedTags(1, "RedisNetworkExecutor.run(), the one loop that serves a connection"));
+      "redisw", new ExpectedTags(1, "RedisNetworkExecutor.run(), the one loop that serves a connection"),
+      "spork-recon", new ExpectedTags(2, "HydratePool.runTagged(), the tag of a hydrate chunk on the spork-hydrate pool "
+          + "with the request's protocol and the restore of the request thread's own tag when it ran the chunk itself (its "
+          + "other branch is a clear()); the request thread is tagged http by AbstractServerHttpHandler"));
 
   private record ExpectedTags(int calls, String covering) {
   }

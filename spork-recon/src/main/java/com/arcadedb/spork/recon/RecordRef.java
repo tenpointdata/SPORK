@@ -18,17 +18,18 @@
  */
 package com.arcadedb.spork.recon;
 
+import com.arcadedb.spork.keys.UpstreamRid;
+
 /**
  * One id as Recon sends it to hydrate (01-architecture 2.5, 7.2):
  * <ul>
  * <li>an upstream OrientDB RID {@code "168:8"}, stored as {@code upstreamRid = clusterId << 40 | clusterPos} and mapped to its
  * period by {@code recdir};</li>
- * <li>a SPORK {@code record_id} as an unsigned decimal string (it does not fit a JavaScript number), whose high
- * {@value #PERIOD_BITS} bits are the period, so it needs no directory;</li>
+ * <li>a SPORK {@code record_id} as an unsigned decimal string (it does not fit a JavaScript number), whose high bits are
+ * the period, so it needs no directory;</li>
  * <li>{@code imp:<importedId>}, an analyst import, scoped to the tenant.</li>
  * </ul>
- * The {@code record_id} bit layout is the working assumption until {@code spork-keys} (WS2) fixes it; {@link #periodOf} is the
- * one place that knows it.
+ * The packing of both is {@code spork-keys}' ({@code UpstreamRid}, {@code RecordId}); this class only tells the forms apart.
  *
  * @param kind       which form
  * @param value      the packed upstream RID or the record_id; 0 for an import
@@ -38,10 +39,7 @@ public record RecordRef(Kind kind, long value, String importedId) {
   public enum Kind {UPSTREAM_RID, RECORD_ID, IMPORTED}
 
   public static final  String IMPORTED_PREFIX     = "imp:";
-  static final         int    PERIOD_BITS         = 16;
   private static final int    MAX_IMPORTED_LENGTH = 256;
-  private static final long   MAX_CLUSTER         = (1L << 23) - 1;
-  private static final long   MAX_POSITION        = (1L << 40) - 1;
 
   /** The ref, or null for an id in none of the three forms. */
   public static RecordRef parse(final String id) {
@@ -50,34 +48,17 @@ public record RecordRef(Kind kind, long value, String importedId) {
     if (id.startsWith(IMPORTED_PREFIX))
       return parseImported(id.substring(IMPORTED_PREFIX.length()));
 
-    final int colon = id.indexOf(':');
-    if (colon < 0) {
-      if (id.length() > 20 || !digits(id, 0, id.length()))
-        return null;
-      try {
-        return new RecordRef(Kind.RECORD_ID, Long.parseUnsignedLong(id), null);
-      } catch (final NumberFormatException e) {
-        return null;
-      }
+    if (id.indexOf(':') >= 0) {
+      final long upstreamRid = UpstreamRid.parse(id);
+      return upstreamRid != UpstreamRid.INVALID ? new RecordRef(Kind.UPSTREAM_RID, upstreamRid, null) : null;
     }
-    if (colon == 0 || colon > 7 || id.length() - colon - 1 < 1 || id.length() - colon - 1 > 13 || !digits(id, 0, colon) || !digits(id,
-        colon + 1, id.length()))
+    if (id.length() > 20 || !digits(id))
       return null;
-    final long cluster = Long.parseLong(id, 0, colon, 10);
-    final long position = Long.parseLong(id, colon + 1, id.length(), 10);
-    if (cluster > MAX_CLUSTER || position > MAX_POSITION)
+    try {
+      return new RecordRef(Kind.RECORD_ID, Long.parseUnsignedLong(id), null);
+    } catch (final NumberFormatException e) {
       return null;
-    return new RecordRef(Kind.UPSTREAM_RID, (cluster << 40) | position, null);
-  }
-
-  /** The literal {@code "cluster:position"} rebuilt from a packed {@code upstreamRid} (2.5). */
-  public static String formatUpstreamRid(final long upstreamRid) {
-    return (upstreamRid >>> 40) + ":" + (upstreamRid & MAX_POSITION);
-  }
-
-  /** The period a {@code record_id} belongs to. */
-  public static int periodOf(final long recordId) {
-    return (int) (recordId >>> (64 - PERIOD_BITS));
+    }
   }
 
   private static RecordRef parseImported(final String importedId) {
@@ -89,8 +70,8 @@ public record RecordRef(Kind kind, long value, String importedId) {
     return new RecordRef(Kind.IMPORTED, 0L, importedId);
   }
 
-  private static boolean digits(final String s, final int from, final int to) {
-    for (int i = from; i < to; i++) {
+  private static boolean digits(final String s) {
+    for (int i = 0; i < s.length(); i++) {
       final char c = s.charAt(i);
       if (c < '0' || c > '9')
         return false;
