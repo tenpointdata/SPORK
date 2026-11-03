@@ -26,7 +26,7 @@ import java.util.Map;
 
 /**
  * point.withinBBox(point, lowerLeft, upperRight) - checks if a point is within a bounding box.
- * All 3 arguments are maps with x/y or longitude/latitude.
+ * All 3 arguments are maps with x/y or longitude/latitude, or WKT points (WGS-84).
  */
 public class PointWithinBBoxFunction implements StatelessFunction {
   @Override
@@ -47,16 +47,20 @@ public class PointWithinBBoxFunction implements StatelessFunction {
   @Override
   public Object execute(final Object[] args, final CommandContext context) {
     checkArity(args);
-    if (args[0] == null || args[1] == null || args[2] == null)
+    // a WKT point, what a GEOSPATIAL index holds, is the WGS-84 point it describes
+    final Object p = CypherPointFunction.wgs84PointOf(args[0]);
+    final Object ll = CypherPointFunction.wgs84PointOf(args[1]);
+    final Object ur = CypherPointFunction.wgs84PointOf(args[2]);
+    if (p == null || ll == null || ur == null)
       return null;
-    final boolean pointGeo = isGeographic(args[0]);
-    final boolean lowerLeftGeo = isGeographic(args[1]);
-    final boolean upperRightGeo = isGeographic(args[2]);
+    final boolean pointGeo = isGeographic(p);
+    final boolean lowerLeftGeo = isGeographic(ll);
+    final boolean upperRightGeo = isGeographic(ur);
     if (pointGeo != lowerLeftGeo || lowerLeftGeo != upperRightGeo)
       return null;
-    final double[] point = extractCoordinates(args[0]);
-    final double[] lowerLeft = extractCoordinates(args[1]);
-    final double[] upperRight = extractCoordinates(args[2]);
+    final double[] point = extractCoordinates(p);
+    final double[] lowerLeft = extractCoordinates(ll);
+    final double[] upperRight = extractCoordinates(ur);
     final boolean longitudeInRange;
     if (lowerLeftGeo && lowerLeft[0] > upperRight[0])
       // Crossmeridian bbox: lowerLeft.longitude > upperRight.longitude means the box wraps around ±180

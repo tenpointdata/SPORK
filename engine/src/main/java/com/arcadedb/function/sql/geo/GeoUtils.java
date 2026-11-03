@@ -150,6 +150,9 @@ public class GeoUtils {
     final String wkt = value.toString().trim();
     if (wkt.isEmpty())
       return null;
+    final Point point = parsePlainPoint(wkt);
+    if (point != null)
+      return point;
     try {
       return SPATIAL_CONTEXT.getFormats().getReader(ShapeIO.WKT).read(wkt);
     } catch (final Exception e) {
@@ -158,6 +161,78 @@ public class GeoUtils {
         return wrapped;
       throw new IllegalArgumentException("Cannot parse geometry from: " + wkt + " (" + e.getMessage() + ")", e);
     }
+  }
+
+  /**
+   * Reads {@code POINT (x y)} (any case, any spacing) without the WKT reader, the shape every indexed sighting holds and
+   * every geo query reads once per candidate: the reader tokenizes through a parser built per call and costs several times
+   * the rest of the predicate. Anything else - another geometry, {@code EMPTY}, a Z ordinate, an exponent, a coordinate
+   * off the globe, which the reader moves across the antimeridian or refuses - answers null and is left to the reader, so
+   * the result is the reader's in every case.
+   */
+  static Point parsePlainPoint(final String wkt) {
+    final int length = wkt.length();
+    if (length < 10 || !wkt.regionMatches(true, 0, "POINT", 0, 5))
+      return null;
+    int i = skipSpaces(wkt, 5);
+    if (i >= length || wkt.charAt(i) != '(')
+      return null;
+    i = skipSpaces(wkt, i + 1);
+    final int xStart = i;
+    i = skipNumber(wkt, i);
+    if (i == xStart || i >= length || !Character.isWhitespace(wkt.charAt(i)))
+      return null;
+    final int xEnd = i;
+    i = skipSpaces(wkt, i);
+    final int yStart = i;
+    i = skipNumber(wkt, i);
+    if (i == yStart)
+      return null;
+    final int yEnd = i;
+    i = skipSpaces(wkt, i);
+    if (i != length - 1 || wkt.charAt(i) != ')')
+      return null;
+    final double x;
+    final double y;
+    try {
+      x = Double.parseDouble(wkt.substring(xStart, xEnd));
+      y = Double.parseDouble(wkt.substring(yStart, yEnd));
+    } catch (final NumberFormatException e) {
+      return null;
+    }
+    if (x < -180 || x > 180 || y < -90 || y > 90)
+      return null;
+    return SPATIAL_CONTEXT.getShapeFactory().pointXY(x, y);
+  }
+
+  private static int skipSpaces(final String s, int i) {
+    while (i < s.length() && Character.isWhitespace(s.charAt(i)))
+      ++i;
+    return i;
+  }
+
+  /**
+   * Skips a plain decimal number: an optional sign, digits and one decimal point, no exponent.
+   *
+   * @return the index past the number, or {@code start} when there is none
+   */
+  private static int skipNumber(final String s, final int start) {
+    int i = start;
+    if (i < s.length() && (s.charAt(i) == '-' || s.charAt(i) == '+'))
+      ++i;
+    final int digits = i;
+    boolean dot = false;
+    while (i < s.length()) {
+      final char c = s.charAt(i);
+      if (c >= '0' && c <= '9')
+        ++i;
+      else if (c == '.' && !dot) {
+        dot = true;
+        ++i;
+      } else
+        break;
+    }
+    return i == digits ? start : i;
   }
 
   /**
@@ -231,6 +306,56 @@ public class GeoUtils {
       min = Math.min(min, haversineDegrees(closest[0].x, closest[0].y, closest[1].x - shift, closest[1].y));
     }
     return min;
+  }
+
+  /** A great-circle distance in metres as degrees of arc, on the sphere of {@link #EARTH_RADIUS_KM}. */
+  public static double metresToDegrees(final double metres) {
+    return Math.toDegrees(metres / (EARTH_RADIUS_KM * 1000.0));
+  }
+
+  /** A great-circle distance in radians of arc as metres, on the sphere of {@link #EARTH_RADIUS_KM}. */
+  public static double radiansToMetres(final double radians) {
+    return radians * EARTH_RADIUS_KM * 1000.0;
+  }
+
+  /**
+   * A shape covering every point within {@code radiusDegrees} of {@code shape}, for asking a geospatial index which records
+   * a distance predicate can match: the geodesic circle around a point, otherwise the shape's bounding box widened by the
+   * radius. Widening a box takes {@code asin(sin(r) / cos(lat))} of longitude at its latitude nearest a pole, the widest a
+   * circle of that radius gets there; a box that reaches a pole, or a radius that wraps the globe, takes every longitude.
+   * A superset, which the predicate then checks exactly.
+   */
+  public static Shape searchShapeWithin(final Shape shape, final double radiusDegrees) {
+    if (!(radiusDegrees > 0))
+      return shape;
+    if (radiusDegrees >= 180)
+      return SPATIAL_CONTEXT.getWorldBounds();
+    if (shape instanceof Point point)
+      return SPATIAL_CONTEXT.getShapeFactory().circle(point, radiusDegrees);
+
+    final Rectangle box = shape.getBoundingBox();
+    final double minY = box.getMinY() - radiusDegrees;
+    final double maxY = box.getMaxY() + radiusDegrees;
+    final double poleward = Math.toRadians(Math.max(Math.abs(box.getMinY()), Math.abs(box.getMaxY())));
+    final double sinRadius = Math.sin(Math.toRadians(radiusDegrees));
+    if (minY <= -90 || maxY >= 90 || sinRadius >= Math.cos(poleward))
+      return SPATIAL_CONTEXT.getShapeFactory().rect(-180, 180, Math.max(-90, minY), Math.min(90, maxY));
+
+    final double widening = Math.toDegrees(Math.asin(sinRadius / Math.cos(poleward)));
+    final double width = box.getWidth() + 2 * widening;
+    if (width >= 360)
+      return SPATIAL_CONTEXT.getShapeFactory().rect(-180, 180, minY, maxY);
+    // a box that ends up across the antimeridian is written with minX > maxX, as Spatial4j reads a geodetic rectangle
+    return SPATIAL_CONTEXT.getShapeFactory().rect(normalizeLongitude(box.getMinX() - widening),
+        normalizeLongitude(box.getMinX() - widening + width), minY, maxY);
+  }
+
+  private static double normalizeLongitude(final double lon) {
+    if (lon < -180)
+      return lon + 360;
+    if (lon > 180)
+      return lon - 360;
+    return lon;
   }
 
   /** The central angle between two lon/lat points, in degrees, by the haversine formula. */

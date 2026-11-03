@@ -28,6 +28,7 @@ import com.arcadedb.query.opencypher.procedures.db.DbMigrateLegacyTemporals;
 import com.arcadedb.query.opencypher.procedures.db.DbPropertyKeys;
 import com.arcadedb.query.opencypher.procedures.db.DbRelationshipTypes;
 import com.arcadedb.query.opencypher.procedures.db.DbSchemaVisualization;
+import com.arcadedb.query.opencypher.procedures.geo.GeoNearest;
 import com.arcadedb.query.opencypher.procedures.algo.AlgoAPSP;
 import com.arcadedb.query.opencypher.procedures.algo.AlgoAStar;
 import com.arcadedb.query.opencypher.procedures.algo.AlgoAdamicAdar;
@@ -319,6 +320,8 @@ public final class CypherProcedureRegistry {
     registerMetaProcedures();
     // Database index procedures (Neo4j compatibility)
     registerDbProcedures();
+    // Geospatial procedures
+    registerGeoProcedures();
     // Control-flow procedures (APOC compatibility)
     registerControlProcedures();
     // Refactor procedures (APOC compatibility)
@@ -439,6 +442,10 @@ public final class CypherProcedureRegistry {
     register(new DbPropertyKeys());
     register(new DbSchemaVisualization("db.schema"));
     register(new DbSchemaVisualization("db.schema.visualization"));
+  }
+
+  private static void registerGeoProcedures() {
+    register(new GeoNearest());
   }
 
   private static void registerMetaProcedures() {

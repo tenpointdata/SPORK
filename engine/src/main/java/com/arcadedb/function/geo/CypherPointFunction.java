@@ -21,7 +21,10 @@ package com.arcadedb.function.geo;
 import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.exception.CommandSemanticException;
 import com.arcadedb.function.StatelessFunction;
+import com.arcadedb.function.sql.geo.GeoUtils;
 import com.arcadedb.query.sql.executor.CommandContext;
+import org.locationtech.spatial4j.shape.Point;
+import org.locationtech.spatial4j.shape.Shape;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -91,16 +94,7 @@ public class CypherPointFunction implements StatelessFunction {
     if (args.length == 2) {
       if (args[0] == null || args[1] == null)
         return null;
-      final double x = coerceCoordinate("x", args[0]);
-      final double y = coerceCoordinate("y", args[1]);
-      final Map<String, Object> result = new LinkedHashMap<>();
-      result.put("longitude", x);
-      result.put("latitude", y);
-      result.put("x", x);
-      result.put("y", y);
-      result.put("crs", CRS_WGS84_2D);
-      result.put("srid", SRID_WGS84_2D);
-      return result;
+      return wgs84Point(coerceCoordinate("x", args[0]), coerceCoordinate("y", args[1]));
     }
 
     if (args[0] == null)
@@ -208,6 +202,40 @@ public class CypherPointFunction implements StatelessFunction {
    * Whether a crs name is one of the two WGS-84 names, in any letter case: a point stored before issue #11113 carries
    * {@code WGS-84}, one built since {@code wgs-84}.
    */
+  /**
+   * A point written as WKT ({@code 'POINT (lon lat)'}, the value a GEOSPATIAL index holds) or held as a Spatial4j point, as
+   * the WGS-84 point map {@code point()} returns, so the point functions read a geospatially indexed property as they read
+   * a point; any other value is returned as it is. WKT coordinates are longitude/latitude, so the point is geographic.
+   *
+   * @throws CommandExecutionException when the WKT is not a point
+   */
+  public static Object wgs84PointOf(final Object value) {
+    if (!(value instanceof String) && !(value instanceof Shape))
+      return value;
+    final Shape shape;
+    try {
+      shape = GeoUtils.parseGeometry(value);
+    } catch (final IllegalArgumentException e) {
+      throw new CommandExecutionException("Not a point: " + value, e);
+    }
+    if (shape == null)
+      return null;
+    if (!(shape instanceof Point point))
+      throw new CommandExecutionException("Not a point: " + value);
+    return wgs84Point(point.getX(), point.getY());
+  }
+
+  private static Map<String, Object> wgs84Point(final double x, final double y) {
+    final Map<String, Object> result = new LinkedHashMap<>();
+    result.put("longitude", x);
+    result.put("latitude", y);
+    result.put("x", x);
+    result.put("y", y);
+    result.put("crs", CRS_WGS84_2D);
+    result.put("srid", SRID_WGS84_2D);
+    return result;
+  }
+
   public static boolean isGeographicCrs(final String crs) {
     return crs.equalsIgnoreCase(CRS_WGS84_2D) || crs.equalsIgnoreCase(CRS_WGS84_3D);
   }

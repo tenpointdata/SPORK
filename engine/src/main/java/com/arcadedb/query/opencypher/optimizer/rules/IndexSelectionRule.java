@@ -22,6 +22,7 @@ import com.arcadedb.query.opencypher.Labels;
 import com.arcadedb.query.opencypher.executor.operators.NodeByLabelDisjunctionIndexSeek;
 import com.arcadedb.query.opencypher.executor.operators.NodeByLabelDisjunctionScan;
 import com.arcadedb.query.opencypher.executor.operators.NodeByLabelScan;
+import com.arcadedb.query.opencypher.executor.operators.NodeGeoIndexSeek;
 import com.arcadedb.query.opencypher.executor.operators.NodeIndexRangeScan;
 import com.arcadedb.query.opencypher.executor.operators.NodeIndexSeek;
 import com.arcadedb.query.opencypher.executor.operators.NodeIndexUnionSeek;
@@ -162,6 +163,10 @@ public class IndexSelectionRule implements OptimizationRule {
             anchor.getEstimatedCost() / seekCount, Math.max(1, anchor.getEstimatedCardinality() / seekCount)));
       return new NodeIndexUnionSeek(anchor.getVariable(), seeks, anchor.getEstimatedCost(), anchor.getEstimatedCardinality());
     }
+
+    if (anchor.isGeoSeek())
+      return new NodeGeoIndexSeek(anchor.getVariable(), labelToUse, anchor.getGeoSeek(), anchor.getIndex().getIndexName(),
+          anchor.getEstimatedCost(), anchor.getEstimatedCardinality());
 
     if (anchor.useIndex()) {
       if (anchor.isRangeScan()) {

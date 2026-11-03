@@ -28,7 +28,8 @@ import java.util.Map;
  * Cypher {@code point.distance(point1, point2)} function.
  *
  * <p>Computes the distance between two points. Uses Haversine formula for WGS-84
- * geographic points (result in meters), and Euclidean distance for Cartesian points.</p>
+ * geographic points (result in meters), and Euclidean distance for Cartesian points. A WKT point string
+ * ({@code 'POINT (lon lat)'}, the value a GEOSPATIAL index holds) is a WGS-84 point.</p>
  */
 public class CypherPointDistanceFunction implements StatelessFunction {
   private static final double EARTH_RADIUS_M = 6371000.0;
@@ -51,12 +52,13 @@ public class CypherPointDistanceFunction implements StatelessFunction {
   @Override
   public Object execute(final Object[] args, final CommandContext context) {
     checkArity(args);
-    if (args[0] == null || args[1] == null)
+    // a WKT point, what a GEOSPATIAL index holds, is the WGS-84 point it describes
+    final Object a1 = CypherPointFunction.wgs84PointOf(args[0]);
+    final Object a2 = CypherPointFunction.wgs84PointOf(args[1]);
+    if (a1 == null || a2 == null)
       return null;
-    if (!(args[0] instanceof Map) || !(args[1] instanceof Map))
-      throw new CommandExecutionException("point.distance() arguments must be point values (maps)");
-    final Map<?, ?> p1 = (Map<?, ?>) args[0];
-    final Map<?, ?> p2 = (Map<?, ?>) args[1];
+    if (!(a1 instanceof Map<?, ?> p1) || !(a2 instanceof Map<?, ?> p2))
+      throw new CommandExecutionException("point.distance() arguments must be point values (maps or WKT points)");
 
     final boolean geo1 = isGeographic(p1);
     final boolean geo2 = isGeographic(p2);

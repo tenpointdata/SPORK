@@ -123,6 +123,15 @@ public class CostModel {
   }
 
   /**
+   * Estimates the cost of a geospatial index seek: the candidates of the covering cells, each loaded and checked by the
+   * predicate above it. A GEOSPATIAL index answers no key lookup, so it is not one {@link #estimateIndexSeekCost} finds.
+   */
+  public double estimateGeoIndexSeekCost(final String typeName, final double selectivity) {
+    final long estimatedRows = (long) (statistics.getCardinality(typeName) * selectivity);
+    return INDEX_SEEK_COST + (estimatedRows * INDEX_LOOKUP_COST_PER_ROW);
+  }
+
+  /**
    * Estimates the cost of filtering rows.
    *
    * @param inputCardinality number of input rows

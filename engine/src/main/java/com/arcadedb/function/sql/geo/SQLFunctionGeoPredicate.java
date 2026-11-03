@@ -126,8 +126,26 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
 
     final DocumentType docType = schema.getType(typeName);
 
-    // Look for a GEOSPATIAL index on the field
-    return resolveGeoIndex(docType, fieldName) != null;
+    // Look for a GEOSPATIAL index on the field, and a search shape the index can be asked before any record is read
+    return resolveGeoIndex(docType, fieldName) != null && canResolveIndexSearchShape(oExpressions, context);
+  }
+
+  /**
+   * Whether the arguments the index search needs besides the shape evaluate without a record. True for the plain
+   * predicates, whose search shape is their second argument; a predicate with a distance overrides it, since a distance
+   * read off each record ({@code geo.dWithinMeters(coords, $p, radius)}) cannot widen the search shape up front.
+   */
+  protected boolean canResolveIndexSearchShape(final Expression[] oExpressions, final CommandContext context) {
+    return true;
+  }
+
+  /**
+   * The shape to ask the index for, given the predicate's own search shape (its second argument): every record the
+   * predicate can match must be indexed under a cell this shape covers. The shape itself for the plain predicates; a
+   * distance predicate widens it by its distance.
+   */
+  protected Shape indexSearchShape(final Shape shape, final Expression[] oExpressions, final CommandContext context) {
+    return shape;
   }
 
   /**
@@ -136,7 +154,7 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
    * so it could leave out a record the predicate matches, which the check after the search cannot bring back. The query
    * scans the type instead until the index is rebuilt.
    */
-  private static TypeIndex resolveGeoIndex(final DocumentType docType, final String fieldName) {
+  public static TypeIndex resolveGeoIndex(final DocumentType docType, final String fieldName) {
     for (final TypeIndex typeIndex : TypeIndex.filterReadyForQueries(docType.getAllIndexes(true))) {
       if (typeIndex.getType() == Schema.INDEX_TYPE.GEOSPATIAL) {
         final List<String> props = typeIndex.getPropertyNames();
@@ -147,7 +165,8 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
     return null;
   }
 
-  private static boolean isPlanar(final TypeIndex typeIndex) {
+  /** Whether every bucket index of a GEOSPATIAL index holds the cells of shapes as written on the plane (issue #10210). */
+  public static boolean isPlanar(final TypeIndex typeIndex) {
     for (final IndexInternal bucketIndex : typeIndex.getIndexesOnBuckets())
       if (bucketIndex instanceof LSMTreeGeoIndex geoIndex && !geoIndex.isPlanar())
         return false;
@@ -200,9 +219,10 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
       return List.of();
 
     // Parse the search shape from the second expression value
-    final Shape searchShape = resolveSearchShape(oExpressions, context);
-    if (searchShape == null)
+    final Shape predicateShape = resolveSearchShape(oExpressions, context);
+    if (predicateShape == null)
       return List.of();
+    final Shape searchShape = indexSearchShape(predicateShape, oExpressions, context);
 
     // #5601: the per-bucket geo cursors are chained LAZILY. Materialising them here loaded every candidate RECORD of
     // every bucket - the full content, not just the RID - before the first row reached the geo.* re-check, so a

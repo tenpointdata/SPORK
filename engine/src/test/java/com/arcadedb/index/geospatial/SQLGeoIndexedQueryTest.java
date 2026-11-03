@@ -93,8 +93,8 @@ class SQLGeoIndexedQueryTest extends TestHelper {
   }
 
   /**
-   * Verifies geo.dWithin proximity query using the inline full-scan fallback path (the index
-   * exists on the type but geo.dWithin always disables indexed execution).
+   * Verifies a geo.dWithin proximity query on an indexed type. geo.dWithin used to disable indexed execution; it now asks
+   * the index for the cells within the distance of the search point and re-checks the candidates exactly.
    *
    * <p>Search point: POINT (12.0, 41.5), distance threshold: 1.0 degree (great-circle degrees
    * as computed by {@code SpatialContext.calcDistance()}).
