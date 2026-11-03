@@ -19,6 +19,7 @@
  */
 package com.arcadedb.spork.encoder;
 
+import com.arcadedb.log.LogManager;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.sun.net.httpserver.HttpExchange;
@@ -40,7 +41,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * The sidecar's HTTP API, called by the SPORK plugin (probe encodes) and the ingest saga and backfill (bulk encodes) on
@@ -63,8 +63,6 @@ import java.util.logging.Logger;
  * {@link EncodeScheduler}'s workers, so the request count never changes the CPU the process uses.
  */
 public final class EncoderHttpServer implements AutoCloseable {
-  private static final Logger LOGGER = Logger.getLogger(EncoderHttpServer.class.getName());
-
   private enum Output {FLOAT32, BINARY, INT4, INT8}
 
   private final EncoderConfig   config;
@@ -142,7 +140,7 @@ public final class EncoderHttpServer implements AutoCloseable {
       } catch (final TimeoutException e) {
         send(exchange, 504, error("Timed out: " + e.getMessage()));
       } catch (final Exception e) {
-        LOGGER.log(Level.WARNING, "Encoder request failed", e);
+        LogManager.instance().log(this, Level.WARNING, "Encoder request failed", e);
         send(exchange, 500, error(e.getMessage()));
       } finally {
         exchange.close();

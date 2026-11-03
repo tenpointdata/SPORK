@@ -19,12 +19,13 @@
  */
 package com.arcadedb.spork.encoder;
 
+import com.arcadedb.log.LogManager;
 import com.arcadedb.serializer.json.JSONObject;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
-import java.util.logging.Logger;
+import java.util.logging.Level;
 
 /**
  * Starts the sidecar: {@code java -cp ... com.arcadedb.spork.encoder.EncoderMain [--config encoder.json]}. Run it in
@@ -32,8 +33,6 @@ import java.util.logging.Logger;
  * the heap (01-architecture.md 1.4 budgets 3 GB for the whole process).
  */
 public final class EncoderMain {
-  private static final Logger LOGGER = Logger.getLogger(EncoderMain.class.getName());
-
   private EncoderMain() {
   }
 
@@ -47,8 +46,8 @@ public final class EncoderMain {
 
     final EncoderConfig config = EncoderConfig.fromJSON(json);
     final EncoderHttpServer server = start(config);
-    LOGGER.info(() -> "SPORK encoder listening on " + config.host() + ":" + server.port() + " with " + config.workers() + " workers x "
-        + config.intraOpThreads() + " ONNX Runtime threads");
+    LogManager.instance().log(EncoderMain.class, Level.INFO, "SPORK encoder listening on %s:%d with %d workers x %d ONNX Runtime threads",
+        config.host(), server.port(), config.workers(), config.intraOpThreads());
 
     final CountDownLatch stopped = new CountDownLatch(1);
     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
