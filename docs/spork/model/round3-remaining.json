@@ -1,0 +1,205 @@
+[
+ {
+  "severity": "major",
+  "section": "3.1 routing table, 5.1 purpose gates, 5.2 sensitive reads, 5.4, 7.2",
+  "problem": "Audit and purpose gating are attached to /intake, /dossier:footprint, /feed, face, text access and package only. /pivot, /search (phone=, email=, business=, imageHash= filters), /partial, /groupby and /records:hydrate return the same identifier footprints, and /pivot returns more (full paged footprint, no 300 cap), with no audit entry and no purpose gate. Under a standing_monitoring or training OC an analyst can skip the gated, audited /intake and pull the same data through /pivot. The doc also contradicts itself: 5.4 says console-role search rows are 'purpose-gated and audited', while 3.1 says only intake and feed append audit. Recon's console export verbs (export csv/brief and the tools.ts dossier verb) build files of phones and places from hydrated sets, and /audit/append accepts only package.export, dossier.view and intake.run, so those exports cannot be audited at all. The knowledge snapshot export (GET /api/missions/knowledge returns every mission and every evidence excerpt) is mapped with no audit.",
+  "evidence": "Doc 3.1: 'Search, hydrate, intake, pivot, group-by ... eventual ... Intake and feed append audit on the leader first.' Doc 5.2: 'Sensitive reads (intake, dossier, feed, face search, text access, package)'. Doc 2.4: 'Only an explicit /pivot pages a full footprint'. Recon engine.ts resolveSource for phone/email tokens is just Engine.pivot (recordsByIdentifier -> pivot), so intake and pivot are the same read. tools.ts 'export' (exportCsv: id, posted, place, phones) and 'dossier' verbs (tool-exports.ts) produce shareable artifacts. missions/knowledge-routes.ts knowledgeSnapshot returns store.search() (all evidence) plus all missions.",
+  "fix": "Define audit and purpose gating by data class, not by endpoint. Every route that returns identifier footprints or record projections (/pivot, /search with identifier filters, /partial, /groupby, /records:hydrate, /graph/*, /geo/*) appends a batched audit entry (one entry per request with a Merkle root of the returned record keys) and passes the same purpose gate as /intake. Add 'export.csv', 'export.brief' and 'knowledge.export' to the /audit/append allowlist (or serve the knowledge export from SPORK with its own audited action). Make 3.1 and 5.4 agree on whether console search is audited."
+ },
+ {
+  "severity": "major",
+  "section": "5.1 Engine user binding, 5.4 Redaction, 7.2 /records:hydrate",
+  "problem": "The txt_* redaction boundary needs each request to run as either the console role or the ops role, but nothing says how a request is assigned to a role. The doc says 'every spork-recon route binds the route's role user', yet the same routes serve both roles: /records:hydrate ('title and text only through the console role'), /search, /intake, GET /records/{id}. The signed OC JWT carries {analyst, caseRef, purpose, tenant} and no role, and 5.3 names a single Recon service user. So either an ops-path caller can ask for a title projection and get it (no boundary), or console search rows and get_record lose their titles. Mission lead titles 'rendered at view time through the console role' depend on the same missing selector.",
+  "evidence": "Doc 5.1: 'binds the route's role user (console or ops ServerSecurityUser ...)'. Doc 5.4: 'The console role reads txt_* (search rows with titles, get_record text, the q filter) ... The ops role (ops APIs, dossier, packages, missions) has no grant on txt_*'. Doc 7.2 hydrate row: 'Title and text only through the console role.' Doc 5.1 token: '{analyst, caseRef, purpose, tenant, iat, exp}'. Recon: tools.ts get_record returns record.text and title; engine.ts toRow includes title (console search rows); ops/dossier.ts metadataRow strips the title (ops path).",
+  "fix": "Add a gateway-asserted role to the signed OC (or give Recon two mTLS client identities, console and ops). The plugin binds the role user from that claim, not from the route, and refuses title or text projections, the q filter and text access under ops. Recon's ops modules (dossier, package, watch scan, missions, overview) use the ops identity and the classic console uses the console identity. Extend the WS3 denial test to cover a shared route (hydrate with a title projection under ops returns 403)."
+ },
+ {
+  "severity": "major",
+  "section": "5.1 Classic console, 7.2 /watches, /alerts, /feedback, /image",
+  "problem": "The OC rollout lists ten classic routes but leaves out the classic monitor and media routes the console calls: POST /api/watch (create a watch), POST /api/watch/scan (scan every watch, or one by id), GET and DELETE /api/alerts (clear all alerts), POST /api/feedback (trains the ranker) and GET /api/image. After cutover, SPORK's /watches (OC required, createdOc stored), DELETE /alerts (alerts.clear audited first) and GET /image (audited) either return 428 and break the console's WATCH button, alert badge and image views, or run under the gateway's injected default OC. In the second case every watch the console creates stores a synthesized createdOc, and automated scans run forever under a purpose no analyst declared. That defeats the createdOc rule in 5.1.",
+  "evidence": "Recon server.ts: /api/watch POST calls monitor.addWatch with no context; /api/watch/scan; /api/alerts DELETE calls monitor.clearAlerts() with no audit; /api/feedback calls monitor.recordFeedback + model.trainOne; /api/image. Recon client/app.ts addWatch() POSTs /api/watch and then /api/watch/scan; pollAlerts() GETs /api/alerts; data-alerts-clear DELETEs /api/alerts; sendFeedback POSTs /api/feedback; imgSrc uses /api/image. client/ops/api.ts also GETs /api/alerts. Doc 5.1 list: '/api/run, /api/exec, /api/signal, /api/faces, /api/faces/stream, /api/geo, /api/recent, /api/focus, /api/expand, /api/compare'.",
+  "fix": "Add these routes to the WS4 OC work. Retire /api/watch, /api/watch/scan and /api/alerts DELETE in favour of the ops routes, which need a declared OC. Make /api/feedback require an OC and record a 'feedback.record' audit action. Refuse to store a gateway-injected default OC as a Watch or Mission createdOc: automation requires a declared OC."
+ },
+ {
+  "severity": "major",
+  "section": "5.2 Throughput, 5.4 Images, 7.2 GET /image",
+  "problem": "GET /image is 'purpose-gated, audited', and sensitive reads append on the leader before release, so every <img> the console loads is one audited transaction on the identity chain. Recon renders image grids: the faces overlay shows one thumbnail per matched face instance (facialScan covers up to 120 records x 8 images), and the client runs a face scan after every intake. One face view is therefore 50 to several hundred audited commits in a burst. The chain head serializes 200 to 500 per second for the whole cluster, so a few analysts doing intakes would saturate it and stall board writes, intake and dossier audits. The doc's 'Recon needs well under 50' per second omits this load by more than an order of magnitude.",
+  "evidence": "Doc 5.2: 'One chain head per database serializes audited transactions at roughly 200 to 500 per second. Recon needs well under 50.' Doc 7.2: 'GET /image ... purpose-gated, audited'. Recon client/faces.ts renders <img src=img(f.recordId, f.hash)> per face instance (lines 103, 202). facial.ts imageBytesAll caps 8 images per record, server.ts /api/faces cap up to 120. Doc 5.1: '/face/cluster, which Recon runs after every intake today'.",
+  "fix": "Audit image access per view, not per fetch. One 'image.view' entry per face scan, record view or compare (with the record keys or a Merkle root of the (record, hash) pairs) issues a short-lived signed image grant, and /image checks the grant without a chain append. Recompute the audit rate with images included and restate the 5.2 headroom."
+ },
+ {
+  "severity": "major",
+  "section": "0.4 txt_<p>, 2.1 TextBody/Record.styleVec, 6.2 enrichment, 8 Q1 exit criteria",
+  "problem": "Stylometric parity, part of the Q1 dossier contentHash exit criterion, depends on two things the doc never pins down: what textHash covers, and what input the style vector uses. Recon computes styleVector and the fingerprint label per record from the exact raw article_body, with case and punctuation counted as features. SPORK computes one style[24] per deduplicated TextBody, then copies it onto Record. TextBody.text is title + ' ' + body, and A5 describes dedup as 'after normalization'. If the hash normalizes the text, or the worker runs over `text` instead of the exact body, reposts that differ in case or punctuation share one vector that no longer equals Recon's, and authorship links and fuzzy link clusters move across the 0.95 threshold. get_record also shows another record's text.",
+  "evidence": "Recon api-source.ts mapRecord: style = identity().fingerprint(rl.article_body), styleVec = identity().styleVector(rl.article_body). identity.ts styleVector uses caps rate, '!', '?' and '...' counts. ops/dossier.ts buildDossier runs linkClusters(..., {fuzzy:true}) over styleVec. Doc A5: '50% of texts are unique after normalization'. Doc 2.1: 'textHash (sha256/128)', 'text (stored title + body ...)', 'styleVec (exact float32 copy of style[24])'. Doc 8: Q1 exit requires 'contentHash parity (stylometric links included, over the exact float32 styleVec)'.",
+  "fix": "State that textHash is SHA-256 over the exact title + body bytes with no normalization. State that style and styleVec are computed per record from the exact article_body by a golden-vector port of Recon's identity.ts styleVector and stylometricFingerprint, at ingest, before dedup. P0a then measures the real exact-match unique fraction to replace A5's 0.5: each 0.1 above it adds about 4% to the mid 3x total."
+ },
+ {
+  "severity": "major",
+  "section": "5.5 Retention, legal hold and deletion propagation; D19",
+  "problem": "D19 claims 'complete propagation', but the deletion saga never reaches the copies of identifiers and record keys in the case layer and in Recon-derived state. These are Target.anchor, snapshot.identifiers, snapshot.places, sources and identifierKeys[]; Watch.sources and the per-anchor baseline; Alert.anchor; Mission.seeds and lead sourceRefs (record keys and title hashes); Feedback keyed by anchor; and v1 audit subjects (acknowledged). A subject-level deletion order leaves the phone or handle in the board, deconfliction index, watches and alerts. Nothing states whether that is a deliberate work-product exemption under its own RetentionPolicy.",
+  "evidence": "Doc 5.5 steps 1-9 cover rec/txt, identity aggregates, Presence and counters, media, ROC, object store, backups and the certificate, with no case-layer step. Doc 2.1 Target stores identifierKeys[] and the snapshot. Recon monitor.ts Watch.baseline is Record<anchor, score> and Alert.anchor; ops/contracts.ts BoardTarget.snapshot.identifiers; missions/targeting.ts SourceReference.recordId. Doc D19: 'Complete propagation, including counters and backups'.",
+  "fix": "Add a step that either (a) redacts the subject's keys from Target.identifierKeys, snapshot, Watch sources and baselines, Alerts and Feedback, marking affected targets 'subject deleted', or (b) declares case-layer work product exempt under a named RetentionPolicy that an owner signs (9.2 Q5), with the exemption recorded in the completion certificate. Reword D19 to match."
+ },
+ {
+  "severity": "minor",
+  "section": "2.1 Alert, 7.2 /alerts, /watches",
+  "problem": "Alert's stored fields drop data Recon persists and renders: id, watchName, families and command (the one-click drill). Recon also deletes a watch's alerts when the watch is removed, and the doc does not say that removing a watch cascades to its alerts.",
+  "evidence": "Recon monitor.ts Alert {id, watchId, watchName, kind, anchor, score, families, command, at}; removeWatch filters state.alerts by watchId. ops/contracts.ts AlertItem requires families and command. Doc 2.1 Alert: 'watchKey, kind, anchor, score, delta, at'.",
+  "fix": "Add watchName, families[] and command to Alert, and cascade alert deletion (audited) on watch.remove."
+ },
+ {
+  "severity": "minor",
+  "section": "5.2 One audit page for Recon",
+  "problem": "Recon's audit page returns `total` = the count of entries matching the action, caseRef and subject filters. Per-database counters give only unfiltered counts, so filtered totals come out wrong.",
+  "evidence": "Recon ops/audit.ts query(): total++ only for entries passing the action/caseRef/subject filters. Doc 5.2: '`total` comes from per-database counters.'",
+  "fix": "Serve filtered totals from count pushdown on (action), (caseRef) and (subjectKey) indexes on AuditEntry, capped like search totals, and use counters only when no filter is given."
+ },
+ {
+  "severity": "minor",
+  "section": "2.4 per-token cap, 7.2 /intake, /records:hydrate",
+  "problem": "No request-size bounds. /api/signal accepts any number of tokens at up to 2,000 each, and /records:hydrate takes an unbounded ids[]. At 25 tokens x 2,000 a hydrate is 50K ids, about 3.2 GB of 16 KB page reads, 14% of n2/n3's page cache per call. The social-token cap is stated as 2,000 records rather than the per-token limit (default 300) that Recon applies through materialize.",
+  "evidence": "Recon server.ts /api/signal: tokens = src.split(...) with no count cap, limit up to 2000; /api/focus caps ids at 2000. Doc 2.5: 64 KB per upstream RID. Doc 4 partial-handle row: 'capped at 2,000 records'.",
+  "fix": "Cap /intake at 25 tokens and /records:hydrate at about 5,000 ids per call (Recon pages larger sets), and apply the per-token `limit` to social tokens."
+ },
+ {
+  "severity": "minor",
+  "section": "7.1, 7.3 Mission automation",
+  "problem": "Two mission behaviours are unaddressed. First, Recon's mission collection uses only the upstream per-seed results (idsForToken, up to 20 seeds), with no identifier re-match and no RID sibling expansion. If missions move to /intake, the footprint changes, and this is not among the listed accepted differences. Second, MissionStore marks every 'running' iteration as interrupted on process start. With several Recon instances sharing SPORK leases, one instance restarting would interrupt runs another instance holds.",
+  "evidence": "Recon missions/routes.ts collect: ids = seeds.flatMap(seed => source.idsForToken(seed)); seeds <= 20. missions/store.ts constructor marks running iterations 'interrupted'. Doc 7.3: lease 'shared ... across Recon instances'.",
+  "fix": "List the mission footprint rule (identifier rule plus RID siblings) as an accepted shadow-diff difference, or give missions an intake mode without sibling expansion. Make restart recovery lease-aware: interrupt only iterations whose SPORK lease has expired."
+ },
+ {
+  "severity": "minor",
+  "section": "2.5 analyst imports, 7.2 /ingest",
+  "problem": "After /api/ingest Recon refers to analyst-imported records by the analyst's own id (sets, board sources, get_record). SPORK stores that id in importedId with no index and resolves only upstreamRid or record_id, so those references stop resolving. An imported id that looks like a RID ('123:45') is sent to recdir as an upstream RID and misses.",
+  "evidence": "Recon ingest.ts toReconRecord: id: ad.id; store.ts ingestedRecords; LocalSource.get matches record.id. Doc 2.5: 'the analyst's id in importedId ... and no upstreamRid'; intake treats ^\\d+:\\d+$ as a legacy RID.",
+  "fix": "Index (tenant, importedId). Have /ingest return the importedId to record_id map, accept importedId in hydrate and intake (namespaced, for example 'imp:<id>'), and check importedId before recdir for RID-shaped tokens."
+ },
+ {
+  "severity": "minor",
+  "section": "5.3 Deconfliction, 2.3 canonical keys",
+  "problem": "/deconflict matches spork-keys canonical keys, which infer an area code for 7-digit phones from the posting city. Board snapshot identifiers carry no city, so a stored 7-digit phone stays at 7 digits while the same number from a footprint record becomes 10 digits. The overlap Recon's identKey finds is missed, which matters because deconfliction is a safety function.",
+  "evidence": "Recon ops/dossier.ts identKey phone: d.slice(-10) with no inference (7 digits stay 7). Doc 2.3: 'A 7-digit number inherits the posting city's area code'. Doc 2.1 identifierKeys[] are canonical keys of the anchor and snapshot identifiers.",
+  "fix": "Store both the raw-digit key and the inferred key in Target.identifierKeys[] for 7-digit phones, and send both from the footprint side, so deconfliction is a superset of Recon's identKey matches."
+ },
+ {
+  "severity": "minor",
+  "section": "7.1 SporkSource",
+  "problem": "The doc says SporkSource get(id) and resolve(ids) 'call POST /records:hydrate', but ReconSource.get is synchronous and Engine.search, pivot, recordsBySocial, recentLocated and totalRecords call source.all(), which the doc retires. SporkSource therefore has to materialize into a per-session cache before analysis, as ApiSource does. The Engine methods that use all() need async SPORK-backed replacements that the WS4 scope never lists.",
+  "evidence": "Recon engine.ts: interface ReconSource { all(): ReconRecord[]; get(id): ReconRecord | undefined }; Engine.search/pivot/recordsBySocial/recentLocated use this.source.all(). tools.ts execute() prefetch hooks only for search, pivot and get_record.",
+  "fix": "Specify SporkSource as a materializing cache (prefetch through /intake, /search, /pivot and /records:hydrate, then serve get() from the cache). List the Engine methods rewritten to async SPORK calls in WS4."
+ },
+ {
+  "severity": "minor",
+  "section": "7.1 Shadow-diff harness, 8 P0a",
+  "problem": "The record-replay set of real intakes, dossiers and watch scans (frozen upstream responses with identifiers, and possibly ad text) is a new store of real personal data. Nothing defines where it lives, how it is encrypted, how long it is kept, or whether deletion propagation reaches it.",
+  "evidence": "Doc 7.1: 'records real intakes, dossiers and watch scans with a record-replay layer that freezes upstream responses (rldSearch, gss.recent, record fetches)'. Doc 8 P0a: 'Record a replay set of real intakes, dossiers and watch scans'.",
+  "fix": "Keep the replay set in the object store under SSE-KMS with its own retention class (deleted at cutover plus N days), access-audited, and add it to the 5.5 deletion steps or exempt it by owner decision."
+ },
+ {
+  "severity": "blocker",
+  "section": "0.4 Fixed per node (Raft log + WAL 60 GB), 3.2 rule 6, 6.2 Raft log, R19",
+  "problem": "The design never budgets LSM index compaction. In this engine, compaction runs only on the leader and every page it writes ships through the Raft log. With default settings, any index larger than 10 x 1,024 pages is rewritten in full on every compaction round. Nearly every growing SPORK index is that large: `recdir` upstreamRid, the current partition's upstreamRid, record_id and textHash, the current `txt_<p>` FULL_TEXT, and the `identity` key indexes. So the 15 to 25 GB/day Raft estimate, the 60 GB Raft line, the 2.4 to 4 day dead-peer window and follower write load (SSD wear) are all wrong by more than 10x. The transient copy each full compaction writes (old file kept until its readers finish) is also unbudgeted.",
+  "evidence": "`LSMTreeIndexCompactor.isFullCompactionDue` returns true when `seriesCount >= INDEX_COMPACTION_FULL_SERIES` (default 10). `compactFull` writes through `streamWriter.appendBounded(..., DEFAULT_MAX_DATA_PAGES_PER_SERIES)` with `DEFAULT_MAX_DATA_PAGES_PER_SERIES = 1_024`, and starts a new series when the root page fills. A full rewrite of any index over 10,240 pages (160 MB at 16 KB pages, 2.6 GB at 256 KB) therefore produces 10 or more series, and the next round is full again. The RAM fallback does not save it: (series + 10) x pageSize is about 26 MB, under the 300 MB `INDEX_COMPACTION_RAM_MB`. Rounds trigger every 10 mutable pages (`INDEX_COMPACTION_MIN_PAGES_SCHEDULE=10`, `LSMTreeIndexMutable` line 213). `RaftReplicatedDatabase.runWithCompactionReplication` returns false on followers and ships the leader's compacted pages as chunked SCHEMA_ENTRY WAL (`RaftTransactionBroker`: 'the embedded WAL of an index compaction grows with the index'). Rough sizes at 30 B per entry: `recdir` upstreamRid is 8.7 GB today (about 520 series) and 27 GB at 3x (about 1,600 series). At 200K records/day it fills about 370 mutable 16 KB pages a day, which triggers about 37 full rewrites (about 320 GB/day). The current `txt_<p>` FULL_TEXT is up to 18.5 GB (about 70 series at 256 KB): about 18 triggers a day today and 76 at 3x pace, each rewriting about 9 GB on average. Total: several hundred GB/day today and well over 1 TB/day at 3x, against 15 to 25 GB/day budgeted. The word 'compaction' does not appear in the architecture doc's replication or capacity sections.",
+  "fix": "Add an explicit LSM compaction policy to E0 and section 0.4. (1) Per SPORK database, set `arcadedb.indexCompactionFullSeriesThreshold` above the post-full series count (index pages / 1,024 plus margin) or to 0, and raise `arcadedb.indexCompactionMinPagesSchedule` for the large append-only indexes. (2) Run full compactions as leased, off-peak, one-index-at-a-time jobs under the `transient-slot` lease (they also rewrite the file and ship it through Raft). (3) Budget their Raft volume (the largest index, 27 GB at mid 3x) in the Raft log line, and transient disk equal to the largest index in the fixed or transient budget. (4) Restate the dead-peer window with compaction traffic included. (5) Add Raft bytes per compaction, series count per index and follower apply time to the P0a and P0c measurements. Consider larger pages (64 KB or more) for `recdir`, which cuts its series count."
+ },
+ {
+  "severity": "major",
+  "section": "2.5 hydrate cost, 0.4 page sizes, 1.4 page cache (n4 4 GB)",
+  "problem": "The '4 cold reads per upstream RID' hydrate figure, and the claim that the series root and bloom pages 'are small and stay cached', do not hold at SPORK's index sizes. A point lookup visits every compacted series, and series are capped at 1,024 data pages. At 16 KB that is about 16 MB per series, so each `recdir` probe walks about 520 series today and about 1,600 at 3x. For each series it reads the last data page and one 8 KB bloom page. Lookups stay near 4 cold reads only while every bloom page of `recdir` and of each partition's upstreamRid index is resident: about 1.1 GB for `recdir` alone at 3x, and about 2.2 GB with the partition indexes. On n4 (4 GB page cache, which serves the set-scoped geo and graph hydrates) that is over half the cache. Each miss turns one lookup into hundreds of cold 8 KB reads, and there is also about 0.3 to 0.5 ms of CPU per `recdir` lookup at 3x even when cached.",
+  "evidence": "`LSMTreeIndexCompacted` lookup loop (around lines 713 to 740): for every series from `effectivePageCount-1` downward, it calls `getPageForAbsoluteReads(lastPage)` and then `filters.mightContain(...)`, before the root-page range check. `LSMTreeIndexBloomFilter.PAGE_SIZE = 8_192`. `INDEX_BLOOM_FILTER_RATE` defaults to 0.01, about 9.6 bits (1.2 B) per key, so 900M `recdir` keys come to about 1.08 GB of bloom pages. Every lookup touches one bloom block in every series, so all of them are hot. Series cap: `DEFAULT_MAX_DATA_PAGES_PER_SERIES = 1_024` in `LSMTreeIndexCompactedStreamWriter`, also used by `LSMTreeIndexBulkLoader`.",
+  "fix": "Restate the hydrate cost as 4 cold reads plus a resident series walk of about (index bytes / (1,024 x page size)) series per probe. Budget the resident bloom set (about 1 to 2 GB at 3x) inside the 23 GB page cache. Do not route hydrate-heavy set endpoints to n4 until P0a measures them, or give n4 more page cache. Consider 64 KB pages for `recdir` (16x fewer series, 2x the hydrate bytes) and measure series count and bloom residency in P0a."
+ },
+ {
+  "severity": "major",
+  "section": "9.2 Q13, 5.6 Backup mount, 0.4 Backups",
+  "problem": "The off-node backup mount is sized at one generation (487 GB today, 1.5 TB at 3x), but the plan keeps 7 daily full archives of every database. The mount must hold 7 generations plus the one being written: about 3.4 to 3.9 TB at mid today and 10.6 to 12.2 TB at 3x, which is 7 to 8 times the figure the owner is asked to provide. Sealed period databases change only through deletes, yet each one is re-archived in full every day.",
+  "evidence": "0.4: 'frequency 1,440 minutes per database ... retention to 7 daily archives per database (maxFiles 7 on the mount)'. Model: 'one full generation mid today 487, 3x 1519'. Q13 asks only for a mount where 'one full generation is about 487 GB at mid today, 1.5 TB at 3x'. 7 x 487 = 3,409 GB and 7 x 1,519 = 10,633 GB.",
+  "fix": "Size the mount in Q13 and 5.6 as (retention + 1) x generation: about 3.9 TB today and 12.2 TB at mid 3x. Alternatively, back up sealed period databases once at seal, plus after deletion batches, and keep 7 dailies only for `identity`, `ops`, `audit`, `recdir` and the current period, which cuts the mount to about 1 to 2 TB."
+ },
+ {
+  "severity": "major",
+  "section": "Executive summary, 0.6 disk trigger table, 1.3 pressure valves, R1",
+  "problem": "The install deadline and the valve bridge are computed as if the face gallery existed at month 0. The pressure valves cannot run before Q2. Valve 2 removes non-representative gallery segments that do not exist until the W8 face backfill (Q2). Valves 1 and 3 need the offline warm rewrite under the aging protocol (WS7, Q2), and valve 1 also needs a P0 recall measurement and an analyzer jar. So 'valves stretch it to month 3.7 (2027-02)' is not executable, while the real face-free deadline is later than stated. At mid, the footprint without faces is 1,147 GB today. It crosses the 1,248 GB order trigger at month 1.3 and the 1,560 GB ceiling at month 5.1 (about 2027-04), not month 2.5. The binding date is therefore the earlier of month 5.1 and the start of the face backfill.",
+  "evidence": "Re-running `budget.py` with gallery, tattoo and face metadata removed gives face-free totals of low 1,063, mid 1,147 and high 1,315 GB. The 1,560 GB crossings are low month 6.8, mid month 5.1 and high month 2.6. Section 6.1: 'the corpus is usable without faces in the meantime'. Section 8: faces arrive by the end of Q2, and the aging protocol is WS7 in Q2. Valve savings at month 3.7: prune 39, non-representative gallery 77, hot cap 5 GB.",
+  "fix": "State two dates: install before the face backfill starts, and in any case before month 5.1 at mid (2.6 at high, 6.8 at low). Order now still stands. Drop the 'valves stretch to month 3.7' claim, or restate the valves as available only from Q2 (valve 2 only after W8, valves 1 and 3 only after WS7). Note that the face backfill must not start on any node that has not had H1 installed."
+ },
+ {
+  "severity": "minor",
+  "section": "E0 table (3.6), 1.4 vector residency",
+  "problem": "E0 lists `searchCacheSize` 0.5M as a per-index setting at creation ('index metadata'). It is not an index metadata key. It is the database-scope configuration `arcadedb.vectorIndex.searchCacheSize`, read from the database configuration for every vector index in that database.",
+  "evidence": "`LSMVectorIndex.searchCacheCapacity` reads `mutable.getDatabase().getConfiguration().getValueAsInteger(GlobalConfiguration.VECTOR_INDEX_SEARCH_CACHE_SIZE)`. `storeVectorsInGraph` appears in `LSMVectorIndexMetadata` and `TypeLSMVectorIndexBuilder`, but `searchCacheSize` does not appear in the schema metadata classes.",
+  "fix": "In E0, set `arcadedb.vectorIndex.searchCacheSize=500000` at server or database scope for every `txt_*` database (including those created by n4 builds and `_w<n>` rewrites). Keep `storeVectorsInGraph=true` as the per-index metadata."
+ },
+ {
+  "severity": "minor",
+  "section": "0.6 What to buy / rollout, 5.6 LUKS",
+  "problem": "The expansion procedure (vgextend, lvextend, xfs_growfs) leaves out the LUKS step, which the day-1 'LUKS on the single SPORK volume' rule requires. With LVM on LUKS, the new drive needs luksFormat, open and pvcreate (plus key handling at boot) before vgextend. With LUKS on LVM, `cryptsetup resize` must run before xfs_growfs. It also does not note that a linear LV across two drives makes either drive's failure a full-node loss, with a 4 to 6.5 hour rebuild.",
+  "evidence": "0.6: 'Add it to the existing LVM volume group (`vgextend`, `lvextend`) and run `xfs_growfs`'. 5.6: 'LUKS (dm-crypt) on the single SPORK volume'. 3.3: replacement takes about 4 to 6.5 hours at mid 3x.",
+  "fix": "Pin the layering (for example LVM on LUKS, with a LUKS PV on each drive) and list the full online sequence. Add the doubled per-node drive-failure exposure to R9, or consider RAID1 or mirrored PVs if the hardware allows."
+ },
+ {
+  "severity": "major",
+  "section": "3.5 Bulk backfills (admission stall), 3.6 E0, R18",
+  "problem": "The design says a backfill or aging admission stalls each follower's apply thread for 6 to 10 minutes. It misses that the stock stale-follower recovery is likely to fire during that stall. When it fires, each follower re-downloads every database it holds. That is a full-node transfer on all three followers (973 GB today, 3,038 GB at mid 3x), which takes hours, not 6 to 10 minutes. The forced install sets none of the flags that exempt a follower from the lag check, so the HealthMonitor sees a follower whose applied index has stopped moving. At the doc's own write pattern the lag passes 10,000 entries well inside the stall. Per-job MediaJob claims and completions alone are about 58 entries/s at 3x pace (1.25M images/day DETECT plus 626K faces/day CLUSTER, at least 2 tx each; doc line 817), plus enrichment updates and audit appends. The admission plan runs for every backfill and every hot-to-warm aging, so each one would turn into a cluster-wide resync with n1 serving reads alone.",
+  "evidence": "GlobalConfiguration.java:3049 HA_STALE_FOLLOWER_LAG_THRESHOLD default 10_000 and :3061 HA_STALE_FOLLOWER_RECOVERY_DURATION_MS default 60_000. HealthMonitor.java:871-893 checkStaleFollower calls recoverFromPersistentLag once the lag has persisted for the recovery duration. RaftHAServer.java:2445-2471 isFollowerLaggingBeyond: the only exemptions are isSnapshotDownloadPending() and a catch-up whose applied index is moving. RaftHAServer.java:2511-2522: the lag test looks only at applied-index progress. ArcadeStateMachine.java:5405 runs the forceSnapshot branch through installLeaderCopy on the apply thread. That path sets neither snapshotDownloadInProgress nor catchingUp (those are set only at :3302, :6735, :8880, :9453 and :2203). ArcadeStateMachine.java:10156-10165 recoverFromPersistentLag calls triggerSnapshotDownload, and :8870-8905 then calls downloadAllDatabasesFrom (:8951), which runs installLeaderCopy for every registered database and then every closed one.",
+  "fix": "Add to E0: HA_STALE_FOLLOWER_RECOVERY_DURATION_MS above the worst admission stall plus margin (for example 1,800,000 ms), or raise HA_STALE_FOLLOWER_LAG_THRESHOLD above the entries one stall accumulates. Restate R18 and the P0c gate to also assert that no follower logs 'Persistent follower lag ... triggering snapshot recovery' during an admission. Have workers batch MediaJob claims and completions so the per-entry rate stays low. Make the E16 rationale mention this hazard."
+ },
+ {
+  "severity": "major",
+  "section": "2.1 Mission row, 5.4 Missions, 7.1 (generateLeads stays in Recon), WS10",
+  "problem": "The doc says lead sourceRefs 'hold record keys and a title hash, never the title'. Nothing implements this. Recon's generateLeads stays in Recon unchanged and writes the ad title into every sourceRef. Recon persists whole Mission documents, leads included, as JSON in SQLite. So (a) migrating existing missions into SPORK `identity` (WS10) would put plaintext ad titles where the ops role can read them, which breaks the rule that ad titles live only in txt_*. (b) New leads built over an ops-role hydrate, which carries no title, silently fall back to the record id. That changes what the missions UI shows, and the difference is not in the shadow-diff accepted-differences list. No workstream produces the 'title hash', and Recon cannot compute one without the title.",
+  "evidence": "recon-next/src/missions/targeting.ts:21-24 builds sourceRefs as `{ provider: 'records', recordId: id, origin: record.source, title: record.title || id, ... }`. recon-next/src/missions/store.ts:57 and :69 store `JSON.stringify(mission)` (leads included) in SQLite. Architecture doc lines 393 and 710 make the title-hash claim. Line 838 keeps missions/targeting.ts generateLeads in Recon. Section 5.4 puts missions under the ops role, which has no txt_* grant.",
+  "fix": "Choose and size one option. (1) WS10 strips or replaces sourceRefs[].title with textHash (add textHash to the hydrate projection) when importing legacy missions, and WS4 changes targeting.ts to emit textHash, with the UI resolving titles through the console role. (2) Accept the id fallback and add it to the accepted shadow-diff differences. Either way, state that the legacy mission import is redacted before it lands in `identity`."
+ },
+ {
+  "severity": "minor",
+  "section": "3.6 E0, 1.4 vector residency",
+  "problem": "E0 sets `searchCacheSize` 0.5M 'per index at creation' through 'index metadata'. That is not an index setting. Vector index metadata has a closed key set without it, so CREATE INDEX ... METADATA {searchCacheSize} is refused and the Java builder has no such option. The value is the database-scoped config arcadedb.vectorIndex.searchCacheSize, read by every vector index in that database.",
+  "evidence": "LSMVectorIndexMetadata.java:49-53 USER_METADATA_KEYS does not include searchCacheSize. IndexMetadata.java:146-149 throws 'Unsupported metadata key'. TypeLSMVectorIndexBuilder.java:58-404 has no withSearchCacheSize. GlobalConfiguration.java:1395 VECTOR_INDEX_SEARCH_CACHE_SIZE has SCOPE.DATABASE. LSMVectorIndex.java:14019-14023 reads it from mutable.getDatabase().getConfiguration().",
+  "fix": "In E0, set `arcadedb.vectorIndex.searchCacheSize=500000` as a database setting on each hot txt_<p> (ALTER DATABASE in the schema installer), not as index metadata."
+ },
+ {
+  "severity": "minor",
+  "section": "0.4 Page sizes, D39, WS2",
+  "problem": "The doc says TextBody's external-property bucket gets 16 KB pages through `TypeBuilder.withPageSize`. It does not. The paired external bucket's page size comes only from the database setting EXTERNAL_PROPERTY_BUCKET_DEFAULT_PAGE_SIZE (256 KB by default). Without that setting the `text` payload pages stay 256 KB, which raises the cold `get_record` text read cost.",
+  "evidence": "LocalDocumentType.java:2687-2696: when the `_ext` bucket is created, pageSize = database config EXTERNAL_PROPERTY_BUCKET_DEFAULT_PAGE_SIZE. TypeBuilder.java:542-544 withPageSize sets only the primary bucket's pageSize. LocalSchema.java:1932-1938 checkPairedExternalBucketPageSize also reads the database setting.",
+  "fix": "Have the schema installer and the n4 build set `arcadedb.externalPropertyBucketDefaultPageSize=16384` on each txt_<p> before the EXTERNAL `text` property is created. Correct the wording in 0.4 and D39."
+ },
+ {
+  "severity": "minor",
+  "section": "1.3 valve 1, 4 Full-text engine gaps",
+  "problem": "The stopword analyzer for warm FTS pruning cannot 'read its list from a file named in index metadata'. Analyzers are built with a no-arg constructor and never receive the index metadata. FULL_TEXT metadata also refuses unknown keys. The list is per partition (terms above 5% df in that partition), so it needs a different mechanism.",
+  "evidence": "LSMTreeFullTextIndex.java:1828-1830: `Class.forName(analyzerClass)` then `getDeclaredConstructor().newInstance()`. FullTextIndexMetadata.java:99-100 fixes the keys to analyzer, index_analyzer, query_analyzer, allowLeadingWildcard, defaultOperator, similarity, bm25_k1 and bm25_b, plus `<field>_analyzer` and `<field>_boost`. IndexMetadata.java:146-149 refuses any other key.",
+  "fix": "Resolve the list by convention instead. For example, one analyzer class per rewrite that reads a fixed resource path, or a system-property-keyed directory plus a per-partition analyzer subclass generated in the offline rewrite. Size it inside valve 1."
+ },
+ {
+  "severity": "minor",
+  "section": "5.4 Redaction, 5.1 Engine user binding",
+  "problem": "'The ops role has no grant on txt_*' cannot be expressed as a pattern. Server user database grants are by exact name or `*`. The ops user therefore needs an explicit grant for every identity, recdir, ops, audit, rec_<p> and media_<p> database. A new period, backfill or aging admission that adds a database without updating that user leaves the ops role on the deny-all sentinel there. Granting `*` instead would open txt_*.",
+  "evidence": "ServerSecurityUser.java:108-121: getDatabaseUser matches userDatabases.has(databaseName) or SecurityManager.ANY, and anything else gets the deny-all sentinel. ServerSecurityUser.java:214-216: canAccessToDatabase checks only `*` or the exact name.",
+  "fix": "Either add 'grant the ops user on the new database' as an audited step of period creation and of admission (3.5), or give the ops role `*` with a group that denies the TextBody type, and assert it in the WS3 test."
+ },
+ {
+  "severity": "minor",
+  "section": "3.5 'No backups during admission', 0.4 transient slots, D35",
+  "problem": "Stock auto-backup cannot 'check the transient-slot lease'. AutoBackupSchedulerPlugin and BackupTask have no gate or hook other than the run-on-server check, so before W3d this rule needs code or an operational workaround. Disk safety is not affected before W3d because archives go off node. Only the I/O-contention part of the rule is unenforced.",
+  "evidence": "BackupTask.java:91 and :160: the only run gate is shouldRunOnThisServer(). AutoBackupSchedulerPlugin.java and BackupScheduler.java have no lease, predicate or hook. Doc line 569 states the scheduler checks the lease.",
+  "fix": "Before W3d, have the plugin disable and re-enable the affected databases' backup schedules (config reload) around an admission, or schedule backups outside the admission window. Keep the lease check as part of W3d."
+ },
+ {
+  "severity": "minor",
+  "section": "0.4 txt aging, 3.5 aging protocol and n4 space",
+  "problem": "The n4 build JVM cannot read n4's live txt_<p> replica in place. A second process cannot open a database the server holds, even READ_ONLY. The aging rewrite therefore needs a scratch copy of the source (restored backup) next to the output and its archive, and the +180 GB n4 slot does not count it. For a period-aligned partition it fits: hot 73 + warm 61 + archive about 30 = 164 GB. For a txt_<p> at the 120 GB cap in the 1.2 table it does not: 120 + about 101 + about 50 = 271 GB, over the 1,620 GB install reserve.",
+  "evidence": "LocalDatabase.java:4340-4357 prepareRecovery: if database.lck exists, a READ_ONLY open throws 'needs recovery'; a READ_WRITE open takes an exclusive tryLock (:3888-3897). Doc line 561: 'the copy is a backup of n4's replica'. Line 558: n4 peak = steady + 180. Line 280: txt cap '120 GB (hot about 120 GB at 126M records)'.",
+  "fix": "State how the build gets its source (restore of a backup into scratch under the transient-slot lease, or a streamed read from n4's server at a pinned lastTxId). Count the source copy in the n4 slot, and cap txt_<p> at the rec period boundary (about 73 GB hot) rather than 120 GB."
+ },
+ {
+  "severity": "minor",
+  "section": "2.5 hydrate bytes, 0.4 Page sizes",
+  "problem": "The hydrate floor of '1 leaf per probe plus series root and bloom pages' leaves out the mutable part of the LSM index. A point lookup reads every mutable page, newest to oldest, with a binary search inside each, before it reaches the compacted series. Automatic compaction is scheduled only at 10 mutable pages. So an index can carry up to about 10 mutable 16 KB pages that every probe touches. Sealed partitions with fewer than 10 left over are never compacted automatically. This is small if those pages stay cached, but it belongs in the P0a probe model.",
+  "evidence": "LSMTreeIndexMutable.java:410-434 searchInNonCompactedIndex loops `for (int p = totalPages - 1; p > -1; --p)` and loads each page with getPageForAbsoluteReads before falling through to the compacted subIndex. LSMTreeIndexAbstract.java:1034-1088 stops early only when the limit is reached. GlobalConfiguration.java:1283-1284 INDEX_COMPACTION_MIN_PAGES_SCHEDULE default 10.",
+  "fix": "Have the plugin force a full compaction of the point-lookup indexes when a period seals and after admission. Add 'mutable pages per probe' to the P0a reads-per-probe measurement."
+ }
+]

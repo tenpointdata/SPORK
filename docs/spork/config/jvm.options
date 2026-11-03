@@ -1,0 +1,73 @@
+# SPORK day-1 JVM options for a 126 GB read-heavy node
+# Source: docs/spork/02-retrieval-speed.md 5.1, 5.2 (C10); docs/spork/01-architecture.md 1.4 (RAM budget).
+#
+# Runtime: Eclipse Temurin 25 (package/src/main/docker/Dockerfile:20 is FROM eclipse-temurin:25-alpine; the jars are
+# compiled for release 21). Flags below assume 25. On Java 21 add -XX:+ZGenerational (ZGC is generational-only from
+# 24, so on 25 that flag only prints a warning) and expect no compact-headers flag from the probe.
+#
+# DELIVERY: bin/server.sh puts these variables on the java command line in this order:
+#   $JAVA_OPTS $ARCADEDB_OPTS_GC $ARCADEDB_OPTS_HEADERS $ARCADEDB_OPTS_MEMORY $JAVA_OPTS_SCRIPT ... $ARCADEDB_SETTINGS
+# The Docker image sets ARCADEDB_OPTS_GC="-XX:+UseZGC" (Dockerfile:31) and ARCADEDB_OPTS_MEMORY="-XX:MaxRAMPercentage=75"
+# (Dockerfile:37). 75% of 126 GB is a 94 GB heap, which breaks the 1.4 budget and trips the maxPageRAM 80%-of-heap clamp
+# (GlobalConfiguration.java:178-200). Override BOTH variables as below and leave ARCADEDB_OPTS_HEADERS UNSET so
+# server.sh:90-101 probes -XX:+UseCompactObjectHeaders and adds it only when the JVM accepts it.
+# This file is a documented set of shell assignments; source it (". jvm.options") in the service environment.
+
+# ---------------------------------------------------------------------------------------------------------------
+# n1 to n3 (leader and interactive-read voters). Heap 56 GB (1.4): page cache 23 + vector residency 8 + rebuild
+# transient 7 + query working memory 8 + GC headroom 10 = 56. RAM: OS 6 + heap 56 + JVM native 3 + direct 4 + ROC 45
+# + encoder sidecar 3 + OS file cache 9 = 126 (1.4; 02 5.1 says the same since round 6).
+# ---------------------------------------------------------------------------------------------------------------
+# -Xms = -Xmx: with AlwaysPreTouch the 23 GB page cache is not faulted in 4 KB at a time (6M faults) during the first
+#   minutes of traffic. Pre-touching 56 GB at about 10 GB/s = 5.6 s of startup, paid once before the node is ready. [5.2]
+# -XX:SoftMaxHeapSize=50g: ZGC's soft target 6 GB below the ceiling (50 / 56 = 89%), leaving the 10 GB GC headroom
+#   slice (15 to 20% of the heap free avoids allocation stalls; 10 / 56 = 18%). [5.1, 5.2, 1.4]
+# -XX:MaxDirectMemorySize=4g: the 4 GB direct slice (Netty, gRPC, Ratis log cache). [1.4, 5.2]
+ARCADEDB_OPTS_MEMORY="-Xms56g -Xmx56g -XX:SoftMaxHeapSize=50g -XX:MaxDirectMemorySize=4g"
+
+# -XX:+UseZGC: generational on 25 (no -XX:+ZGenerational). [5.2, Dockerfile:29-31]
+# -XX:+AlwaysPreTouch: see -Xms above. [5.2]
+# -XX:-ZUncommit: ZGC would otherwise return idle heap to the OS and re-fault it on the next miss storm. [5.2]
+# -XX:ZAllocationSpikeTolerance=5: misses allocate one zeroed byte[32768] each; 30,000 misses/s = 1 GB/s, plus about
+#   1 GB/s of request garbage (2,000 req/s x 500 KB); the factor starts the young cycle early enough for a 3x burst. [5.2]
+# -XX:ConcGCThreads=6: 20% of 32 cores = 6.4 -> 6 for concurrent marking and relocation. [5.2]
+# -XX:ParallelGCThreads=16: half of 32 cores for the short pause phases. [5.2]
+# -XX:+UseTransparentHugePages: the JVM madvise()s its heap for 2 MB pages; the 23 GB page cache then needs
+#   23 GB / 2 MB = 11,776 TLB entries instead of 23 GB / 4 KB = 6,029,312 (typically 5 to 15% of CPU on pointer-chasing
+#   code). REQUIRES the THP mode of os-tuning.sh (enabled=madvise, defrag=defer+madvise). [5.2, 5.3]
+# -XX:+UseNUMA: ZGC NUMA-aware allocation keeps a thread's young allocations on its socket (2-socket board, 5.3). [5.2]
+# -Xlog: GC log with phases and safepoints, 5 x 50 MB rotating, under the log volume. [5.2]
+ARCADEDB_OPTS_GC="-XX:+UseZGC -XX:+AlwaysPreTouch -XX:-ZUncommit \
+  -XX:ZAllocationSpikeTolerance=5 -XX:ConcGCThreads=6 -XX:ParallelGCThreads=16 \
+  -XX:+UseTransparentHugePages -XX:+UseNUMA \
+  -Xlog:gc*,gc+phases=debug,safepoint:file=/home/arcadedb/log/gc.log:time,uptime:filecount=5,filesize=50m"
+
+# ARCADEDB_OPTS_HEADERS: deliberately NOT set. server.sh:95-101 runs "$JAVA -XX:+UseCompactObjectHeaders -version" and
+# adds the flag when the probe passes (Java 25). Compact headers save 4 to 8 B per object on the 10 to 15 objects a
+# lookup allocates today (M8). Compressed oops are off above 32 GB of heap, so references are 8 B. [5.2]
+# unset ARCADEDB_OPTS_HEADERS
+
+# NOT SET (5.2): -XX:+UseLargePages with hugetlbfs. It would need vm.nr_hugepages = 56 GB / 2 MB = 28,672 (about 29,000)
+# reserved at boot and makes the ROC budget rigid; THP gives most of the benefit without the reservation.
+
+# ---------------------------------------------------------------------------------------------------------------
+# n4 (OLAP). Heap 43 GB (1.4 n4 column: page cache 4 + vector 8 + rebuild 7 + OLAP working memory 16 + GC headroom 8
+# = 43; RAM 6 + 43 + 3 + 4 + 45 + 3 + 16 build slice + 6 OS cache = 126).
+# 02-retrieval-speed.md 5.2 said 46g / 42g for n4 before round 6; 46 GB does not fit the 1.4 sum
+# (6 + 46 + 3 + 4 + 45 + 3 + 16 + 6 = 129 > 126), so both docs now say 43g / 38g (README, doc errors, resolved).
+# SoftMaxHeapSize: same ratio as n1 to n3, 43 x 50 / 56 = 38.4 -> 38g (5 GB under the ceiling; 8 / 43 = 19% headroom).
+# AlwaysPreTouch cost: 43 GB / 10 GB/s = 4.3 s. GC thread counts unchanged (same 32-core board).
+# ---------------------------------------------------------------------------------------------------------------
+# ARCADEDB_OPTS_MEMORY="-Xms43g -Xmx43g -XX:SoftMaxHeapSize=38g -XX:MaxDirectMemorySize=4g"
+# ARCADEDB_OPTS_GC=<same as n1 to n3>
+
+# ---------------------------------------------------------------------------------------------------------------
+# n4 build slice (separate embedded JVM, 1.4): -Xmx12g (+2 GB native +2 GB direct = 16 GB), arcadedb.maxPageRAM=4096,
+# GraphBatch withWAL(true). Same GC flags are reasonable but the docs do not prescribe them for this JVM.
+# ---------------------------------------------------------------------------------------------------------------
+# BUILD_JVM_OPTS="-Xms12g -Xmx12g -XX:+UseZGC -XX:+AlwaysPreTouch -XX:-ZUncommit -Darcadedb.maxPageRAM=4096"
+
+# ---------------------------------------------------------------------------------------------------------------
+# Not JVM flags but required by the flags above (os-tuning.sh): THP madvise mode, cgroup memory.max for the JVM cgroup
+# = 56 + 3 + 4 = 63 GB with memory.high = 61 GB (n1 to n3); 43 + 3 + 4 = 50 GB / 48 GB (n4). [5.3]
+# ---------------------------------------------------------------------------------------------------------------

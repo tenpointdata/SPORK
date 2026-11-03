@@ -1,0 +1,426 @@
+[
+ {
+  "severity": "blocker",
+  "section": "7.2 Endpoint map; 2.5 RID compatibility; 4 (all set-scoped modalities)",
+  "claim": "Every Recon access pattern has a pushdown endpoint (intake, search, pivot, groupby, graph, timeseries, geo, dossier) and the ReconSource.all() full-scan path is retired.",
+  "problem": "Almost all of Recon's analysis runs over an arbitrary result set of record ids, not a query: cluster, timeline, geoAnalyze, commonalities, linkClusters, detect() (about 25 detectors), rollupTargets, rankRecords, tree, dashboard, simplify, compare, mission lead generation. They all call Engine.resolve(ids)/get(id) for full records. The architecture has no batch hydrate endpoint and no GET record endpoint. Looking up a record by its upstream RID costs about 8 partition probes, because upstreamRid does not encode the period. Hydrating the 2,000-id sets Recon uses would therefore take about 16,000 point lookups, plus a Place lookup per record for lat/lon and a txt_* lookup for styleVec.",
+  "evidence": "engine.ts: resolve(ids) is used by cluster/timeline/geoAnalyze/commonalities/linkClusters. server.ts: /api/signal limit is up to 2000; /api/focus takes ids.slice(0,2000); /api/geo, /api/expand and /api/faces work on a session ref. tools.ts get_record returns the full record with text. detectors.ts detect() runs ids.map(engine.get). Architecture 2.5: 'probes the partitions newest first: about 8 point lookups'. 7.2 lists no records endpoint.",
+  "fix": "Add POST /records:hydrate {ids[], projection} and GET /records/{id}, with title and text available only through the purpose-gated text path. Add a replicated id-to-period directory (upstreamRid and record_id to periodId, about 16 B per record, so about 14 GB at 3x in ops), or encode the period in an id Recon already holds, so a hydrate is one probe per id. Return the analysis projection Recon uses: phones, emails, socials, businessNames, imageHashes, lat, lon, city, state, country, postedAt, collectedAt, age, services, paymentTypes, clientele, source, viewCount, hasImages, styleVec. Alternatively, make every analysis endpoint accept {ids[]} and hydrate in-plugin with the same directory."
+ },
+ {
+  "severity": "major",
+  "section": "2.6 componentId; 4 Graph algorithms; 7.2 /graph/*, /dossier",
+  "claim": "Components come from an incrementally maintained global componentId and nightly AlgoWCC over CO_OCCURS. Graph metrics (degree, articulation, label propagation, clustering coefficient, pairs) run over registry CO_OCCURS. The dossier 'takes the component'.",
+  "problem": "Recon's link clusters and graph metrics are computed on the subgraph induced by the resolved footprint. Singleton identifiers count as nodes and edges, and custom linkOn profiles plus fuzzy style unions apply. The registry rule drops identifiers seen once from identity, so CO_OCCURS has no edges for them. A global componentId is a different object: it can be a giant component, and it ignores session linkOn. Recon's dossier picks the footprint-local component that holds the anchor. With global components, dossier contents and contentHash change, the 'Unlinked' target logic changes, and hub/bridge/community/dense_crew/co_occurrence/number_block signals differ.",
+  "evidence": "engine.ts linkClusters() runs union-find over records in ids only, with linkOn defaults phone/email/imageHash/businessName/social and opts.fuzzy for authorshipClusters. analysis/graph.ts graphAnalyze(records) builds co-occurrence from every identifier on the set's records. ops/dossier.ts selectTarget() picks the clusters containing anchorKey from linkClusters over the re-resolved footprint. Architecture 2.4: 'Identifiers seen once stay local to their period database'.",
+  "fix": "Specify that /graph/* and /dossier compute over the record-level identifier lists of the hydrated set, using rec_<p> HAS_* edges and local vertices, not over registry CO_OCCURS. Accept linkOn and fuzzy as parameters. Keep the global componentId as a separate, labeled 'network' view. Add golden-set parity tests against detectors.ts and graph.ts outputs."
+ },
+ {
+  "severity": "major",
+  "section": "4 Convergence, tracks, hotspots...; 7.2 /geo/*",
+  "claim": "Convergence is computed per target from dayCells on registry identifiers and a Presence table, 'without touching records'.",
+  "problem": "Recon's convergence is computed over a record set and is place-anchored. For each place, it takes records within 200 km and the first 14-day window with at least 2 distinct phones and at least 3 records, then reports one window per place. It counts every phone on those records, including phones seen once corpus-wide, which have no registry vertex and so no dayCells. Movement, tracks and Markov forecasts use the top 5/60 phones by frequency within the set. DBSCAN hotspots (eps 25 km) and impossible travel (>700 km in <=2 days) use per-record lat/lon. The architecture stores only placeId and geoCell on Record, with Place in identity, which needs a cross-database lookup per record and has no declared index on Place.placeId.",
+  "evidence": "engine.ts geoAnalyze(): the convergence loop with 'idents.length >= 2 && win.length >= 3', tracks slice(0,5), placeTracks slice(0,60). analysis/spatial.ts and detectors.ts impossible_travel 'm.km > 700 && m.days <= 2'. Architecture 2.1: Record has placeId, geoCell. Place key is pl:..., and placeId is a LONG hash with no index listed.",
+  "fix": "Implement /geo/* as set-scoped functions over hydrated records that reproduce engine.ts semantics, keeping dayCells/Presence only for the corpus-wide Outbox detectors. Add a UNIQUE index on Place.placeId. Keep per-record lat/lon, or geohash7, on Record so the haversine, DBSCAN and movement inputs match."
+ },
+ {
+  "severity": "major",
+  "section": "5.1 Operating Context; 3.1 routing; 7.1",
+  "claim": "Sensitive routes return 428 without a signed X-Spork-Context, face search requires victim_identification or investigative_lead plus caseRef, and Recon talks to SPORK through a gateway that signs the OC.",
+  "problem": "Recon's classic console (/api/run, /api/exec, /api/signal, /api/faces, /api/faces/stream, /api/geo, /api/recent, /api/focus, /api/expand, /api/compare) sends no Operating Context. intakeAudit deliberately records nothing without one. The client auto-starts a streaming face scan after intakes. Under the architecture all of these return 428 or a purpose denial at cutover. In addition, Recon's OC analyst is a self-declared free-text header (x-recon-analyst), while the gateway's authenticated Principal (gateway/auth.ts) is never bound to it. Signing a self-asserted name does not authenticate the analyst.",
+  "evidence": "ops/audit.ts intakeAudit: 'Without a declared context (the classic console) it records nothing.' ops/context.ts reads x-recon-analyst/x-recon-case/x-recon-purpose. client/app.ts runFacial() calls Faces.scan(ref), which streams /api/faces/stream without context headers. The ops routes are the only callers of contextHeaders (client/ops/api.ts).",
+  "fix": "Add a Q1 work item: the classic console must declare an OC (or the gateway injects a default per session) before SporkSource is enabled, and Recon must handle 428 and purpose 403 in the console and the faces module. The gateway must set analyst = authenticated Principal.id and reject a mismatched x-recon-analyst."
+ },
+ {
+  "severity": "major",
+  "section": "5.2 Audit; 3.6 E6; 3.1 routing",
+  "claim": "Sensitive reads (intake, dossier, face search, text access) append an audit entry on the leader before results are released. Until E6, governed writes go to the leader because the gateway routes writes there. Intake runs on n2/n3, dossier on n4.",
+  "problem": "Before E6 (Q2), a sensitive read served on n2/n3/n4 needs a leader-side audit append that carries the OC, but the follower-to-leader forward drops X-Spork-Context. The Q1 exit criteria require audited intake, dossier and feed on SPORK, so either these reads must run on n1 in Q1 or the audit path does not work. Separately, the failure table says that with two voters down 'followers keep serving eventual reads' behind a read-only banner. Recon fails closed instead: intake is refused when the audit log is not writable. With no leader, audited reads cannot append and must be refused, not served.",
+  "evidence": "server.ts /api/signal calls audit.ready() first, and on failure sends 'The audit log is unavailable, so this intake was not run'. ops/feed-routes.ts writes feed.view on every request, including cache hits and failures. Architecture 3.1 lists intake on n2/n3 and dossier on n4, both audited. 5.1: 'Until E6 lands, governed writes go to the leader directly'.",
+  "fix": "In Q1, either route all audited reads to the leader, or have the plugin append audit through an internal leader RPC that carries the OC explicitly, independent of E6. State that in read-only mode only unaudited reads (board GET, audit GET) are served, and that intake, dossier, feed, face and text endpoints return 503 (fail closed)."
+ },
+ {
+  "severity": "major",
+  "section": "5.2 Transactional, keyed, hash-chained audit",
+  "claim": "hash = sha256(prevHash + canonicalJSON(entry)) is exactly Recon's algorithm, so Recon's verifier and existing chain carry over. Subjects are stored as HMAC subjectHash and detail as detailDigest. Recon gets one merged audit page with an opaque composite cursor.",
+  "problem": "Recon's entryHash hashes every field except 'hash'. Adding tenant, subjectHash, detailDigest, epoch and mac to the entry either puts mac inside its own hash input (circular) or requires a verifier change, so Recon's verifier does not carry over unchanged. Recon also verifies seq === position starting at 1 over a single chain, which fails on an interleaved multi-database page. Recon filters audit by exact cleartext subject and shows subject and detail in the activity feed. The intake subject is a composite of up to 12 normalized tokens plus '(+n more)', so HMAC(K_subject, key) per key cannot answer it. Recon's AuditQuery.before is a numeric seq, and AuditPage carries total and a full-chain verification on every call. buildOverview also calls audit.query on every load. Verifying every per-database chain, including per-batch ingest entries, on each page or overview does not scale.",
+  "evidence": "ops/audit.ts entryHash() destructures only hash. verifyLines() checks 'entry.seq === seq && entry.prevHash === prev'. query() filters 'e.subject !== q.subject' and returns total plus verification. intakeSubject() builds the composite. ops/overview.ts builds the audit_chain KPI from page.verification.",
+  "fix": "Define the hashed body as Recon's exact field set and keep mac, epoch and tenant outside it (a sidecar or excluded keys), with a versioned verifier. Keep an encrypted or keyed-searchable subject (a deterministic HMAC of the exact subject string Recon sends) plus a display copy under E12 encryption, so the subject filter and activity feed still work. Return per-database seq in each entry with a 'db' field. Serve verification from an incremental 'verified up to (db, seq)' checkpoint maintained by the anchor job, not a full walk per request. Version the Recon cursor contract."
+ },
+ {
+  "severity": "major",
+  "section": "5.4 Redaction; 1.2 txt_<p>; 2.1 TextBody",
+  "claim": "Ad titles and bodies live only in txt_*, the ops/API role has no grant on txt_*, and ops APIs, dossiers and packages are built from identity, rec_* and media_*.",
+  "problem": "Three Recon patterns need txt_* data outside a single 'text access' procedure. (1) Classic console search rows (ResultRow.title), get_record (text for the analyst view) and the q filter, which matches the title haystack. (2) The dossier, an ops route, runs linkClusters with fuzzy=true and the authorship detector, which need styleVec, and styleVec lives on TextBody in txt_*. (3) Mission lead generation copies record.title into Lead.sourceRefs, so ad titles enter mission documents stored in identity. For warm records the title sits in the object store with bodyRef, so a 500-row search page would need up to 500 S3 fetches for titles.",
+  "evidence": "types.ts ResultRow.title; engine.ts search q haystack [r.title, r.source, r.text, ...]. tools.ts get_record returns record with text in view. ops/dossier.ts buildDossier calls linkClusters(..., { fuzzy: true }). analysis/style.ts uses r.styleVec. missions/targeting.ts line 23 'title: record.title || id'.",
+  "fix": "Use two service roles, console (txt read, purpose-gated, audited) and ops (no txt). Copy the derived style vector (not text) to Record, or to a rec_<p> sidecar, so ops-side stylometry needs no txt grant. Keep titles of warm records on node in a small title-only property (about 60 B), or exclude titles from warm search rows. Strip or hash titles in mission leads, or route mission lead generation through the console role and declare missions a text-bearing store."
+ },
+ {
+  "severity": "major",
+  "section": "2.3 Canonical keys (spork-keys); 2.1 Target key",
+  "claim": "spork-keys ports Recon's normalization with golden vectors from engine-identifiers.ts and ops/board.ts, so Recon and SPORK can never disagree. Target keeps Recon's tgt_ id.",
+  "problem": "engine-identifiers.ts contains no normalization. Recon has at least six phone normalizations that disagree. engine canonPhone keeps the last 10 digits and infers a 7-digit number's area code only when a record is given. Engine.pivot/search use normPhone without a record, so no inference, so a 7-digit pivot matches only 7-digit raw values while the architecture keys them as inferred ph:<10>. board normalizeAnchor strips a leading 1 from 11 digits only and keeps 12+ digits. dossier identKey keeps the last 10 digits with no inference. feed phoneKey and compare normPhone differ again. Business: the board lowercases and collapses whitespace, while cluster and dossier use alphanumeric only, so tgt_ ids for business anchors cannot be recomputed from bz:<alnum> keys.",
+  "evidence": "engine.ts lines 558-567 canonPhone/normPhone; ops/board.ts line 91 normalizeAnchor and boardId; ops/dossier.ts line 63 identKey; ops/feed.ts phoneKey; compare.ts normPhone; ops/audit.ts intakeSubject.",
+  "fix": "Treat the Target id as an opaque stored value migrated verbatim, never recomputed with spork-keys. Add a Target.anchorKey (spork-keys canonical) for joins. Write golden vectors from each Recon use site (engine.ts, board.ts, dossier.ts, feed.ts, audit.ts, compare.ts) and decide explicitly whether pivot of a 7-digit number should match inferred keys. That decision changes Recon results and needs shadow-diff acceptance."
+ },
+ {
+  "severity": "major",
+  "section": "2.1 ImageHash key; 0.4 Record document; 4 Exact lookup",
+  "claim": "ImageHash key is ih:<sha256 first 32 hex>, Image is keyed by sha, and Record stores truncated image hashes.",
+  "problem": "Recon uses upstream File.hash (or sha256) verbatim as the image hash. It filters search by exact equality on that string, pivots on it, and fetches bytes with rld.imgUrl(recordId, hash) and /api/image?id=&hash=. The upstream hash algorithm is unverified (File has hash and hash_unique). Truncating it, or re-keying it to a SPORK-computed SHA-256, breaks exact imageHash search, pivot, image_reuse/repeat_identifier detector values, and the image proxy round trip.",
+  "evidence": "api-source.ts mapRecord: imageHashes = File.filter(mime_type !== 'meta_path').map(f => f.hash ?? f.sha256). engine.ts search: 'args.imageHash && !r.imageHashes.includes(args.imageHash)'. server.ts /api/image uses src.imageProxy(id, hash). Architecture 0.4: 'truncated image hashes'.",
+  "fix": "Store the upstream hash string untruncated as the ImageHash identifier key (ih:<upstream>), keep the content SHA-256 as a separate Image property used for dedup and ROC, and keep a (upstreamHash -> sha) index. Confirm the upstream algorithm in P0a."
+ },
+ {
+  "severity": "major",
+  "section": "4 Structured search; 7.2 POST /search",
+  "claim": "Structured search is served by (stateCode, tsPosted), (areaCode BY ITEM, tsPosted), (services BY ITEM, tsPosted) and (countryCode, city, tsPosted) composites, newest partition first with early stop.",
+  "problem": "Several Recon search behaviors have no home. sort views_desc across all history has no index on views. search returns an exact total, and the bulk tool counts up to 50 q terms with search({q, limit:1}).total; early stop and top-K FTS give no totals. ageMin/ageMax (central to victim identification, for example ageMax 17) has no age composite. A city filter without a country cannot use the (countryCode, city, tsPosted) prefix, and Recon matches city alone. businessName and email filters are substring matches, but Business has no gram list. q is a substring over title, source, text, phones, emails, businessNames and services, not BM25 over TextBody only.",
+  "evidence": "engine.ts search(): views_desc sort (line 137), 'const total = hits.length' (line 142), ageMin/ageMax, the city-only compare, businessName includes(), and the q haystack. tools.ts bulk handler counts per term. Architecture 4: the composites list; 2.1 Business extras have no grams.",
+  "fix": "Add (age, tsPosted) and (views) or (views, tsPosted) composites per partition, and a (cityNorm, tsPosted) composite or normalized city lookup to Place. Add grams3 on local Business. Define total semantics, either an exact count via a COUNT pushdown with a cap or an 'at least N' estimate, and a count-only path for bulk. Document that q will also match identifier keys through intake classification."
+ },
+ {
+  "severity": "major",
+  "section": "7.2 POST /intake; 2.1 Handle key",
+  "claim": "Intake classifies a token, normalizes it, and does a registry/partition exact key lookup.",
+  "problem": "Recon classifies any non-email, non-phone, non-RID token (for example 'jane_doe' or '@jane') as social. It resolves the token by SUBSTRING over handles on all platforms ('s.handle.toLowerCase().includes(h)'), or by an exact platform:handle match. The Handle key is sh:<platform>:<handle>, so a bare handle with no platform has no exact key, and the registry has no substring capability. /partial supports handle fragments, but /intake is not specified to use it, so intake footprints (and dossier and watch re-resolution, which reuse resolveSource) shrink.",
+  "evidence": "engine.ts classifySource(); recordsBySocial() at line 189 with includes(h). ops/dossier.ts resolveIds() and resolve-targets.ts both call engine.resolveSource.",
+  "fix": "Specify that intake for a social token runs a handle-only lookup (add a (handle) index on local and registry Handle) unioned with a grams3 substring match, verified by contains, with a result cap. Apply the same rule in /dossier and the watch scan."
+ },
+ {
+  "severity": "major",
+  "section": "2.4 Hub suppression and stop flags",
+  "claim": "Hub and stop identifiers are excluded from component unions and pivots but remain searchable, which keeps Recon's dossier caps meaningful.",
+  "problem": "Recon never suppresses hubs. An explicit pivot or intake on any identifier returns every record carrying it (sorted newest first), and the dossier analyzes the whole re-resolved footprint, capping only displayed rows (200), nodes and edges. Excluding hubs from pivots makes an analyst's explicit pivot on a hub phone return nothing or a different set, a silent semantic change. The 200/120/360 caps are display caps, so they need no protection by hub exclusion.",
+  "evidence": "engine.ts pivot() has no exclusion. ops/dossier.ts: RECORD_CAP=200 applies only to 'records: ... .slice(0, RECORD_CAP)', while analysis uses all recs, and the caveat reads 'Showing the 200 most recent of N records'.",
+  "fix": "Restrict hub and stop exclusion to automatic expansion (component unions, RID sibling expansion, CO_OCCURS growth). Explicit pivot and intake return a paged footprint with a 'hub' flag and caveat. Do not cap dossier analysis inputs at 200."
+ },
+ {
+  "severity": "major",
+  "section": "4 ROC face 1:N; 7.2 /face/*; 5.1 purpose gates",
+  "claim": "Recon's facial.ts (facialScan, facialPass) is replaced by /face/search, /face/exhaustive, /tattoo/search and GET /face/links/{record}.",
+  "problem": "Recon's actual face pattern is set-scoped clustering. It scans up to 48-120 records of a footprint, extracts every face of every image, greedily clusters the faces among themselves, and streams progress and cluster events. Each face is tagged with (record, image hash), and the compare 'faces' mode marks crossGroup clusters across 2-4 selections. None of the listed endpoints answers 'which of these N records show the same person'. FaceCluster blocking (component, pHash, case gallery) leaves faces in different clusters even when they match, so grouping by clusterKey under-reports. Also, Recon runs these scans under any purpose, including the auto-scan after intake, while the architecture allows faces only for victim_identification or investigative_lead with a caseRef.",
+  "evidence": "facial.ts facialScan() with cap 48, online clustering and emit progress/cluster. server.ts /api/faces, /api/faces/stream (cap up to 120). server-compare.ts mode 'faces' over 120 ids with crossGroup. tools.ts face_link cap 80. detectors.ts imagery suggests 'face_link'.",
+  "fix": "Add POST /face/cluster {ids[], cap} (SSE), which loads the set's Face rows and templates and runs ROC 1:1 pairwise within the set (n^2 for n up to about 500 faces is cheap). Return clusters with (recordId, imageSha) instances and an optional group label for compare. Decide with the owner which purposes may run set-scoped clustering, and make the Recon client skip the auto-scan when the purpose is denied."
+ },
+ {
+  "severity": "major",
+  "section": "7.3 Change feed, subscriptions, detectors; 7.2 CRUD /watches",
+  "claim": "Watches become leased Outbox-driven detectors (new record touches watched identifier, convergence, spikes, recurring phones, face matches) producing Alert documents, replacing monitor.ts re-scan and diff.",
+  "problem": "Recon's watch semantics differ. A watch is a set of source tokens plus an actionability threshold. A scan re-resolves the sources, runs the full detector battery and rollupTargets plus applyModel, and diffs target scores against a stored per-anchor baseline map. Alerts are 'threshold' on the first scan, 'new' when the anchor is first seen above threshold, and 'escalated' at a +15 score delta. Watches are unique per source set (409). Scans run on demand through POST /api/ops/watches/scan and on RECON_SCAN_INTERVAL. Alerts are capped at 500 and cleared in bulk through DELETE /alerts, audited first. The endpoint map has no scan endpoint and no alerts list or clear, and Alert has no listed database home.",
+  "evidence": "monitor.ts Watch.baseline, diffScan() kinds and '+15' rule, 'state.alerts.length > 500'. ops/routes.ts watches 409 on a duplicate source set, the watch-scan route, and alerts GET/DELETE with alerts.clear audit. resolve-targets.ts targetsForSources().",
+  "fix": "Keep Recon's watch contract: a Watch {sources, threshold, baseline map, lastScan} in identity with a UNIQUE index on the normalized source-set key, POST /watches/scan, GET/DELETE /alerts, and Alert in identity (or ops) with a 500 cap or retention. Use Outbox events only as the trigger to re-run the Recon-equivalent scan for affected watches."
+ },
+ {
+  "severity": "major",
+  "section": "2.1 Vertex types; 1.2 identity",
+  "claim": "identity holds all case and governance state (Target, Case, Evidence, Watch, Detector, ...).",
+  "problem": "Recon persists analyst-feedback learning state that has no home. This covers the learned ranker weights (an online logistic regression, model.ts, file .recon-model.json), the monitor feedback map keyed by anchor value (confirmed demotes and hides anchors in later intakes), and the board_labels idempotency ledger that stops a repeated SGD step on assessment toggles. Each is file or sqlite state on one host, so it will not replicate or survive failover, and none is audited although it changes worklist ranking.",
+  "evidence": "model.ts trainOne/applyModel; monitor.ts recordFeedback/feedbackMap/annotateFeedback; ops/board.ts teach() and the board_labels table; server.ts /api/feedback and /api/model.",
+  "fix": "Add RankerModel (versioned weights, n, pos), Feedback {anchorKey, verdict, at, actor} and BoardLabel {targetId, label} to identity. Update them in the board PATCH transaction (or a deterministic follow-up) with audit, and expose GET /model and POST /feedback."
+ },
+ {
+  "severity": "major",
+  "section": "5.3 Case and tenant scoping",
+  "claim": "Every plugin query builder injects tenantId and caseId predicates into the case layer (Target, Case, Evidence, Board, Watch, ...).",
+  "problem": "Recon deliberately reads across cases. The dossier's deconfliction compares the target with every board target of any case and disposition and reports their caseRefs. The board list and overview heat and pipeline cover the whole board. The evidence library and wiki are global across missions, with bindings listing every mission. Injecting caseId predicates removes cross-case deconfliction, which is a safety function, and changes overview numbers.",
+  "evidence": "ops/dossier-routes.ts line 39 peers = board.list({ open: false }); ops/dossier.ts overlapsFor() and overlapCaveat ('case ...'); ops/overview.ts board.list({ open: false }); missions/knowledge-store.ts search() and evidence() bindings across missions.",
+  "fix": "Scope by tenant only by default, and make case scoping a per-endpoint choice. Add an explicit deconfliction read (POST /deconflict {identifierKeys}) that crosses cases within the tenant, returns minimal fields (id, label, priority, disposition, caseRef) and is audited."
+ },
+ {
+  "severity": "major",
+  "section": "2.2 TARGETS edge; 2.4 registry rule",
+  "claim": "Targets attach to identifier keys via TARGETS (Target to Identifier or Identity) in identity.",
+  "problem": "Recon's deconfliction matches every identifier in a target's snapshot.identifiers (up to 12 types x 100 values) and anchor against the footprint, not just the anchor. Many of those identifiers, and often the anchor itself, are singletons that exist only in rec_<p>, so a TARGETS edge to a registry Identifier cannot exist, and an edge cannot cross databases.",
+  "evidence": "ops/dossier.ts overlapsFor() iterates [p.anchor, ...Object.entries(p.snapshot.identifiers)]. ops/board.ts coerceTarget keeps identifiers up to 12 keys x 100 values. Architecture 2.4: identifiers seen once stay local.",
+  "fix": "Store Target.identifierKeys[] (canonical keys of the anchor and snapshot identifiers) with a BY ITEM index in identity and use it for deconfliction. Alternatively promote any identifier referenced by a Target, Watch or Case into the registry ('pinned' promotion) regardless of record count."
+ },
+ {
+  "severity": "major",
+  "section": "2.1 / 1.2 identity contents; 7.2",
+  "claim": "Case, Evidence, WikiRevision and Binding in identity cover Recon's mission and knowledge workspace (missions/evidence.ts).",
+  "problem": "Recon's mission store also has Mission documents with revision OCC (leads, iterations, events, hermesCaseId), a command idempotency table (request key to mission, a fingerprint mismatch returns 409), lead automation (enabled, intervalMinutes 15, nextRunAt, consecutiveFailures) driven by LeadScheduler every 5 s, interrupted-run recovery on restart, and mind-map notes, all exported as one knowledge snapshot. None of these has a type, index or endpoint, and the in-DB schedule has no leased job.",
+  "evidence": "missions/store.ts tables missions and commands, create(key), and update(id, revision); missions/scheduler.ts tick(); missions/knowledge-store.ts tables mind_map_notes and wiki_pages; missions/knowledge-routes.ts knowledgeSnapshot().",
+  "fix": "Add Mission (revision OCC, UNIQUE id, an updatedAt index), CommandKey (UNIQUE key, fingerprint), MindMapNote, and a leased 'mission-targeting' job in ops keyed by nextRunAt. Add the /missions and /knowledge endpoints to the map, including evidence FTS (AND of quoted words, BM25, LIMIT 100) and wiki revisions."
+ },
+ {
+  "severity": "minor",
+  "section": "4 Live feed; 7.2 GET /feed/live",
+  "claim": "The live feed is served from the tsPosted composites over 6h/24h/3d/7d windows.",
+  "problem": "Recon admits a record into the window if its posted OR collected time falls inside it. It excludes 'misdated' records posted more than 2 h in the future, which an index scan by tsPosted descending would otherwise return first. It filters state through stateCode() normalization (full names to two-letter codes). It audits feed.view on every request, including cache hits, while the architecture audits 'per session window', which is a weaker rule than Recon implements.",
+  "evidence": "ops/feed.ts windowTime() checks [postedMs, collectedAt]; misdated() uses LIVE_SKEW_MS of 2 h; stateCode(); ops/feed-routes.ts records feed.view on every path. Architecture 5.2: 'Bulk feed tiles are audited per session window'.",
+  "fix": "Add a (tsCollected) composite per partition (or a stateCode plus tsCollected composite) and union it with the posted scan. Bound scans at now+2h. Store stateCode normalized at ingest. Keep per-request feed.view audit, or get owner sign-off for the change."
+ },
+ {
+  "severity": "minor",
+  "section": "7.2 CRUD /detectors",
+  "claim": "Detectors are stored in identity and run as leased Outbox jobs.",
+  "problem": "Recon's analyst-authored detectors are DetectorSpec {scope cluster|set, clusterBy, when conditions over a fixed metric vocabulary, trusted-only 'expr' evaluated as JavaScript via new Function} and ClusterSpec {linkOn}. They are session-scoped and run inside every intake, focus and dossier detect() pass. The architecture defines neither the evaluator nor the metric computations (CLUSTER_METRICS, SET_METRICS, including areaCodeMismatch, which uses AREA_CODE_TO_PLACE), nor where untrusted expressions run.",
+  "evidence": "detectors.ts compileSpec(), CLUSTER_METRICS, SET_METRICS, evalWhen() using new Function; server.ts /api/algo/add stores into s.algorithms or s.clusterProfile.",
+  "fix": "Keep custom-spec evaluation in Recon over hydrated sets, or implement a declarative-only evaluator in the plugin and forbid 'expr' server-side. Persist specs per analyst or case with audit if they leave the session."
+ },
+ {
+  "severity": "minor",
+  "section": "7.1 Protocol (shadow mode)",
+  "claim": "In shadow mode both paths run and results are compared with compare.ts and server-compare.ts.",
+  "problem": "compare.ts and server-compare.ts are an analyst feature: side-by-side comparison of 2-4 records, entities, sets or faces. They are not a shadow-diff harness, and Recon has none. The compare feature itself (records, entities, sets and faces modes over session ids) is also absent from the endpoint map.",
+  "evidence": "compare.ts header: 'Aligns 2-4 selections side-by-side so an analyst can answer are these the same operator'. server-compare.ts compareRequest() routes mode 'faces' to facialPass.",
+  "fix": "Add a real shadow-diff work item in WS4 (dual execution plus normalized diff of rows, signals and dossier contentHash). List POST /compare (or hydrate plus client-side compare, and /face/cluster for faces mode) in the endpoint map."
+ },
+ {
+  "severity": "minor",
+  "section": "7.2 Endpoint map (omissions)",
+  "claim": "The endpoint map covers the Recon calls being replaced.",
+  "problem": "Several Recon calls with DB or governance impact are missing: GET /package/{id} (package.export audit, markdown plus JSON, no ad text); POST /context (context.declare audit); GET /overview and /config (record count, board pipeline, audit KPI); /api/image (image bytes by (record, hash), which needs a purpose-gated, audited media fetch from the object store or upstream); /api/ingest (analyst-imported ads with arbitrary non-RID ids, no upstreamRid); /api/recent (newest located records, up to 1000, plus density clusters); /api/expand (per-set identifier reuse ranking).",
+  "evidence": "ops/dossier-routes.ts package branch; ops/routes.ts 'context', 'overview', 'config'; server.ts /api/image, /api/ingest, /api/recent, /api/expand; ingest.ts AdData.id.",
+  "fix": "Add these endpoints to 7.2 with node, consistency and audit rules. Define an import path for analyst records (source='analyst-import', a synthetic upstreamRid namespace or record_id only, provenance and audit)."
+ },
+ {
+  "severity": "minor",
+  "section": "5.1 Purpose gates",
+  "claim": "standing_monitoring allows watches and detectors only, and training allows synthetic or minimized views only.",
+  "problem": "Recon enforces no purpose-based restrictions. An analyst under standing_monitoring or training can run intake, feed, dossier and package today. The gates are a new policy rather than a port of Recon behavior, and Recon's ops client has no handling for a purpose denial (only 428 needsContext).",
+  "evidence": "ops/guard.ts requireContext() checks only presence; ops/contracts.ts ApiError has only needsContext.",
+  "fix": "Mark the gates as an owner decision (9.2 Q10). Add a 403 'purposeDenied' contract to Recon's ApiError and UI before enforcing them."
+ },
+ {
+  "severity": "blocker",
+  "section": "0.5 / 0.6 / Executive summary (disk fit and expansion dates)",
+  "claim": "Mid today is 903 GB (58% of the 1,560 GB ceiling), high today 1,306 GB (84%) fits, order disks about 2027-05 and install before about 2027-10 at mid, and one 3.84 TB NVMe per node (4,520 GB ceiling) covers 3x high at 77%.",
+  "problem": "With the byte errors in the findings below corrected (FTS double postings, the omitted ops/audit databases, the local identifier gram/suffix lists and edge-chunk minimum, the Face/Image vertex sizes), every per-node footprint rises. Every node holds a full copy, so these totals are per node. Corrected: low today 964 GB (62%), mid today 1,149 GB (74%), high today 1,636 GB (105%, does NOT fit the 1,560 ceiling; 91% of 1,800 usable, so it can only survive with no resync headroom). At 3x: low 2,450, mid 3,025, high 4,537 GB. High 3x exceeds the expanded 4,520 GB ceiling, so H1 as specified (one 3.84 TB per node) does not cover high 3x. Mid order trigger (1,248 GB) arrives at month 1.3 (2026-12), not month 6.1; the 1,560 ceiling arrives at month 5.3 (2027-04), not 11.7. Low: order month 4.6, ceiling month 9.7 (doc: 11.7 / 19.1). High: past the ceiling today. If warm text bodies are aged in place (finding on valve 1), add 49 GB today and 191 GB at 3x (mid today 1,198, mid 3x 3,216, high 3x 4,728 GB). If the FTS index is changed to a single concatenated field, mid today is 1,044 GB, order month 3.0, ceiling month 7.4; high today 1,532 GB (98%); high 3x 4,240 GB (94% of 4,520).",
+  "evidence": "Re-ran the doc's own model (scratchpad final_budget2.py, reproduces 748.9 / 903.2 / 1,305.6 / 1,772.9 / 2,251.8 / 3,500.7 exactly) with corrections added in /private/tmp/claude-502/-Users-iancaltabiano-Documents-Projects-SPORK/cb967abb-9dfb-4f3c-a338-8650edb95d0c/scratchpad/verify/recheck.py: FTS +480 B/hot record and +288 B/warm record; ops 20 GB today rising to 60 GB at 3x plus audit 0 to 40 GB; rec +260 B/record; Face +150 B/face and Image +30 B/distinct image. Example, mid today: 903.2 + 104.6 + 20.0 + 75.4 + 45.7 = 1,148.9 GB. High 3x: 3,500.7 + 297.6 + 100 + 234 + 405 = 4,537.3 GB.",
+  "fix": "Replace the 0.5 table and 0.6 dates with the corrected totals. At mid, place the H1 order now (P0a can only confirm it); at high, H1 must be installed before the face backfill and be at least 2 x 3.84 TB per node (ceiling about 8,000 GB), or a 7.68 TB drive. Index TextBody FTS on one concatenated field to recover about 105 GB today and about 300 GB at 3x."
+ },
+ {
+  "severity": "major",
+  "section": "0.4 txt_<p> (FULL_TEXT 480 B hot, 288 B warm) and 4 Full-text",
+  "claim": "FULL_TEXT on TextBody.title, body costs 0.8 x 600 B unique raw text = 480 B per hot record (288 B warm).",
+  "problem": "A FULL_TEXT index over two properties writes every token twice: once as a field-prefixed posting (\"body:term\") with per-field tf, and once unprefixed with the global tf. The posting count, and so the index size, is about 2x a single-field index. The 0.8 x raw-text figure is a single-field estimate. Corrected as designed (title + body): 960 B per hot record and 576 B per warm record. That is +104.6 GB per node today (110M x 480 + 180M x 288) and +297.6 GB at 3x (200M x 480 + 700M x 288). A hot txt_<p> also reaches the 120 GB cap at about 88M records instead of 136M, so there are more txt partitions to fan out over.",
+  "evidence": "engine/src/main/java/com/arcadedb/index/fulltext/LSMTreeFullTextIndex.java putWithStats(): multi-property branch, PASS 2 writes `underlyingIndex.put(new String[] { fieldName + \":\" + e.getKey() }, ...)` (line 1350) and then, for every global term, `underlyingIndex.put(new String[] { e.getKey() }, ...)`. The CLASSIC path does the same (lines 1282 to 1284). Each BM25 posting also carries tf and docLength varints (LSMTreeIndexAbstract.writeTermFrequency).",
+  "fix": "Index a single derived property (title + \" \" + body) so each token is posted once, and keep field-qualified search out of scope, or budget 960/576 B per record. Re-run the model either way."
+ },
+ {
+  "severity": "major",
+  "section": "0.5 per-node footprint (ops and audit missing)",
+  "claim": "Total = rec + txt hot + txt warm + identity + media + all-face gallery + fixed 110 + headroom 120.",
+  "problem": "The `ops` database (sized in 1.2 at about 60 GB at 3x) and the `audit` database (about 20 GB/yr) are on every node but are not in the total, not in the fixed 110 GB (OS 40, Raft+WAL 40, vector scratch 10, staging 20) and not in any per-record line. Corrected: about +20 GB today and +100 GB at 3x (ops 60 + audit 40). The 60 GB ops figure itself is asserted, not derived: it must hold the (identifierKey, dayBucket) counters, MediaJob rows (435M images x 3 stages during the face backfill), IngestCheckpoint, DeletionOrder ledger and Presence. If the day counters are kept for all history for the 549M shared identifiers at 3x, at about 4 active days each and about 85 B per row plus index, they alone are about 190 GB.",
+  "evidence": "0.5 formula and table columns (rec, txt hot, txt warm, identity, media, gallery); 1.2 table rows for `ops` (about 60 GB at 3x) and `audit` (about 20 GB/yr); script final_budget2.py has no ops or audit term (tot = db + gal + FIXED + HEAD).",
+  "fix": "Add ops and audit to the footprint. Bound ops explicitly: delete MediaJob rows on completion, keep (identifierKey, dayBucket) counters for 120 days only (90-day baseline plus margin), and state the resulting size."
+ },
+ {
+  "severity": "major",
+  "section": "0.4 rec_<p> (local identifier vertices + HAS_* edges, 120 B per record)",
+  "claim": "Local identifier vertices plus lightweight HAS_* edges cost 120 B per record: 2.4 refs x 25 B per light edge (both sides) = 60, plus 0.6 local vertices x 100 B = 60.",
+  "problem": "Two underestimates. (1) Section 2.1 and section 4 put gram, suffix and phonetic lists on every local identifier vertex, each with a BY ITEM index: Phone digitSuffixes[] (10 entries) + grams4[] (7) + rev + digits + key, Email/Handle grams3[] (about 16 to 18), Name phonetic[] + tokens[] + grams3[] (about 20). That is 15 to 25 index entries per local vertex (about 12 to 15 B each compacted) plus the list properties in the record, about 400 to 500 B per local vertex, not 100 B. At 0.6 local vertices per record that is about +200 B/record. (2) A vertex's edge list starts with a 64-byte chunk record, so each Record vertex (2.4 out edges) and each local identifier vertex (about 4 in edges) pays at least about 75 B with record header and slot reserve, about 120 B per record in total instead of 60 B. Combined: +260 B/record, so rec is about 1,140 B/record instead of 880: +75 GB per node today, +234 GB at 3x. A 120 GB rec_<p> then holds about 105M records, so about 9 periods at 3x instead of 7, and the \"at most 8 point lookups\" intake probe becomes 9 or more.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java line 716: GRAPH_EDGE_LIST_INITIAL_CHUNK_SIZE default 64 bytes (first chunk of a vertex's edge list, doubling after). Architecture 2.1 (Phone grams4[], digitSuffixes[]; Email/Handle grams3[]; Name phonetic[], tokens[], grams3[]) and section 4 rows 'Partial: phone digits', 'handle and email fragments', 'Fuzzy and phonetic names' (BY ITEM indexes on those lists).",
+  "fix": "Budget the local identifier layer at about 300 B/record (0.6 x about 500 B) and the light-edge layer at about 120 B/record, or measure both in P0a. Consider moving gram/suffix lists to shared identifiers only, or indexing suffixes of length 4 or more only."
+ },
+ {
+  "severity": "major",
+  "section": "0.4 media_<p> (Face vertex 120 B, Image vertex 100 B)",
+  "claim": "Face vertex + key index, no template = 120 B per face; Image vertex + sha index = 100 B per distinct image.",
+  "problem": "The Face key `fc:<imageSha>:<idx>:<algo>` is about 50 B even with a 32-hex sha and is stored twice (record + UNIQUE index entry, about 60 B). The record also carries templateSha (32 B binary), clusterKey `fk:<algo@ver>:<ulid>` (about 40 B), bbox, quality, yaw, ageEstimate, minorFlag, gallerySegment, gallerySlot, representative and state. With property ids, header and the 12.5% slot reserve that is at least about 210 B of record, about 270 B with the key index, before any clusterKey index (needed for representative recompute in the deletion saga) or the E12 AES-GCM overhead (+28 B per encrypted slot pointer). Image: a 32 B binary sha in record and index plus phash, mime, w, h, firstSeen and counts is about 130 B. Corrected at 270 B/face and 130 B/image: +46 GB mid today, +142 GB mid 3x, +131 GB high today, +405 GB high 3x, +15 / +46 GB low.",
+  "evidence": "Architecture 2.1 Face row (key `fc:<imageSha>:<idx>:<algo>`; properties bbox, quality, yaw, ageEstimate, minorFlag, gallerySegment, gallerySlot, templateSha, clusterKey, representative, state) and 5.6 E12 (encrypting Face slot pointers). The listed fields alone exceed 120 B.",
+  "fix": "Budget Face at about 270 B (more with a clusterKey index) and Image at about 130 B, or shorten keys (a LONG face id, binary sha), then re-run the model."
+ },
+ {
+  "severity": "major",
+  "section": "1.3 valve 1, 0.4 txt warm tier (368 B), A4 hot to warm aging",
+  "claim": "Warm text bodies off node save 700M x 273 B = 191 GB at 3x, and warm FTS pruning saves 134 GB; a hot partition becomes warm.",
+  "problem": "Nothing in the engine shrinks a bucket file. Deleting the EXTERNAL body of every record in a sealed txt_<p> only frees space inside pages (in-page defrag), and a sealed partition gets no new inserts to reuse it. Aging a partition in place therefore saves 0 of the 273 B/record body bytes. The 368 B warm figure holds only if each partition is rewritten into a new database (offline on n4, then admitted by restore and auto-acquire). That rewrite costs a 120 GB headroom slot and a full re-replication of the partition to every node, and the doc does not specify it. If aging is in place, warm txt is 641 B/record: +49 GB today, +191 GB at 3x. An in-place FTS rebuild of a warm partition (about 40 to 80 GB of index pages) through the leader would also pass through the Raft log, exceeding the 40 GB Raft+WAL budget in one event.",
+  "evidence": "engine/src/main/java/com/arcadedb/engine/LocalBucket.java: only defragPage (line 5748, in-page hole closing); no file truncate, shrink or bucket-compaction path in engine/src/main (grep for setLength/truncate/compactBucket finds none for buckets).",
+  "fix": "Specify hot to warm aging as an offline rewrite of txt_<p> into a new database admitted like a backfill (3.5), schedule it, and count its headroom and transfer. Otherwise budget warm txt at 641 B/record (or 929 B with doubled FTS)."
+ },
+ {
+  "severity": "major",
+  "section": "1.4 RAM (vector residency 9 GB, rebuild transient 11 GB)",
+  "claim": "Vector residency at 3x is 8.0 GB: style 100M x 40 B (24 B INT8 code + 16 B location) and text embeddings 50M x 80 B; one rebuild costs at most 8M x 1.1 KB = 8.8 GB.",
+  "problem": "(1) The location index costs about 32 B per live vector, not 16. Corrected residency: style 100M x 56 B = 5.6 GB, text 50M x 96 B = 4.8 GB, total 10.4 GB, over the 9 GB slice. (2) With the default storeVectorsInGraph=false, a graph built in the running JVM is published as an OnHeapGraphIndex and stays on heap (about 1.1 KB/node measured at 128-d and 32 connections; roughly 0.5 KB/node at degree 16). Only a restarted JVM serves OnDiskGraphIndex. The current-month buckets (2 x 6.25M) that churn all day therefore pin about 7 GB, and a node that rebuilds all 16 style buckets after replacement (3.3) would try to hold about 50 GB of graphs, which does not fit a 56 GB heap; rebuilds then get deferred and searches fall back to linear delta scans. (3) Each LSM_VECTOR index auto-sizes a float search cache (vector ids x (dims x 4 + 8) B, up to 25% of available heap per index): 16 style buckets x 6.25M x 104 B = 10.4 GB at 3x, and the 384-d text buckets would each try to claim gigabytes. (4) A 384-d text bucket of 8M needs about 8.8 GB of graph plus up to 12.8 GB of build cache (8M x (1,536 + 64) B), about 21.6 GB, against the 11 GB rebuild slice. Corrected vector heap at 3x with defaults: about 28 GB (10.4 + 10.4 + 7), not 9.",
+  "evidence": "engine/src/main/java/com/arcadedb/index/vector/VectorLocationIndex.java line 169 (APPROX_RETAINED_BYTES_PER_LOCATION = 32); LSMVectorIndex.java line 4468 (graphIndex = builtGraph, an OnHeapGraphIndex) and lines 4649 to 4658 (reload as OnDiskGraphIndex only when metadata.storeVectorsInGraph); schema/LSMVectorIndexMetadata.java line 107 (storeVectorsInGraph = false); VectorHeapBudget.java line 72 (1,100 B/node at 128-d); GlobalConfiguration VECTOR_INDEX_SEARCH_CACHE_SIZE (auto, flat float storage) and VECTOR_INDEX_SEARCH_CACHE_MAX_HEAP_PERCENT (25), VECTOR_INDEX_GRAPH_BUILD_CACHE_SIZE (cacheSize x (dims x 4 + 64)) and GRAPH_BUILD_CACHE_MAX_HEAP_PERCENT (25).",
+  "fix": "Create every vector index with storeVectorsInGraph=true (adds about 96 B/vector inline on disk, about 9.6 GB at 3x for style). Set searchCacheSize explicitly, for example 0.5M per index. Budget vector residency at about 11 GB. Drop the 384-d text index or cap its buckets at 4M vectors so one rebuild fits 11 GB."
+ },
+ {
+  "severity": "major",
+  "section": "1.4 RAM (JVM heap 56 GB fully allocated; query working memory 6 GB)",
+  "claim": "Heap 56 GB = page cache 30 + vector 9 + rebuild 11 + query/OLAP 6 on n1 to n3 (14 + 9 + 11 + 22 on n4).",
+  "problem": "The slices sum to exactly -Xmx, leaving zero headroom for ZGC. A concurrent collector needs about 15 to 20% of heap free (8 to 11 GB of 56) to avoid allocation stalls. JVM native overhead (metaspace, code cache, thread stacks, GC metadata, about 2 to 3 GB) is also not budgeted outside the 4 GB direct-memory line. The 6 GB query slice is also too small for full-text: candidates are materialized in a HashMap<RID, AtomicInteger> (about 90 to 100 B per candidate) before scoring, and a posted window does not bound this, because postings are not time-filtered. A term with 20% document frequency in the newest hot partition (about 45 to 68M unique texts) creates 9 to 14M candidates, 0.9 to 1.4 GB per query; a 50% df term is about 3 GB. Corrected heap demand on n1 to n3: page cache 30 + vector about 11 (after the fix above) + rebuild 11 + query 6 + GC headroom about 10 = 68 GB against 56.",
+  "evidence": "engine/src/main/java/com/arcadedb/index/fulltext/FullTextQueryExecutor.java line 334 (collectQueryMatches builds new HashMap<RID, AtomicInteger>) and lines 290 to 310 (filter and limit applied after collection). Architecture 1.4 table sums to 56.",
+  "fix": "Cut the page cache to about 18 GB (n1 to n3) to fund about 10 GB of GC headroom and the vector correction, or take about 8 GB from the 20 GB OS file-cache line and raise -Xmx to 64 GB. Restate the cache ratio (about 18 GB over about 2.7 to 3 TB of database bytes at 3x, under 0.7%). Cap FTS candidates per partition until E8, or make E8 a Q2 item."
+ },
+ {
+  "severity": "minor",
+  "section": "1.3 valves and 4 (optional 384-d text embedding)",
+  "claim": "Valve 5, 'drop the optional text-embedding index', saves 26 GB; mid 3x minus valves 4 to 6 is 2,019 GB; valves 4 to 6 buy about 3 months.",
+  "problem": "The text-embedding index is never added to the 0.5 footprint (txt hot is 873 B/record with only the 100 B style line), so dropping it saves nothing from the stated totals. Using the doc's own model, mid 3x minus valves 4 and 6 is 2,251.8 - 181.4 - 25 = 2,045 GB, not 2,019. Valves buy (118 + 25) / 56.2 = 2.5 months, not 3. If the embedding is deployed, its real disk cost is larger than 26 GB, because the 384-d float property is stored too: 50M x 1,536 B = 77 GB plus about 26 GB of index, about 103 GB per node.",
+  "evidence": "0.4 txt hot rows (body 273, FTS 480, style 100, textHash 20 = 873; no text-embedding line); script final_budget2.py subtracts 26 in the valve line only; 1.4 counts text-embedding RAM (4.0 GB) while 0.5 counts no disk.",
+  "fix": "Either count the text embedding (about 103 GB at 3x, about 4.8 GB heap, plus rebuild time not in 3.3) or remove it from the plan; correct the valve figure to 2,045 GB and 2.5 months."
+ },
+ {
+  "severity": "minor",
+  "section": "0.1 A4 hot tier vs today's numbers",
+  "claim": "Hot tier is defined by size: newest records up to 200M with a 6-month floor; today about 110M (18 months).",
+  "problem": "By the stated rule, today's hot tier is min(290M, 200M) = 200M records, not 110M. The 110M figure implies an unstated 18-month time limit. Under A4 as written, today's txt is 200M x 873 + 90M x 368 = 207.7 GB instead of 162.2 GB: +45.5 GB today, and 100M instead of 55M style vectors resident today.",
+  "evidence": "0.1 A4 text; script final_budget2.py sets hot = 110M + (R - 290M) x 90/610, not min(R, 200M).",
+  "fix": "Either state the rule as 'newest 18 months, capped at 200M records' or use 200M today (+45.5 GB)."
+ },
+ {
+  "severity": "minor",
+  "section": "0.4 Fixed (Raft log + WAL 40 GB, 'about 8 GB/day', '4 days of lag')",
+  "claim": "Raft page deltas are about 8 GB/day at 3x pace, so 40 GB covers 4 days of follower lag.",
+  "problem": "8 GB/day is about 10 KB per record and ignores how LSM inserts are logged. Every insert goes to the tail page (256 KB default) of the index, kept sorted, and shifts the pointer array right; the WAL/Raft delta for that page then spans the shifted pointers (tens of KB on a half-full page). With the 5-second micro-batches that 835K/day implies (about 48 records per batch, about 17K transactions/day per database), about 35 indexes touched per batch at about 24 KB each, plus FTS pages and record data, give about 1 MB per transaction, about 15 to 25 GB/day. The 40 GB budget then covers about 1.5 to 2 days, not 4, and a HA_LOG_PURGE_GAP sized from entry counts holds more bytes than assumed.",
+  "evidence": "engine/src/main/java/com/arcadedb/index/lsm/LSMTreeIndexMutable.java lines 459 to 525 (put always on the last page; currentPageBuffer.move shifts pointers right); GlobalConfiguration INDEX_DEFAULT_PAGE_SIZE 262,144; TransactionContext and WALFile write per-page modified ranges.",
+  "fix": "Measure Raft bytes/day in P0a, use 500-record or 30 s batches to amortize tail-page deltas, and size the Raft+WAL line at 2 x the measured 24 h volume (likely 40 to 60 GB)."
+ },
+ {
+  "severity": "minor",
+  "section": "0.7 / 1.4 / 4.1 ROC RAM",
+  "claim": "The ROC 40 GB cap holds 36 GB of interactive templates (70.3M per node after failover), and the gallery crosses 211M at mid about month 17 (2028-04).",
+  "problem": "The case/watch gallery (up to 2M templates on every node, about 1 GB) and the tattoo gallery (27M at mid 3x, size unknown; at about 512 B that is 14 GB unsplit or 3.5 GB per quarter) are also ROC RAM but are not inside the 36 GB template budget, so the post-failover state (36 + 4 GB) already overruns the 40 GB cap. Tattoo segments on disk (about 14 GB at 512 B each) are also absent from the disk total. Representatives = 0.3 x R reach 211M at R = 703M, month 16.3 (2028-03), not 17.",
+  "evidence": "0.7 arithmetic; 4 'ROC tattoo' row (1.35B x 0.02 = 27M); 4 'ROC face 1:N, interactive' row (case/watch gallery up to 2M on every node).",
+  "fix": "Reserve about 1 GB per node for the case gallery and about 4 GB (split) for tattoos inside or beside the ROC cap, which lowers the failover-safe interactive capacity to about 190M, and move the H2 trigger to about month 14 at mid."
+ },
+ {
+  "severity": "minor",
+  "section": "4 Structured search and exact-lookup latencies",
+  "claim": "Structured search p50/p95 20/100 ms for 500 rows; 500-record footprint 25/80 ms, with the page cache covering about 1.7% of database bytes.",
+  "problem": "With under 2% of bytes cached (under 1% after the RAM correction), most of the 500 records sit on distinct uncached 64 KB bucket pages. ArcadeDB loads pages synchronously inside the query thread, so 500 random 64 KB NVMe reads at about 80 to 150 us each take 40 to 75 ms before any index work or partition fan-out. A 20 ms p50 for 500 rows is only reachable when the newest partition is hot in cache.",
+  "evidence": "GlobalConfiguration BUCKET_DEFAULT_PAGE_SIZE 65,536; architecture 1.4 (30 GB page cache over 1,719 GB, 'interactive latency therefore depends on NVMe random reads (about 100 us)').",
+  "fix": "Restate the targets as about 60/200 ms for 500 cold rows (or about 20 ms only for the first page of 50 rows), or measure in P0a."
+ },
+ {
+  "severity": "major",
+  "section": "0.6 Rollout, 3.2 rule 6, 6.2 Raft log, D26",
+  "claim": "Raising HA_LOG_PURGE_GAP to about 24 h of entries makes a follower that was down for maintenance catch up from the log instead of doing a full resync; the 40 GB Raft + WAL budget covers this.",
+  "problem": "HA_LOG_PURGE_GAP is mapped straight to Ratis purgeGap, which is the minimum distance between two purges, not a retention window. With HA_LOG_PURGE_UPTO_SNAPSHOT=true (default) and a snapshot every 5 min (HA_SNAPSHOT_INTERVAL=300000), Ratis waits until the gap is reached and then purges all the way to the latest snapshot index. Retention is a sawtooth that drops to about 5 min right after each purge, so a node rebooted for the disk install can still hit InstallSnapshot. Combined with the next finding, that means a full re-download of every database (1,719 GB at mid 3x). The real retention knob, Ratis purgePreservationLogNum, exists in 3.3.1 but SPORK never sets it.",
+  "evidence": "ha-raft/src/main/java/com/arcadedb/server/ha/raft/RaftPropertiesBuilder.java:303-306 (setPurgeGap, setPurgeUptoSnapshotIndex only; grep finds no PurgePreservationLogNum anywhere in ha-raft or engine). Ratis 3.3.1 RaftLogBase.purge(long) bytecode: suggestedIndex = min(suggested, nextIndex-1-purgePreservation); returns early only if suggestedIndex - lastPurgeIndex < purgeGap, else purges to suggestedIndex. RaftServerConfigKeys$Log exposes setPurgePreservationLogNum. engine/src/main/java/com/arcadedb/GlobalConfiguration.java:2485-2495 (doc text calls it 'retained after a snapshot', which is inaccurate), 2550-2563 (5-min snapshot interval).",
+  "fix": "Add a small E0.5 engine item: a new key (for example HA_LOG_PURGE_PRESERVATION_ENTRIES) wired to RaftServerConfigKeys.Log.setPurgePreservationLogNum in RaftPropertiesBuilder, sized from P0 to about 24 h of entries. Alternatively set HA_LOG_PURGE_UPTO_SNAPSHOT=false so the leader purges only to the slowest follower, with HA_RAFT_STORAGE_MIN_FREE_SPACE_PERC as the backstop. Fix the wording in 0.6, 3.2 and D26."
+ },
+ {
+  "severity": "major",
+  "section": "Executive summary, 3.2, 3.3, E2",
+  "claim": "Capping each database at 120 GB bounds resync, and E2 (2 ew) isolates install failures so only the failing database is retried.",
+  "problem": "Any Raft-level InstallSnapshot (a follower behind the purged log) refreshes EVERY database on the node, whether or not it changed: DatabaseReconciler puts every local database into toRefresh and runs a full SnapshotInstaller.install on each, with no check that the copy is already current. Splitting into periods bounds peak disk headroom, which is correct because installs are serial. It does not bound resync volume or time: every such resync moves the whole node footprint. Per-pass failure isolation and give-up after 3 attempts already exist, so E2 as written is partly done and misses the real cost. A per-database leader-driven resync also already exists (forceResyncStalledReplica, POST /api/v1/cluster/resync/{db}), and E1 could build on it.",
+  "evidence": "ha-raft/.../DatabaseReconciler.java:175-192 (classifyReconcile: every local db that the leader holds goes to toRefresh), 203-231 (executeReconcilePlan with per-db isolation already), 345-353 (refresh = SnapshotInstaller.install), 132 (ACQUIRE_GIVE_UP_AFTER = 3), 414 (comment: a natural InstallSnapshot 'already re-downloads every database anyway'); ArcadeStateMachine.java:3268-3330 (notifyInstallSnapshotFromLeader -> reconcileDatabasesFromLeader); RaftHAServer.java:884 and PostResyncDatabaseHandler.java (per-database resync path); GlobalConfiguration.java:2833-2844.",
+  "fix": "Re-scope E2: during reconcile, skip refreshing a database when its (fingerprint, lastTxId) or per-database applied index matches what the leader reports in the bootstrap-state RPC (LeaderDatabaseQuery already returns lastTxId per database). Only databases that actually changed in the purged range should be downloaded. Size it at 3 to 4 ew, with tests, because it touches the install-boundary bookkeeping (installedBoundaryIndex, #6760, #8577). State in 3.3 that until then every log-gap resync costs a full-node transfer."
+ },
+ {
+  "severity": "major",
+  "section": "3.3 step 2, 8 (W3d)",
+  "claim": "W3d: join a replacement node by restoring the latest per-database backup from the object store, then catch up from the Raft log (3 ew in BackupCoordinator and AutoBackupSchedulerPlugin).",
+  "problem": "A new or replaced peer starts with an empty Raft log. The leader's log is already purged, so Ratis raises InstallSnapshot, and the reconcile path then re-downloads every database from the leader whatever was restored locally (see the previous finding). HA_BOOTSTRAP_FROM_LOCAL_DATABASE, the only path that adopts local files, applies only at first cluster formation when every peer's log is empty. A restored backup also carries no Raft index to resume from. W3d as scoped (server/backup only) cannot deliver restore-then-catch-up.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java:2816-2823 (bootstrap from local only 'when every peer's Raft log is empty at first cluster formation'); ha-raft/.../ArcadeStateMachine.java:3268-3330; DatabaseReconciler.java:175-192, 345-353 (no skip-if-current logic anywhere in SnapshotInstaller or DatabaseReconciler).",
+  "fix": "Either drop W3d's join path (keep only backups to the object store) or make it an ha-raft item: a restored database records the Raft index of its backup, and the reconcile skip from the re-scoped E2 accepts it when the leader still holds log entries past that index. Budget about 5 ew in ha-raft, not 3 ew in server/backup."
+ },
+ {
+  "severity": "major",
+  "section": "1.4 RAM budget (vector residency 9 GB)",
+  "claim": "Vector heap residency is location index + codes: style 100M x 40 B = 4.0 GB, text 50M x 80 B = 4.0 GB, about 9 GB in total.",
+  "problem": "Two omissions. (1) Each LSMVectorIndex has a per-index search cache of full-precision float vectors. Its default size of 0 means it is sized automatically to the whole id range, capped at 25% of currently AVAILABLE heap per index. Style vectors at 3x need 100M x (96 + 8) B = about 10 GB, and 384-d text needs 50M x 1,544 B = 77 GB, capped only by the heap percentage. With 16+ bucket indexes, each sizing against what is left, this can consume the 56 GB heap and evict the 30 GB page cache. (2) The location index costs about 21 B per id plus 8 to 16 B of reverse index (29 to 37 B), not the 16 B assumed.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java:1395-1407 (VECTOR_INDEX_SEARCH_CACHE_SIZE default 0 = auto from the id range, dims*4 bytes per vector), 1409-1415 (SEARCH_CACHE_MAX_HEAP_PERCENT 25 of available heap); engine/src/main/java/com/arcadedb/index/vector/VectorLocationIndex.java:57-58 and 136-160 (~21 B/id + 8-16 B reverse index); FlatVectorCache.java header (full-precision vectors held on heap).",
+  "fix": "Add an explicit vector search cache line to 1.4. Set arcadedb.vectorIndex.searchCacheSize explicitly per index (or searchCacheMaxHeapPercent low, for example 2) in E0. Recompute residency at about 35 B location + codes per vector. Treat the optional 384-d text index as unaffordable unless the cache is capped and P0 measures it."
+ },
+ {
+  "severity": "major",
+  "section": "5.6 E12 encryption at rest",
+  "claim": "E12 wires DefaultDataEncryption (AES-GCM per property) into database open. It covers evidence bodies, analyst notes and Face slot pointers; encrypted properties are not indexed; 3 ew.",
+  "problem": "Data encryption is serializer-wide. Once set, every property value of every record in that database is encrypted, with no per-property selection. Index keys are written with applyEncryption=false, so any indexed property is still stored in plaintext in the index pages. That means 'encrypted properties are not indexed' is not a choice the engine offers, and indexed values leak. Each value also gains a GCM IV and tag (about 28 B), which is not in the identity byte model (0.4) and would inflate identity and media heavily if enabled there.",
+  "evidence": "engine/src/main/java/com/arcadedb/serializer/BinarySerializer.java:741 (encrypt = applyEncryption && dataEncryption != null for every value), 1133-1136 (decrypt every non-RID value); engine/src/main/java/com/arcadedb/database/DatabaseInternal.java:474-475 (setDataEncryption sets it on the serializer); index/lsm/LSMTreeIndexAbstract.java:736,777 and index/hash/HashIndexBucket.java:1722 (index keys with applyEncryption=false); database/DefaultDataEncryption.java:86 (per-value IV).",
+  "fix": "Either keep sensitive fields (evidence bodies, notes, slot pointers) in a small dedicated database, such as `identity_sealed`, where serializer-wide encryption is acceptable and nothing sensitive is indexed, or do application-level envelope encryption in the plugin for those properties. Add a per-property opt-in only as an engine item sized at more than 3 ew. Account for the per-value overhead in 0.4."
+ },
+ {
+  "severity": "major",
+  "section": "3.2 rule 4, 3.3",
+  "claim": "Priority acquisition on a replacement node: ops, identity, hot rec_* and txt_*, recent media_*, then warm. The node becomes useful before it is complete.",
+  "problem": "There is no priority mechanism. The reconcile plan sorts the databases to acquire and refresh alphabetically (audit, identity, media_*, ops, rec_*, txt_*) and runs them serially inside one InstallSnapshot. The Raft state (applied index, snapshot marker) is registered only after the whole reconcile returns, so the node is not caught up, or safely 'ready', for any database until all of them are installed. No E-item covers this.",
+  "evidence": "ha-raft/src/main/java/com/arcadedb/server/ha/raft/DatabaseReconciler.java:188-190 (Collections.sort on toAcquire, toRefresh, leaderMissing), 212-229 (serial loops); ArcadeStateMachine.java:3330-3420 (marker and applied index recorded after reconcile completes).",
+  "fix": "Add an engine item (inside E5 or new): a configurable acquisition order (for example a priority list or regex key) in classifyReconcile, plus per-database readiness while the rest still install. Until then, remove the 'useful before complete' claim and size node-replacement downtime as the full transfer."
+ },
+ {
+  "severity": "major",
+  "section": "4 Full-text row, WS6 (Q1, zero engine changes)",
+  "claim": "Newest-first parallel top-K per partition merged with global IDF; global BM25 statistics kept in identity and refreshed hourly; FTS v1 with global statistics ships in Q1 with zero engine changes.",
+  "problem": "BM25 corpus statistics are computed inside the engine per type index and held in a package-private record. There is no public way to inject external N, avgdl or df. Each partition's SEARCH_INDEX score therefore uses local IDF, and the plugin cannot re-weight terms because it receives only a summed score per hit. Merging across partitions by global IDF needs an engine change (or per-term subqueries with rescaling, which breaks AND semantics and multiplies cost).",
+  "evidence": "engine/src/main/java/com/arcadedb/index/fulltext/BM25ScoringContext.java:26 (package-private record BM25ScoringContext(totalDocs, avgDocLength, documentFrequencies)); BM25Scorer.java:68-94; FullTextQueryExecutor.java (context built internally).",
+  "fix": "Add a small engine item (about 1 to 2 ew, before or with E8): an optional external scoring-context hook or SEARCH_INDEX metadata parameter carrying global N, avgdl and df. Until then, merge partitions by RRF on rank, not by BM25 score, and say so in WS6."
+ },
+ {
+  "severity": "major",
+  "section": "0.4 txt warm tier, 1.3 valve 2, D8",
+  "claim": "Warm FTS is pruned of terms present in more than 5% of the partition's texts (288 B instead of 480 B per record, 134 GB saved at 3x), already counted, with no engine work.",
+  "problem": "Pruning needs an analyzer with a per-partition stopword list. The engine instantiates analyzers only by class name with a no-arg constructor through Class.forName in the engine classloader. A class shipped inside the spork-recon plugin is invisible to it because the PluginClassLoader is child-first for non-com.arcadedb classes. Per-field analyzers are parsed but never used. Applying pruning to a sealed partition means dropping and recreating its FULL_TEXT index, a full replicated index build per partition through Raft. Query-side stopwording also changes match semantics for those terms, and no design covers that.",
+  "evidence": "engine/src/main/java/com/arcadedb/index/fulltext/LSMTreeFullTextIndex.java:1822-1833 (Class.forName(analyzerClass).getDeclaredConstructor().newInstance()); schema/FullTextIndexMetadata.java:501-502 (getAnalyzerClass(field) never called outside the class); server/src/main/java/com/arcadedb/server/plugin/PluginClassLoader.java:37-61.",
+  "fix": "Ship a configurable stopword analyzer jar on the server classpath (lib/), reading its list from a file named in index metadata. Plan the warm rebuild as an offline build plus restore admission (3.5) per sealed period rather than an in-place replicated rebuild. Document that pruned terms match only through the hot tier or the posted-window path. Mark the 134 GB saving as conditional until P0 measures it."
+ },
+ {
+  "severity": "minor",
+  "section": "3.4 Vector graphs on every node",
+  "claim": "A SPORK scheduler token allows at most 2 voters to rebuild the same bucket at once.",
+  "problem": "Graph rebuilds are triggered inside the engine on each node: mutation thresholds, an inactivity timeout, and a lazy build on the first search after a snapshot ships the graph empty. The engine has no hook for an external token to gate them. Without an engine change, the plugin can only route queries away from a rebuilding node.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java:1517 (VECTOR_INDEX_MUTATIONS_BEFORE_REBUILD), 1583 (INACTIVITY_REBUILD_TIMEOUT_MS), 1598 (JVM-local permit only), 1642 (deferral cooldown); ha-raft/.../SnapshotHttpHandler.java:1185-1187 (the follower's 'first search builds a graph of its own').",
+  "fix": "Fold a rebuild-admission callback into E5 (or a new 1 ew item) that consults a lease in `ops`. Otherwise drop the cross-node token and rely on per-index readiness plus routing."
+ },
+ {
+  "severity": "minor",
+  "section": "3.6 E6, 5.1 Forwarding, 3.1 Routing",
+  "claim": "Followers forward writes to the leader through the existing replica-to-leader path (LeaderForwardContext); E6 carries X-Spork-Context through that forwarding.",
+  "problem": "LeaderForwardContext is only a loop-prevention marker for redirected requests. Embedded transactions committed on a follower are not forwarded at all: the follower submits its own WAL entry to Raft and waits for the local apply, so plugin-route writes on a follower keep their thread-bound OC without any header forwarding. Forwarding exists only for /api/v1/command-style calls (forwardCommandToLeaderViaRaft). E6 is mostly unnecessary for plugin routes. The real follower-write cost is page-version conflicts (ReplicatedPageConflictException) on hot documents such as ChainHead and the Outbox counter, so governed writes should still run on the leader.",
+  "evidence": "server/src/main/java/com/arcadedb/server/LeaderForwardContext.java:17-40 (marker semantics); ha-raft/.../RaftReplicatedDatabase.java:604-622 (commit flow: on replicas waits for local apply), 1587-1599 and 5065-5141 (command forwarding only); ReplicatedPageConflictException.java exists.",
+  "fix": "Rewrite E6 as: governed plugin writes are pinned to the leader by the gateway, and follower-originated commits are disallowed for chain-bearing types in the plugin. Shrink or drop E6 unless Recon uses /api/v1/command."
+ },
+ {
+  "severity": "minor",
+  "section": "3.5 Bulk backfills",
+  "claim": "Offline-built period databases are admitted through BackupCoordinator restore on the leader, and the other nodes auto-acquire them.",
+  "problem": "BackupCoordinator is only the per-database operation slot (a lock). The restore itself is ServerControlPlane's restore-database path. That path does replicate in HA ('every replica pulls the restored files'), so the mechanism is real. It needs a backup-format archive at a URL that is allowed (SERVER_RESTORE_IMPORT_ALLOW_LOCAL_URLS for local files), and the leader needs room for the archive plus the extracted database, which the headroom budget does not count.",
+  "evidence": "server/src/main/java/com/arcadedb/server/backup/BackupCoordinator.java:59-66; server/src/main/java/com/arcadedb/server/ServerControlPlane.java:2243-2254, 2289-2291.",
+  "fix": "Name ServerControlPlane `restore database` as the mechanism, add 'package the offline build as a full backup archive' to the procedure, and reserve archive space on the leader (up to one database size) during admission."
+ },
+ {
+  "severity": "minor",
+  "section": "2.6 componentId nightly rebuild",
+  "claim": "componentId is rebuilt every night on n4 with GraphAlgorithms connected components over a GraphAnalyticalView of CO_OCCURS plus accepted soft edges, excluding hub and stop identifiers.",
+  "problem": "GraphAnalyticalViewBuilder filters only by vertex and edge types, with no predicate on edge or vertex properties. 'Accepted' soft edges and hub/stop exclusion cannot be expressed unless they are separate types. Writing componentId back for hundreds of millions of identifiers goes through Raft as page deltas from n4. Unless only changed ids are written, a nightly rewrite of about 549M vertices far exceeds the 8 GB/day Raft budget.",
+  "evidence": "engine/src/main/java/com/arcadedb/graph/olap/GraphAnalyticalViewBuilder.java:86-130 (withVertexTypes, withEdgeTypes, withProperties, withEdgeProperties only); GraphAlgorithms.java:550-577.",
+  "fix": "Model accepted soft links as their own edge type (for example ACCEPTED_LINK) and filter hub/stop vertices in the post-pass, or build the CSR from a custom scan. Write back only componentIds that changed, in throttled batches."
+ },
+ {
+  "severity": "minor",
+  "section": "5.1 Binding",
+  "claim": "The OC is bound to the transaction as a transaction attribute.",
+  "problem": "TransactionContext and DatabaseContext have no attribute or user-data API. The plugin has to keep the OC in its own ThreadLocal (transactions are thread-bound, so that works). There is no engine feature to rely on.",
+  "evidence": "engine/src/main/java/com/arcadedb/database/TransactionContext.java (no attribute accessors); DatabaseContext.java:417-440 (DatabaseContextTL fields).",
+  "fix": "State that the OC is kept in a plugin ThreadLocal scoped to the request and transaction."
+ },
+ {
+  "severity": "minor",
+  "section": "3.1 Routing and consistency",
+  "claim": "A node stops reporting ready when it lags more than SERVER_READINESS_HA_MAX_LAG; consistency headers apply to SPORK calls.",
+  "problem": "The lag check is active only when SERVER_READINESS_REQUIRES_HA=true (default false), and it is not in the E0 list. X-ArcadeDB-Read-Consistency and Read-After are parsed only by DatabaseAbstractHandler. Custom plugin routes must call HAReplicatedDatabase.setReadConsistencyContext themselves and emit the bookmark header.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java:1889-1895; server/src/main/java/com/arcadedb/server/http/handler/DatabaseAbstractHandler.java:213-255; server/src/main/java/com/arcadedb/server/HAReplicatedDatabase.java:60.",
+  "fix": "Add SERVER_READINESS_REQUIRES_HA=true to E0, and add read-consistency plumbing to the spork-recon plugin scope (WS3)."
+ },
+ {
+  "severity": "minor",
+  "section": "3.1 Leader change",
+  "claim": "Ratis re-elects within the HA_ELECTION_TIMEOUT_* window (1 to 3 s).",
+  "problem": "Defaults are 5,000 ms min and 10,000 ms max.",
+  "evidence": "engine/src/main/java/com/arcadedb/GlobalConfiguration.java:2414-2429.",
+  "fix": "Say 5 to 10 s by default, or list lowered timeouts in E0 and measure them in P0c."
+ },
+ {
+  "severity": "minor",
+  "section": "6.2 Path",
+  "claim": "Ingest uses gRPC InsertStream or HTTP /api/v1/batch into the spork.ingest procedure on the leader.",
+  "problem": "InsertStream and /api/v1/batch insert rows into a target type. They cannot invoke a plugin procedure or drive the multi-database saga.",
+  "evidence": "grpc/src/main/proto/arcadedb-server.proto:174, 611-614 (InsertOptions.target_class).",
+  "fix": "Expose ingest as a spork-recon NDJSON route (or a plugin gRPC service) that runs the saga. Keep InsertStream and batch only for single-database offline loads."
+ },
+ {
+  "severity": "minor",
+  "section": "3.6 E4",
+  "claim": "E4 adds a Ratis LISTENER role in 4 ew.",
+  "problem": "Feasible: Ratis 3.3.1 has RaftPeerRole.LISTENER and RaftPeer.Builder.setStartupRole. But ha-raft has no listener handling today. There are 16 raftGroup.getPeers() call sites (membership, bootstrap election that waits for every configured peer, Quorum.ALL, GetClusterHandler, KubernetesAutoJoin), and a custom FixedGrpcLogAppender, all of which must treat listeners correctly. 4 ew is optimistic.",
+  "evidence": "Ratis jar: RaftProtos$RaftPeerRole.LISTENER, RaftPeer$Builder.setStartupRole; ha-raft grep: 0 uses of LISTENER/setStartupRole, 16 getPeers() uses (RaftHAServer.java:1392-5041, RaftHAPlugin.java:1310, KubernetesAutoJoin.java:258-389, GetClusterHandler.java:249); ratis/FixedGrpcLogAppender.java:64.",
+  "fix": "Size E4 at 6 to 8 ew, including bootstrap-election and quorum-ALL semantics with listeners and chaos tests. Keep the Q1 4-voter fallback."
+ }
+]
