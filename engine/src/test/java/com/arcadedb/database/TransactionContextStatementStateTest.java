@@ -84,6 +84,11 @@ class TransactionContextStatementStateTest {
     CLASSIFICATION.put("slotRebaseByPage", POISONED);
     CLASSIFICATION.put("slotRebasePoisonedPages", POISONED);
     CLASSIFICATION.put("attachments", DELEGATED);
+    // Native record versioning: every value is a record newRecords holds (the history entry this transaction wrote for the RID, or
+    // the record it created), so the newRecords mark takes it back: restoreAppendOnlyState resets those identities to null, and
+    // RecordVersioning.isHandled trusts an entry only while its identity is set. A statement taken back therefore leaves an entry
+    // that reads as "not handled", and the next write of the record keeps its committed image again (RecordVersioningTest)
+    CLASSIFICATION.put("versionedRecords", DELEGATED);
     // Issue #10687: work owed by a change made BESIDE the transaction (a TIMESERIES write commits its own), which a statement taken
     // back does not undo either: the callback has to stay, as it stays through a rollback of the whole transaction
     CLASSIFICATION.put("afterCompletionCallbacks", NOT_STATEMENT_STATE);
