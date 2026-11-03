@@ -45,7 +45,8 @@ General design principles:
 - after every change in the backend (Java), compile the project and fix all the issues until the compilation passes
 - test all the new and old components you've modified before considering the job finished. Please do not provide something untested
 - always keep in mind speed and security with ArcadeDB, do not introduce security hazard or code that could slow down other parts unless requested/approved
-- do not commit on git, I will do it after a review
+- you may commit and push on git as you see fit. Stage only the files your change touched (`git add <paths>`, never
+  `git add -A` or `git commit -a`): other sessions may have uncommitted work in the same checkout
 - remove any System.out you used for debug when you have finished
 - For test cases, prefer this syntax: `assertThat(property.isMandatory()).isTrue();`
 - Annotate performance/benchmark tests so they're skipped from regular CI builds:
