@@ -124,6 +124,9 @@ import com.arcadedb.query.opencypher.procedures.selection.SelectionMembers;
 import com.arcadedb.query.opencypher.procedures.selection.SelectionPurge;
 import com.arcadedb.query.opencypher.procedures.selection.SelectionSave;
 import com.arcadedb.query.opencypher.procedures.selection.SelectionVenn;
+import com.arcadedb.query.opencypher.procedures.similarity.SimilarityCluster;
+import com.arcadedb.query.opencypher.procedures.similarity.SimilarityCompare;
+import com.arcadedb.query.opencypher.procedures.similarity.SimilarityHashNeighbors;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -324,6 +327,14 @@ public final class CypherProcedureRegistry {
     registerSelectionProcedures();
     // Identity resolution procedures (cluster compare and cohesion)
     registerIdentityProcedures();
+    // Similarity procedures (perceptual hash and stylometry clustering, compare, near-duplicate lookup)
+    registerSimilarityProcedures();
+  }
+
+  private static void registerSimilarityProcedures() {
+    register(new SimilarityCluster());
+    register(new SimilarityCompare());
+    register(new SimilarityHashNeighbors());
   }
 
   private static void registerIdentityProcedures() {

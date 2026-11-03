@@ -98,6 +98,15 @@ import com.arcadedb.function.sql.misc.SQLFunctionIfNull;
 import com.arcadedb.function.sql.misc.SQLFunctionSelectionRids;
 import com.arcadedb.function.sql.misc.SQLFunctionUUID;
 import com.arcadedb.function.sql.misc.SQLFunctionVersion;
+import com.arcadedb.function.sql.similarity.SQLFunctionHammingBandKeys;
+import com.arcadedb.function.sql.similarity.SQLFunctionHammingDistance;
+import com.arcadedb.function.sql.similarity.SQLFunctionHammingProbeKeys;
+import com.arcadedb.function.sql.similarity.SQLFunctionImagePerceptualHash;
+import com.arcadedb.function.sql.similarity.SQLFunctionImageQuality;
+import com.arcadedb.function.sql.similarity.SQLFunctionStyleFingerprint;
+import com.arcadedb.function.sql.similarity.SQLFunctionStyleProfile;
+import com.arcadedb.function.sql.similarity.SQLFunctionStyleSimilarity;
+import com.arcadedb.function.sql.similarity.SQLFunctionStyleVector;
 import com.arcadedb.function.sql.text.SQLFunctionConcat;
 import com.arcadedb.function.sql.text.SQLFunctionFormat;
 import com.arcadedb.function.sql.text.SQLFunctionSearchFields;
@@ -380,6 +389,17 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionVectorNeighbors.NAME, new SQLFunctionVectorNeighbors());
     register(SQLFunctionVectorSparseNeighbors.NAME, new SQLFunctionVectorSparseNeighbors());
     register(SQLFunctionVectorFuse.NAME, new SQLFunctionVectorFuse());
+
+    // Stylometry, perceptual image hashes and Hamming band keys (docs/spork/06-stylometry-perceptual-hash.md)
+    register(SQLFunctionStyleVector.NAME, new SQLFunctionStyleVector());
+    register(SQLFunctionStyleFingerprint.NAME, new SQLFunctionStyleFingerprint());
+    register(SQLFunctionStyleProfile.NAME, new SQLFunctionStyleProfile());
+    register(SQLFunctionStyleSimilarity.NAME, new SQLFunctionStyleSimilarity());
+    register(SQLFunctionImagePerceptualHash.NAME, new SQLFunctionImagePerceptualHash());
+    register(SQLFunctionImageQuality.NAME, new SQLFunctionImageQuality());
+    register(SQLFunctionHammingDistance.NAME, new SQLFunctionHammingDistance());
+    register(SQLFunctionHammingBandKeys.NAME, new SQLFunctionHammingBandKeys());
+    register(SQLFunctionHammingProbeKeys.NAME, new SQLFunctionHammingProbeKeys());
 
     reflectionFactory = new SQLFunctionReflectionFactory(this);
     builtInFunctions = Map.copyOf(getFunctions());
