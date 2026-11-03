@@ -46,6 +46,8 @@ public final class ExplainPlans {
       ReconSchema.warmVectorIndex(database);
       final QueryMix.ParamSampler sampler = new QueryMix.ParamSampler(new QueryMix.Tables(manifest), manifest.seed, database);
       for (final QueryMix.Query query : QueryMix.Query.values()) {
+        if (!query.sqlServed())
+          continue;
         final Map<String, Object> params = sampler.params(query);
         out.append("## ").append(query.id).append(": ").append(query.description).append("\n\n```sql\n").append(query.sql).append("\n```\n\n");
         out.append("params: ").append(describe(params)).append("\n\n```\n");

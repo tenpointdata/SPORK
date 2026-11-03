@@ -158,6 +158,11 @@ public class EmbeddedRetrievalBenchmark {
     return run(d, p, QueryMix.Query.HYDRATE_200);
   }
 
+  @Benchmark
+  public int structuredP4(final Dataset d, final Params p) {
+    return run(d, p, QueryMix.Query.STRUCTURED_P4);
+  }
+
   // ---------------------------------------------------------------------------------------------------------------------
 
   public static void main(final String[] args) throws Exception {

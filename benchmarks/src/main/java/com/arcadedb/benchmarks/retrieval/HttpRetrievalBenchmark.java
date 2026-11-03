@@ -88,11 +88,17 @@ public final class HttpRetrievalBenchmark {
   static List<QueryMix.Query> selectedQueries() {
     final String filter = BenchProps.string("queries", "");
     final List<QueryMix.Query> queries = new ArrayList<>();
-    if (filter.isEmpty())
-      queries.addAll(List.of(QueryMix.Query.values()));
-    else
-      for (final String id : filter.split(","))
-        queries.add(QueryMix.Query.byId(id.trim()));
+    if (filter.isEmpty()) {
+      for (final QueryMix.Query q : QueryMix.Query.values())
+        if (q.sqlServed())
+          queries.add(q);
+    } else
+      for (final String id : filter.split(",")) {
+        final QueryMix.Query q = QueryMix.Query.byId(id.trim());
+        if (!q.sqlServed())
+          throw new IllegalArgumentException("Query '" + q.id + "' is answered through a Java API, not SQL: the HTTP leg cannot run it");
+        queries.add(q);
+      }
     return queries;
   }
 
