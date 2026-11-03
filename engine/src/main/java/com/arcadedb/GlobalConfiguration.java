@@ -800,6 +800,15 @@ public enum GlobalConfiguration {
           Turn it off to key the caches on the exact query text""",
       Boolean.class, true),
 
+  QUERY_PROJECTION_PROPERTY_CACHE("arcadedb.queryProjectionPropertyCache", SCOPE.DATABASE,
+      """
+          Read the properties a projection needs of a record in one pass over the record header instead of one pass per \
+          property: the SQL projection step reads its rows through a per-row property cache when no expression of the \
+          projection can hand the row out, and an openCypher RETURN or WITH locates every n.property it reads of one bound \
+          record in one walk. The rows are the same either way; turn it off to run the per-property reads, for example to \
+          compare the two""",
+      Boolean.class, true),
+
   SQL_LET_SUBQUERY_CACHE_SIZE("arcadedb.sql.letSubqueryCacheSize", SCOPE.DATABASE,
       """
       Maximum number of distinct correlated bindings whose result a per-record LET subquery \

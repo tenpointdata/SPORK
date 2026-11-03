@@ -26,6 +26,7 @@ import com.arcadedb.query.sql.parser.MatchStatement;
 import com.arcadedb.query.sql.parser.OrderBy;
 import com.arcadedb.query.sql.parser.SelectStatement;
 import com.arcadedb.query.sql.parser.Statement;
+import com.arcadedb.database.BaseDocument;
 import com.arcadedb.database.Database;
 import com.arcadedb.database.ProtocolContext;
 import com.arcadedb.database.DatabaseContext;
@@ -6525,7 +6526,8 @@ public class ArcadeDbGrpcService extends ArcadeDbServiceGrpc.ArcadeDbServiceImpl
     return builder.build();
   }
 
-  private GrpcRecord convertToGrpcRecord(Record dbRecord, Database db) {
+  // Package-private for GrpcRecordGavVertexPropertiesTest
+  GrpcRecord convertToGrpcRecord(Record dbRecord, Database db) {
 
     GrpcRecord.Builder builder = GrpcRecord.newBuilder().setRid(dbRecord.getIdentity().toString());
 
@@ -6537,11 +6539,22 @@ public class ArcadeDbGrpcService extends ArcadeDbServiceGrpc.ArcadeDbServiceImpl
       if (doc.getIdentity() != null)
         builder.setRid(doc.getIdentity().toString());
 
-      // set all properties
+      // set all properties, read off the record in ONE pass (SPORK retrieval speed, item S4): getPropertyNames() then get() per
+      // name walked the record header once per property. For a record-backed document toMap(false) answers the same names and
+      // values in the same order. Any other implementation is read name by name: a GAVVertex answers get() from the view's
+      // column store and toMap() from the live record, which disagree once a commit lands after the snapshot pin
       final boolean debug = LogManager.instance().isLoggable(this, Level.FINE);
-      for (String propertyName : doc.getPropertyNames()) {
-
-        Object value = doc.get(propertyName);
+      final Map<String, Object> stored;
+      if (doc instanceof BaseDocument)
+        stored = doc.toMap(false);
+      else {
+        stored = new LinkedHashMap<>();
+        for (final String name : doc.getPropertyNames())
+          stored.put(name, doc.get(name));
+      }
+      for (final Map.Entry<String, Object> entry : stored.entrySet()) {
+        final String propertyName = entry.getKey();
+        final Object value = entry.getValue();
 
         if (value != null) {
 

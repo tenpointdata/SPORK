@@ -88,6 +88,9 @@ public class WithStep extends AbstractExecutionStep {
   @Override
   public ResultSet syncPull(final CommandContext context, final int nRecords) throws TimeoutException {
     final boolean hasPrevious = prev != null;
+    // THE n.a, n.b, n.c ITEMS THAT READ ONE BOUND RECORD, LOCATED IN ONE PASS OVER ITS HEADER PER ROW (SPORK S4). PER RESULT
+    // SET: IT HOLDS THE POSITIONS OF THE ROW IN FLIGHT
+    final BoundPropertyReads reads = BoundPropertyReads.of(withClause.getItems(), context.getDatabase());
 
     return new ResultSet() {
       private ResultSet prevResults = null;
@@ -190,7 +193,7 @@ public class WithStep extends AbstractExecutionStep {
               rowCount++;
 
             // Project the result
-            final ResultInternal projectedResult = projectResult(inputResult);
+            final ResultInternal projectedResult = projectResult(inputResult, reads);
 
             // Apply WHERE clause filtering using a merged scope that contains
             // both the pre-projection variables AND the projected aliases.
@@ -295,17 +298,21 @@ public class WithStep extends AbstractExecutionStep {
    * Projects a result according to the WITH clause items.
    * Handles WITH *, WITH *, extra AS alias, and WITH expr AS alias.
    */
-  private ResultInternal projectResult(final Result inputResult) {
+  private ResultInternal projectResult(final Result inputResult, final BoundPropertyReads reads) {
     final ResultInternal result = new ResultInternal();
 
-    for (final ReturnClause.ReturnItem item : withClause.getItems()) {
+    final List<ReturnClause.ReturnItem> items = withClause.getItems();
+    if (reads != null)
+      reads.begin(inputResult);
+    for (int i = 0; i < items.size(); i++) {
+      final ReturnClause.ReturnItem item = items.get(i);
       if (item.isStar()) {
         // WITH * — copy all properties from input
         for (final String prop : inputResult.getPropertyNames())
           result.setProperty(prop, inputResult.getProperty(prop));
       } else {
-        // Evaluate and project the expression
-        final Object value = evaluator.evaluate(item.getExpression(), inputResult, context);
+        // Evaluate and project the expression: a property read of a record the row binds comes from the one header pass
+        final Object value = reads != null && reads.covers(i) ? reads.value(i) : evaluator.evaluate(item.getExpression(), inputResult, context);
         result.setProperty(item.getOutputName(), value);
       }
     }

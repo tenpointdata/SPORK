@@ -20,6 +20,7 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_USERTYPE_VISIBILITY_PUBLIC=true */
 package com.arcadedb.query.sql.parser;
 
+import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.Document;
 import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.query.sql.executor.CommandContext;
@@ -180,15 +181,33 @@ public class Projection extends SimpleNode {
         // element's names back over the top of it, until #5613 removed that union and left the filter exposed.
         // Do not reinstate it here: hiding a property from a projection but not from the record that backs it is
         // not a security boundary, it only makes the two spellings of "give me everything" return different rows.
-        for (final String alias : record.getPropertyNames()) {
-          if (excludedAliases.contains(alias))
-            continue;
-          Object value = item.convert(record.getProperty(alias));
-          if (item.nestedProjection != null) {
-            value = item.nestedProjection.apply(item.expression, value, context);
+        //
+        // A plain row is read in ONE pass (toPropertyMap, the same reading an INSERT ... FROM SELECT takes, issue #10098):
+        // getPropertyNames() then getProperty() per name walked the record header once per property, N + 1 passes for N
+        // properties (SPORK retrieval speed, item S4). A row of another class keeps the name-by-name reading, which is
+        // what its own getters answer. Behind the same setting as the projection step's view, so the two readings can be
+        // compared on one database
+        if (record.getClass() == ResultInternal.class && context.getDatabase().getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_PROJECTION_PROPERTY_CACHE)) {
+          for (final Map.Entry<String, Object> entry : record.toPropertyMap(false).entrySet()) {
+            final String alias = entry.getKey();
+            if (excludedAliases.contains(alias))
+              continue;
+            Object value = item.convert(entry.getValue());
+            if (item.nestedProjection != null)
+              value = item.nestedProjection.apply(item.expression, value, context);
+            result.setProperty(alias, value);
           }
-          result.setProperty(alias, value);
-        }
+        } else
+          for (final String alias : record.getPropertyNames()) {
+            if (excludedAliases.contains(alias))
+              continue;
+            Object value = item.convert(record.getProperty(alias));
+            if (item.nestedProjection != null) {
+              value = item.nestedProjection.apply(item.expression, value, context);
+            }
+            result.setProperty(alias, value);
+          }
 
         record.getElement().ifPresent(doc -> {
           if (!excludedAliases.contains(RID_PROPERTY) && doc.getIdentity() != null) {

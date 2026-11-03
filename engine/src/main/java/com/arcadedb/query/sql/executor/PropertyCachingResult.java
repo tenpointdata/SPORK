@@ -25,6 +25,11 @@ import com.arcadedb.database.ImmutableDocument;
 import com.arcadedb.database.RID;
 import com.arcadedb.database.Record;
 import com.arcadedb.engine.Dictionary;
+import com.arcadedb.query.sql.parser.FunctionCall;
+import com.arcadedb.query.sql.parser.NestedProjection;
+import com.arcadedb.query.sql.parser.SimpleNode;
+import com.arcadedb.query.sql.parser.Statement;
+import com.arcadedb.query.sql.parser.SuffixIdentifier;
 import com.arcadedb.schema.Type;
 import com.arcadedb.serializer.json.JSONObject;
 
@@ -88,6 +93,25 @@ final class PropertyCachingResult implements Result {
 
   PropertyCachingResult(final Database database) {
     this.database = database;
+  }
+
+  /**
+   * Whether evaluating {@code fragment} (a projection, a GROUP BY, a WHERE clause, a single item...) on the caching view can
+   * never hand the view out, so the view can serve the next row: no {@code *}, which answers the row itself, no function
+   * call, which gets the row, no nested projection and no sub-query.
+   * <p>
+   * THE CONTRACT OF THIS CLASS: a node that can answer, or keep, the row it is evaluated on must be refused here. Every
+   * other node reads values off the row or computes on values; {@code @this} answers the record, not the row, and
+   * {@code $current} is the row the scan set, not the view. A new node type that can answer the row it gets belongs in
+   * this list. Shared by the aggregation (issue #9496) and the projection step (SPORK retrieval speed, item S4).
+   */
+  static boolean isSafeOnView(final Object fragment) {
+    return SqlAstInspector.allNodesMatch(fragment, PropertyCachingResult::isSafeNodeOnView);
+  }
+
+  private static boolean isSafeNodeOnView(final SimpleNode node) {
+    return !(node instanceof FunctionCall) && !(node instanceof Statement) && !(node instanceof NestedProjection) && !(
+        node instanceof SuffixIdentifier suffix && suffix.star);
   }
 
   /**
