@@ -119,7 +119,7 @@ class SporkReconApiSpecTest {
     final Map<String, Schema> answer = openAPI.getComponents().getSchemas().get("SearchAnswer").getProperties();
 
     assertThat(openAPI.getComponents().getSchemas().get("SearchAnswer").getRequired()).contains("total", "totalExact");
-    assertThat(answer.get("total").getDescription()).contains("ESTIMATE").contains("totalExact");
+    assertThat(answer.get("total").getDescription()).contains("ESTIMATE").contains("totalExact").contains("-1");
     assertThat(answer.get("totalEstimate").getDescription()).contains("ESTIMATE");
     assertThat(openAPI.getComponents().getSchemas().get("SearchRequest").getProperties()).containsKey("exactTotal");
   }

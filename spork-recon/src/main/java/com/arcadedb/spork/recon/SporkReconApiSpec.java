@@ -129,10 +129,12 @@ public final class SporkReconApiSpec {
           Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by \
           default) in posted_desc, posted_asc or views_desc order. Served on direct cursors over the (facet, tsPosted, views) \
           composites, the smallest filter driving; partial is true when a read cap stopped the page itself. \
-          The total is an ESTIMATE by default: the count reads a bounded number of index entries (so the request stays inside \
-          its latency budget) and totalExact says whether it reached the end. When totalExact is false, total is a lower \
-          bound (show it as "N+") and totalEstimate, when present, the count scaled from the driving filter's size (show it \
-          as "about N"); totalEstimate is left out when a posted window makes that scaling unreliable. exactTotal: true asks \
+          The total is an ESTIMATE by default, so the request stays inside its latency budget: a single filter with no posted \
+          window, over records the person can all see, takes the total from index statistics (total is -1, nothing counted); \
+          otherwise the count reads a bounded number of index entries and totalExact says whether it reached the end. When \
+          totalExact is false, total is a lower bound ("N+") or -1, and totalEstimate, when present, the statistics' total or \
+          the count scaled from the driving filter's size ("about N"); it is left out when a posted window makes the scaling \
+          unreliable. exactTotal: true asks \
           for the exact count up to 10,000 (totalCapped when more match), at the cost of reading up to every match. \
           Records the person may not see are neither returned nor counted. phone, email, business and q (substring and full \
           text) are refused with filterUnsupported for now. A title in the projection is read from the record's text \
@@ -243,12 +245,15 @@ public final class SporkReconApiSpec {
     components.addSchemas("SearchAnswer", envelope(SpecBuilders.object("A page and its total")//
         .addProperty("records", SpecBuilders.arrayOf(SpecBuilders.ref("SearchedRecord"), "In the requested order"))//
         .addProperty("total", SpecBuilders.integer("Matches counted, at most 10,000. Exact only when totalExact; otherwise an "
-            + "ESTIMATE's lower bound (\"N+\")").format("int64"))//
+            + "ESTIMATE's lower bound (\"N+\"), or -1 when the total was read from index statistics and nothing was counted: "
+            + "show totalEstimate (\"about N\")").format("int64"))//
         .addProperty("totalExact", SpecBuilders.bool("total counts every match (up to the cap). False by default once the count's "
             + "read budget runs out: total is then a lower bound"))//
-        .addProperty("totalCapped", SpecBuilders.bool("More than 10,000 match"))//
+        .addProperty("totalCapped", SpecBuilders.bool("More than 10,000 match: counted, or by the estimate when totalExact is "
+            + "false (\"10,000+\")"))//
         .addProperty("totalEstimate", SpecBuilders.integer("ESTIMATE, only when totalExact is false and no posted window applies: "
-            + "the count scaled from the driving filter's size (\"about N\"), at most 10,000").format("int64")))//
+            + "from index statistics (when total is -1) or the count scaled from the driving filter's size (\"about N\"), at most "
+            + "10,000").format("int64")))//
         .required(List.of("records", "total", "totalExact", "totalCapped", "requestId", "auditSeq", "servedBy", "partial",
             "consistencyBookmark")));
 

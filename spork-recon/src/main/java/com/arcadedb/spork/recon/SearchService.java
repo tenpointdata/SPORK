@@ -96,7 +96,8 @@ final class SearchService {
   /**
    * What a search released, before it is audited and answered.
    *
-   * @param total         matches counted, at most the cap: exact when {@code totalExact}, a lower bound otherwise
+   * @param total         matches counted, at most the cap: exact when {@code totalExact}, a lower bound otherwise, -1 when a
+   *                      partition's total came from index statistics and nothing was counted there
    * @param totalExact    every match was counted (or more than the cap were, {@code totalCapped})
    * @param totalCapped   more than the cap match
    * @param partial       the page itself may be short: a read cap stopped it
@@ -204,39 +205,26 @@ final class SearchService {
     final RecordVisibility rule = new RecordVisibility(tenant, heldMarkings);
     final StructuredQuery query = request.query();
     final boolean windowed = query.windowFrom() != Long.MIN_VALUE || query.windowTo() != Long.MAX_VALUE;
+    final SearchTotals totals = new SearchTotals(COUNT_CAP, !windowed);
     final List<Document> hits = new ArrayList<>();
-    long total = 0;
-    long estimate = 0;
-    boolean exact = true;
-    final boolean estimable = !windowed;
-    boolean capped = false;
     boolean partial = false;
-    // the default total shares one budget of index entries across the partitions; an exact total uses the core's own budget
+    // the default total: the core's table where the person sees the whole partition, else one budget of index entries shared
+    // across the partitions; an exact total counts with the core's own budget
     long budgetLeft = config.searchEstimateBudget();
     final EngineUserBinding binding = new EngineUserBinding(user);
     try {
       for (final String name : partitions(!query.descending())) {
         final Database partition = binding.bind(server.getDatabaseForClient(name));
-        final long capLeft = COUNT_CAP - total;
+        final long capLeft = totals.capLeft();
         // once the cap is reached a later partition still answers its page, and a count of 1 says whether more match
         StructuredQuery partitionQuery = query.filter(rule.forPartition(partition)).count(capLeft > 0 ? (int) capLeft : 1);
         if (!request.exactTotal())
-          partitionQuery = partitionQuery.countBudget((int) Math.max(1, budgetLeft));
+          partitionQuery = partitionQuery.countBudget((int) Math.max(1, budgetLeft)).estimateTotal();
         final StructuredSearch.Result page = core(name, partition).search(partitionQuery);
         hits.addAll(page.rows());
         partial |= page.partial();
         budgetLeft -= page.scanned();
-        if (capLeft > 0) {
-          total += page.total();
-          capped |= page.totalCapped();
-          if (page.totalPartial()) {
-            exact = false;
-            // the core scales by the driving facet's whole size: a window cuts that size by an unknown share
-            estimate += page.totalEstimate();
-          } else
-            estimate += page.total();
-        } else
-          capped |= page.total() > 0;
+        totals.add(page);
       }
 
       hits.sort(order(query));
@@ -251,9 +239,7 @@ final class SearchService {
           title(record, row, binding);
         records.put(row);
       }
-      total = Math.min(total, COUNT_CAP);
-      final long totalEstimate = exact ? total : estimable ? Math.max(total, Math.min(COUNT_CAP, estimate)) : -1L;
-      return new Result(records, recordIds, total, exact, capped, partial, totalEstimate);
+      return new Result(records, recordIds, totals.total(), totals.exact(), totals.capped(), partial, totals.estimate());
     } finally {
       binding.release();
     }

@@ -93,4 +93,16 @@ class RecordVisibilityTest {
     assertThat(rule.accepts(held.asDocument())).isTrue();
     assertThat(rule.accepts(ownImport.asDocument())).isTrue();
   }
+
+  @Test
+  void itHidesNothingOnlyWhenThePersonSeesTheWholePartition() {
+    assertThat(new RecordVisibility("deliverfund", 0b01L).forPartition(database).hidesNothing()).as("the 0b11 record and acme's import")
+        .isFalse();
+    assertThat(new RecordVisibility("deliverfund", 0b11L).forPartition(database).hidesNothing()).as("acme's import is still hidden")
+        .isFalse();
+    assertThat(new RecordVisibility("deliverfund", 0b01L).hidesNothing()).as("the bare rule knows nothing of the partition").isFalse();
+
+    database.transaction(() -> otherImport.asDocument().modify().set("tenantId", "deliverfund").save());
+    assertThat(new RecordVisibility("deliverfund", 0b11L).forPartition(database).hidesNothing()).isTrue();
+  }
 }

@@ -222,4 +222,31 @@ class SearchEquivalenceTest {
     assertThat(result.recordsRead()).isLessThanOrEqualTo(5 + 1 + hiddenTx);
     assertThat(result.total()).isEqualTo(sql(query, RECORDS).size());
   }
+
+  /** The core's table total counts every entry, hidden or not: the route may use it only when the person can see them all. */
+  @Test
+  void theTableEstimateIsUsedOnlyWhenThePersonSeesEverything() {
+    final StructuredQuery query = StructuredQuery.newestFirst(10).where(Facet.eq("stateCode", "TX")).count(10_000).countBudget(2_000)
+        .estimateTotal();
+    final long allTx = sql(StructuredQuery.newestFirst(1).where(Facet.eq("stateCode", "TX")), RECORDS).size()
+        + hiddenCount("TX");
+
+    // the fixture's marked records are hidden from this person: the budgeted count runs
+    final StructuredSearch.Result hidden = core.search(query.filter(new RecordVisibility(TENANT, 0L).forPartition(database)));
+    assertThat(hidden.total()).isNotNegative();
+
+    // holding the marking, the person sees the whole partition: the total is the table's, nothing is counted
+    final StructuredSearch.Result everything = core.search(query.filter(new RecordVisibility(TENANT, 0b10L).forPartition(database)));
+    assertThat(everything.total()).isEqualTo(-1L);
+    assertThat(everything.totalPartial()).isTrue();
+    assertThat(everything.totalEstimate()).isEqualTo(allTx);
+    assertThat(everything.rows()).hasSize(10);
+  }
+
+  private static long hiddenCount(final String state) {
+    try (final ResultSet rs = database.query("sql", "SELECT count(*) AS n FROM Record WHERE stateCode = :s AND markings = 2",
+        Map.of("s", state))) {
+      return rs.next().<Long>getProperty("n");
+    }
+  }
 }

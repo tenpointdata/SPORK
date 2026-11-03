@@ -37,8 +37,9 @@ import java.util.Arrays;
  * <p>
  * {@link #forPartition} adds what a count needs to stay on the index: the RIDs of the partition that this person cannot see,
  * read from the sparse {@code (markings)} and {@code (tenantId)} indexes of schema v1 (only marked records and imports are in
- * them). An entry outside that set is visible without reading its record. When the set would exceed {@link #MAX_HIDDEN}, or the
- * partition lacks the sparse indexes, every counted entry is read instead: slower, never wrong.
+ * them). An entry outside that set is visible without reading its record, and an empty set lets the core answer a total from
+ * its cardinality table ({@link RecordFilter#hidesNothing()}). When the set would exceed {@link #MAX_HIDDEN}, or the partition
+ * lacks the sparse indexes, every counted entry is read instead and no table total is allowed: slower, never wrong.
  */
 final class RecordVisibility implements RecordFilter {
   static final String RECORD_TYPE = "Record";
@@ -90,6 +91,12 @@ final class RecordVisibility implements RecordFilter {
       @Override
       public boolean mustRead(final RID rid) {
         return hidden.contains(rid);
+      }
+
+      /** Nothing in this partition is hidden from the person, so the core may answer a total from its index statistics. */
+      @Override
+      public boolean hidesNothing() {
+        return hidden.isEmpty();
       }
     };
   }
