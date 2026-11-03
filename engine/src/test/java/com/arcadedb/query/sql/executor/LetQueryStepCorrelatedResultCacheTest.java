@@ -538,7 +538,7 @@ class LetQueryStepCorrelatedResultCacheTest extends TestHelper {
       "geo.geohashcover", "geo.geomfromtext", "geo.intersects", "geo.linestring", "geo.nearest", "geo.overlaps",
       "geo.point", "geo.polygon", "geo.touches", "geo.within", "geo.x", "geo.y", "hamming.bandkeys",
       "hamming.distance", "hamming.probekeys", "history.asof", "history.edges", "history.of", "if", "ifempty",
-      "ifnull", "image.perceptualhash", "image.quality", "in", "ine", "intersect", "inv", "last", "linestring",
+      "ifnull", "image.pdq", "image.perceptualhash", "image.quality", "in", "ine", "intersect", "inv", "last", "linestring",
       "list",
       "map", "math_abs", "math_absexact", "math_acos", "math_addexact", "math_asin", "math_atan",
       "math_atan2", "math_cbrt", "math_ceil", "math_ceildiv", "math_ceildivexact", "math_ceilmod",

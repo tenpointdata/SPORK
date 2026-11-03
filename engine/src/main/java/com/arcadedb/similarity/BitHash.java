@@ -125,6 +125,14 @@ public final class BitHash {
     return new String(out);
   }
 
+  /** The hash as big-endian bytes (32 for PDQ), the inverse of {@link #parse} on bytes: the compact BINARY form to store. */
+  public static byte[] toBytes(final long[] hash) {
+    final byte[] out = new byte[hash.length * 8];
+    for (int i = 0; i < out.length; i++)
+      out[i] = (byte) (hash[i >>> 3] >>> (56 - 8 * (i & 7)));
+    return out;
+  }
+
   /** The number of differing bits; the two hashes must have the same width. */
   public static int hamming(final long[] a, final long[] b) {
     if (a.length != b.length)

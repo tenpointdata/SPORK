@@ -85,6 +85,60 @@ This document provides detailed attribution information for third-party software
 
 ---
 
+### 3. Meta ThreatExchange PDQ - Perceptual Hash and Test Images
+
+**PDQ** is Meta's 256-bit perceptual image hash, published with reference implementations in the ThreatExchange
+repository.
+
+- **Copyright:** Meta Platforms, Inc. and affiliates
+- **License:** BSD License (3-clause form, reproduced below)
+- **Repository:** https://github.com/facebook/ThreatExchange (`pdq/`)
+
+**Included Components:**
+
+| Component | Type | Location |
+|-----------|------|----------|
+| PDQ hasher (port of `pdq/java/src/main/java/pdqhashing/hasher/PDQHasher.java` and `MatrixUtil.torben`) | Java source, ported and restructured to stream rows | `engine/src/main/java/com/arcadedb/similarity/PdqHasher.java` |
+| Literal transcription of the same algorithm, used as a test oracle | Java test source | `engine/src/test/java/com/arcadedb/similarity/PdqReferenceTranscription.java` |
+| `bridge-1-original.jpg`, `bridge-2-rotate-90.jpg`, `bridge-5-flipx.jpg`, `bridge-8-flip-minus-1.jpg` (from `pdq/data/reg-test-input/dih/`) and the expected hashes of `pdq/java/reg_test/expected/out` | Test images and golden values, unmodified | `engine/src/test/resources/similarity/pdq/`, `engine/src/test/java/com/arcadedb/similarity/PdqHasherTest.java` |
+
+**License Text:**
+
+> BSD License
+>
+> For ThreatExchange software
+>
+> Copyright (c) Meta Platforms, Inc. and affiliates.
+>
+> Redistribution and use in source and binary forms, with or without modification,
+> are permitted provided that the following conditions are met:
+>
+>  * Redistributions of source code must retain the above copyright notice, this
+>    list of conditions and the following disclaimer.
+>
+>  * Redistributions in binary form must reproduce the above copyright notice,
+>    this list of conditions and the following disclaimer in the documentation
+>    and/or other materials provided with the distribution.
+>
+>  * Neither the name Facebook nor the names of its contributors may be used to
+>    endorse or promote products derived from this software without specific
+>    prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+> ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+> WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+> DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+> ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+> (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+> LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+> ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+> (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+> SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+No library dependency is added: the port uses only the JDK (ImageIO decodes, as the reference does).
+
+---
+
 ## Runtime Dependencies
 
 The following table lists runtime dependencies bundled with ArcadeDB distributions:
