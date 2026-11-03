@@ -1399,6 +1399,107 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
     return new BucketIterator(this, positions, from, to);
   }
 
+  /**
+   * Reads the records at {@code positions[from, to)}, which must be sorted ascending, with one page read per distinct page
+   * and the pages this call will miss prefetched in parallel first (SPORK L1): the batched hydration of
+   * {@code LocalDatabase.lookupByRIDs}. The permission is checked once for the batch, the before-read events fire once per
+   * record as {@link #getRecord(RID)} fires them, and nothing is copied: a record on its own page is a view of the cached
+   * page, exactly as the single read answers it.
+   * <p>
+   * Only a record that lies whole in its own slot is decoded here. Every other shape - a placeholder pointer, the head of a
+   * chunk chain, placeholder content - is handed to {@link #getRecordInternal(RID, boolean)}, which knows them all and finds
+   * the page in the cache by then, so the two paths cannot disagree on what a slot means.
+   *
+   * @return one entry per position, in the same order: the record's content, or {@code null} where {@link #getRecord(RID)}
+   * would raise {@code RecordNotFoundException} or answer nothing (deleted, filtered by a before-read event, past the bucket)
+   */
+  public Binary[] getRecords(final long[] positions, final int from, final int to) {
+    database.checkPermissionsOnFile(fileId, SecurityDatabaseUser.ACCESS.READ_RECORD);
+
+    final Binary[] records = new Binary[to - from];
+    if (to <= from)
+      return records;
+
+    final int totalPages = getTotalPages();
+
+    // THE DISTINCT PAGES, IN ORDER: THE POSITIONS ARE SORTED, SO A RUN OF ONE PAGE IS CONTIGUOUS. BUILT ONCE, USED FOR THE
+    // PREFETCH AND FOR THE READS, SO NO PAGE IDENTIFIER IS BUILT TWICE
+    final List<PageId> pages = new ArrayList<>();
+    int lastPageNumber = -1;
+    for (int i = from; i < to; i++) {
+      final long position = positions[i];
+      if (position < 0)
+        continue;
+      final int pageNumber = (int) (position / maxRecordsInPage);
+      if (pageNumber != lastPageNumber && pageNumber < totalPages) {
+        pages.add(new PageId(database, file.getFileId(), pageNumber));
+        lastPageNumber = pageNumber;
+      }
+    }
+    if (pages.size() > 1)
+      // ONE PAGE IS READ SYNCHRONOUSLY BELOW ANYWAY: THE PREFETCH BUYS SOMETHING FROM THE SECOND PAGE ON
+      database.getPageManager().prefetch(pages);
+
+    try {
+      final TransactionContext tx = database.getTransaction();
+      BasePage page = null;
+      int pageIndex = -1;
+      int pageNumber = -1;
+      short recordCountInPage = 0;
+
+      for (int i = from; i < to; i++) {
+        final long position = positions[i];
+        if (position < 0)
+          continue;
+        final int recordPageNumber = (int) (position / maxRecordsInPage);
+        if (recordPageNumber >= totalPages)
+          // PAST THE BUCKET: NOT FOUND
+          continue;
+
+        if (recordPageNumber != pageNumber) {
+          ++pageIndex;
+          final PageId pageId = pages.get(pageIndex);
+          assert pageId.getPageNumber() == recordPageNumber;
+          page = tx.getPage(pageId, pageSize);
+          pageNumber = recordPageNumber;
+          recordCountInPage = page.readShort(PAGE_RECORD_COUNT_IN_PAGE_OFFSET);
+        }
+
+        final int positionInPage = (int) (position % maxRecordsInPage);
+        if (positionInPage >= recordCountInPage)
+          continue;
+
+        final int recordPositionInPage = getRecordPositionInPage(page, positionInPage);
+        if (recordPositionInPage == 0)
+          // DELETED
+          continue;
+
+        final long recordSize = page.readNumber(recordPositionInPage);
+        if (recordSize == 0)
+          continue;
+
+        final RID rid = new RID(fileId, position);
+        if (recordSize > 0) {
+          // A PLAIN RECORD ON ITS OWN PAGE: A VIEW OF THE PAGE IN HAND
+          if (!fireBeforeReadEvents(rid))
+            continue;
+          records[i - from] = page.getImmutableView(recordPositionInPage + page.readNumberSize(recordPositionInPage), (int) recordSize);
+        } else {
+          // A PLACEHOLDER, A CHUNK CHAIN, OR THE CONTENT OF ANOTHER RECORD: THE SINGLE-RECORD READER KNOWS EVERY SHAPE
+          try {
+            records[i - from] = getRecordInternal(rid, false);
+          } catch (final RecordNotFoundException e) {
+            // GONE BETWEEN THE SLOT READ AND THE LOAD
+          }
+        }
+      }
+    } catch (final IOException e) {
+      throw new DatabaseOperationException("Error on batched lookup of records of bucket '" + componentName + "'", e);
+    }
+
+    return records;
+  }
+
   @Override
   public String toString() {
     return componentName;
@@ -6052,6 +6153,19 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
           final int chunkSize = page.readInt((int) (currentRecordPositionInPage + currentRecordHeaderSize));
           final long nextChunkPointer = decodeNextChunkLink(page.readLong(
                   (int) (currentRecordPositionInPage + currentRecordHeaderSize + INT_SERIALIZED_SIZE)));
+
+          // ONE-AHEAD PREFETCH (SPORK L1): THE NEXT CHUNK'S PAGE IS KNOWN NOW, SO ITS READ IS ISSUED BEFORE THIS CHUNK IS COPIED
+          // AND OVERLAPS THE COPY. A PAGE ALREADY CACHED COSTS ONE MAP LOOKUP; THE HOP BELOW JOINS THE READ IN FLIGHT OTHERWISE.
+          // THE IDENTIFIER IS REUSED BY THE HOP, SO NO PAGE IDENTIFIER IS BUILT TWICE
+          PageId nextPageId = null;
+          if (nextChunkPointer != NO_NEXT_CHUNK) {
+            final int nextChunkPage = (int) (nextChunkPointer / maxRecordsInPage);
+            if (nextChunkPage != page.pageId.getPageNumber() && nextChunkPage >= 0 && nextChunkPage < getTotalPages()) {
+              nextPageId = new PageId(database, file.getFileId(), nextChunkPage);
+              database.getPageManager().prefetch(nextPageId);
+            }
+          }
+
           final Binary chunk = page.getImmutableView(
                   (int) (currentRecordPositionInPage + currentRecordHeaderSize + INT_SERIALIZED_SIZE + LONG_SERIALIZED_SIZE),
                   chunkSize);
@@ -6083,7 +6197,9 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
             break;
           }
 
-          final PageId nextPageId = new PageId(database, file.getFileId(), chunkPageId);
+          if (nextPageId == null)
+            // THE HOP STAYS ON THIS PAGE, OR THE PREFETCH ABOVE DECLINED IT: THE IDENTIFIER IS BUILT HERE
+            nextPageId = new PageId(database, file.getFileId(), chunkPageId);
           final boolean nextRefreshable = isPageReadAfreshByARetry(walkTransaction, repeatableRead, nextPageId, chainTrace,
                   chunks, refreshableChunks);
 

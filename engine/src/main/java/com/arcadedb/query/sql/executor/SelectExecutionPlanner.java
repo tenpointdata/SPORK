@@ -312,6 +312,13 @@ public class SelectExecutionPlanner {
 
     handleFetchFromTarget(selectExecutionPlan, info, context);
 
+    if (projectsOnlyTheRecordIdentity())
+      // SELECT @rid FROM [#rids]: NOTHING READS THE CONTENT, SO THE RECORDS STAY LAZY SHELLS (CHECKED FOR EXISTENCE) AS THEY WERE
+      // BEFORE THE BATCHED HYDRATION, INSTEAD OF HAVING THEIR CONTENT COPIED FOR NOTHING
+      for (final ExecutionStep step : info.fetchExecutionPlan.getSteps())
+        if (step instanceof FetchFromRidsStep fetchFromRids)
+          fetchFromRids.setLoadContent(false);
+
     if (emptyReason != null)
       foldEmptyByConstruction(selectExecutionPlan, info, context, emptyReason);
     else {
@@ -2001,6 +2008,24 @@ public class SelectExecutionPlanner {
         throw new CommandExecutionException("Invalid metadata: " + metadata.getName());
     }
     }
+  }
+
+  /**
+   * Whether the statement reads nothing of a record but its identity: a projection of {@code @rid} items only, and no clause
+   * that could read a property (WHERE, LET, GROUP BY, ORDER BY, UNWIND). Conservative on purpose, and safe either way: a shell
+   * handed to a step that does read the content loads itself lazily, so a wrong answer here costs a load, never a wrong row.
+   */
+  private boolean projectsOnlyTheRecordIdentity() {
+    final Projection projection = statement.getProjection();
+    if (projection == null || projection.getItems() == null || projection.getItems().isEmpty() || statement.getWhereClause() != null
+        || statement.getLetClause() != null || statement.getGroupBy() != null || statement.getOrderBy() != null
+        || statement.getUnwind() != null)
+      return false;
+    for (final ProjectionItem item : projection.getItems())
+      if (item.isAll() || item.isExpand() || item.nestedProjection != null || item.getExpression() == null
+          || !"@rid".equalsIgnoreCase(item.getExpression().toString()))
+        return false;
+    return true;
   }
 
   private void handleRidsAsTarget(final SelectExecutionPlan plan, final List<Rid> rids, final CommandContext context) {

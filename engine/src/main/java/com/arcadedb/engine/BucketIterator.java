@@ -36,8 +36,10 @@ import com.arcadedb.security.SecurityDatabaseUser;
 import com.arcadedb.utility.ScanPressureReporter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 import java.util.logging.Level;
 
 import static com.arcadedb.database.Binary.INT_SERIALIZED_SIZE;
@@ -91,6 +93,8 @@ public class BucketIterator implements Iterator<Record>, ScanPressureReporter {
   private final long[] positions;
   private       int    positionIndex;
   private final int    positionsEnd;
+  // POSITIONS MODE (SPORK L1): THE FIRST POSITION WHOSE PAGE THE READ-AHEAD HAS NOT ASKED FOR YET
+  private       int    prefetchedUpTo;
   // #8610: the transaction the current batch is read in (-1 outside one), recorded on each record of the batch. Taken
   // per batch, not per iterator: an iterator kept across commit() and begin() reads its next batch in the new
   // transaction, and a record read there must be checked there
@@ -131,6 +135,7 @@ public class BucketIterator implements Iterator<Record>, ScanPressureReporter {
     this.positions = positions;
     this.positionIndex = positionsFrom;
     this.positionsEnd = positionsTo;
+    this.prefetchedUpTo = positionsFrom;
     this.totalPages = bucket.pageCount.get();
 
     final Integer txPageCounter = database.getTransaction().getPageCounter(bucket.fileId);
@@ -386,6 +391,36 @@ public class BucketIterator implements Iterator<Record>, ScanPressureReporter {
   }
 
   /**
+   * Positions mode (SPORK L1): asks the page manager to read ahead the distinct pages of the positions the next batch will
+   * read, so a cold hydrate of an index range has its misses in flight at once instead of one device round trip per page.
+   * The positions are sorted, so a run of one page is contiguous and the distinct pages fall out of one pass. Nothing is
+   * waited for: the batch reads each page as usual and joins the read in flight when the prefetch has not landed yet.
+   */
+  private void prefetchPositionPages() {
+    if (positionIndex < prefetchedUpTo)
+      return;
+    final int end = Math.min(positionsEnd, positionIndex + PREFETCH_SIZE);
+    List<PageId> pages = null;
+    int lastPageNumber = -1;
+    for (int i = positionIndex; i < end; i++) {
+      final long position = positions[i];
+      if (position < 0)
+        continue;
+      final int pageNumber = (int) (position / bucket.getMaxRecordsInPage());
+      if (pageNumber != lastPageNumber && pageNumber < totalPages) {
+        if (pages == null)
+          pages = new ArrayList<>();
+        pages.add(new PageId(database, bucket.file.getFileId(), pageNumber));
+        lastPageNumber = pageNumber;
+      }
+    }
+    prefetchedUpTo = end;
+    // THE FIRST PAGE IS READ SYNCHRONOUSLY RIGHT AWAY: THE READ-AHEAD BUYS SOMETHING FROM THE SECOND PAGE ON
+    if (pages != null && pages.size() > 1)
+      database.getPageManager().prefetch(pages);
+  }
+
+  /**
    * Positions mode: reads the record at the next position, loading its page unless it is the one in hand.
    *
    * @return false once every position has been read
@@ -464,6 +499,9 @@ public class BucketIterator implements Iterator<Record>, ScanPressureReporter {
     final long batchLimit = batchByteLimit();
     try {
       database.executeInReadLock(() -> {
+        // INSIDE THE LOCK (review m8): A SATURATED PREFETCH POOL RUNS THE READ ON THIS THREAD, WHICH MUST HOLD THE DATABASE THEN
+        if (positions != null)
+          prefetchPositionPages();
         prefetchIndex = 0;
         nextBatch[prefetchIndex] = null;
 

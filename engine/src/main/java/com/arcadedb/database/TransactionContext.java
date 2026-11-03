@@ -4683,6 +4683,14 @@ public class TransactionContext implements Transaction {
   }
 
   /**
+   * Whether this transaction has deleted any record, i.e. whether {@link #isDeletedInTransaction(RID)} can answer anything but
+   * false. One size read, for a caller that would otherwise probe the set once per record.
+   */
+  public boolean hasDeletedRecords() {
+    return !deletedRecordsInTx.isEmpty();
+  }
+
+  /**
    * {@link #isDeletedInTransaction(RID)} for a record given by its bucket and position, which spares the RID a caller probing
    * every hole of a page would allocate for each (issue #10612).
    */

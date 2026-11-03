@@ -1747,6 +1747,14 @@ public class PageManagerFlushThread extends Thread {
     return failedFlushPages.size();
   }
 
+  /**
+   * Whether a committed image of the page is waiting to be written (queued, or kept after a failed write): what
+   * {@link #getCachedPageFromMutablePageInQueue} would answer non-null for, without copying the page to say so. Two map probes.
+   */
+  boolean isPageInQueue(final PageId pageId) {
+    return pageIndex.containsKey(pageId) || (!failedFlushPages.isEmpty() && failedFlushPages.containsKey(pageId));
+  }
+
   public CachedPage getCachedPageFromMutablePageInQueue(final PageId pageId) {
     MutablePage page = pageIndex.get(pageId);
     if (!failedFlushPages.isEmpty()) {
