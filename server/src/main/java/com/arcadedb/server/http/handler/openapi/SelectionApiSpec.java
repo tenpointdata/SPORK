@@ -83,6 +83,10 @@ public class SelectionApiSpec implements OpenApiContributor {
     }
     openAPI.getComponents().addSchemas(component + "Response", response);
     post.setResponses(responses(SpecBuilders.jsonResponse(summary, component + "Response")));
+    // The two that name a selection to create: a live one of that name is a conflict, not a malformed request (#10153)
+    if (operation.equals("save") || operation.equals("combine"))
+      post.getResponses().addApiResponse("409",
+          SpecBuilders.errorResponse("A live selection already has this name: pass 'replace' to overwrite it"));
 
     final PathItem pathItem = new PathItem();
     pathItem.setPost(post);

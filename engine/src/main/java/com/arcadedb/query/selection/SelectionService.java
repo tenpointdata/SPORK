@@ -21,6 +21,7 @@ package com.arcadedb.query.selection;
 import com.arcadedb.database.Database;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
+import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultSet;
 import com.arcadedb.serializer.JsonSerializer;
@@ -210,11 +211,15 @@ public final class SelectionService {
     }
   }
 
-  /** The first {@link IllegalArgumentException} of the cause chain, the procedure's own refusal; otherwise {@code e} itself. */
+  /**
+   * The procedure's own refusal from the cause chain: an {@link AlreadyExistsException} (a taken name, a conflict) or an
+   * {@link IllegalArgumentException} (a malformed request), whichever comes first; otherwise {@code e} itself. Surfaced so each
+   * wire answers what the procedure meant (HTTP 409 or 400) and not the wrapper the query engine put around it.
+   */
   static RuntimeException unwrap(final RuntimeException e) {
     for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause())
-      if (t instanceof IllegalArgumentException refusal)
-        return refusal;
+      if (t instanceof AlreadyExistsException || t instanceof IllegalArgumentException)
+        return (RuntimeException) t;
     return e;
   }
 

@@ -207,6 +207,16 @@ public class SelectionGrpcIT extends BaseGrpcServerTest {
         .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode()).isEqualTo(Status.Code.INVALID_ARGUMENT));
   }
 
+  @Test
+  void aTakenNameIsAlreadyExists() {
+    stub.saveSelection(SaveSelectionRequest.newBuilder().setDatabase(getDatabaseName()).setCredentials(root()).setName("taken")
+        .setMembers(rids(ads.get(0))).build());
+    assertThatThrownBy(() -> stub.saveSelection(SaveSelectionRequest.newBuilder().setDatabase(getDatabaseName())
+        .setCredentials(root()).setName("taken").setMembers(rids(ads.get(1))).build()))
+        .isInstanceOf(StatusRuntimeException.class)
+        .satisfies(e -> assertThat(((StatusRuntimeException) e).getStatus().getCode()).isEqualTo(Status.Code.ALREADY_EXISTS));
+  }
+
   private static SelectionRef named(final String name) {
     return SelectionRef.newBuilder().setName(name).build();
   }

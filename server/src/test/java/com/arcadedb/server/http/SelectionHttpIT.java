@@ -146,6 +146,19 @@ public class SelectionHttpIT extends BaseGraphServerTest {
   }
 
   @Test
+  void aTakenNameIsAConflict() throws Exception {
+    post("save", new JSONObject().put("name", "taken").put("members", rids("Sel1")));
+    final HttpResponse<String> again = rawPost("save", new JSONObject().put("name", "taken").put("members", rids("Sel2")).toString(),
+        true);
+    assertThat(again.statusCode()).as(again.body()).isEqualTo(409);
+    assertThat(again.body()).contains("a selection named 'taken' already exists");
+
+    final HttpResponse<String> combined = rawPost("combine", new JSONObject().put("op", "or")
+        .put("inputs", new JSONArray().put(rids("Sel1")).put(rids("Sel2"))).put("name", "taken").toString(), true);
+    assertThat(combined.statusCode()).as(combined.body()).isEqualTo(409);
+  }
+
+  @Test
   void anEmptyBodyIsRefusedExceptByPurge() throws Exception {
     assertThat(rawPost("save", "", true).statusCode()).isEqualTo(400);
     assertThat(rawPost("purge", "", true).statusCode()).isEqualTo(200);
