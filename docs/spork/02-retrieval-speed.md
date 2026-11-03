@@ -381,6 +381,13 @@ one record per entry: 10,000 x 106 us = 1.06 s cold. The plugin counts index ent
 with `LIMIT 10001` and returns "at least 10,000" past the cap: 7 leaves at 64 KB. 4.3 M3 turns this into `count(*)`
 served by the index.
 
+**Round 10 (measured, owner decision 2026-11-03).** WS3 measured the cursor count at 0.5 to 1 us per entry at 5M (5 to
+12 ms for 10,001 entries, not the 0.2 ms budgeted below), so with it P4 is 11.7 ms p50 and P4v 12.1 ms against 5 ms, while
+the page alone is 0.16 ms (`workstreams/ws3-recon-plugin.md`). The owner chose an estimated total by default
+(`01-architecture.md` D57): the cardinality table above when the search has a single facet and visibility can hide no
+record, otherwise a small budgeted count marked `partial`; the exact count capped at 10,000 is opt-in. M3, and roaring-bitmap
+facet sets for multi-filter counts, remain the routes to an exact fast count.
+
 **Page touches (cold, first page, posted sort).** 1 root (resident) + 1 or 2 leaves + 50 Record (32 KB) + 50 textHash
 bucket pages (16 KB) + 50 TextBody (32 KB) + 7 count leaves = 159 reads = 5 rounds x 125 us = 0.6 ms; bytes 100 x 32 KB
 + 50 x 16 KB + 9 x 64 KB = 4.6 MB = 0.9 ms; one cursor open 30 us; CPU 50 x 2 us + count 0.2 ms = 0.3 ms. 10 / 40 ms cold
