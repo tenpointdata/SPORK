@@ -192,6 +192,7 @@
         <module>e2e</module>
         <module>load-tests</module>
         <module>benchmarks</module>
+        <module>spork-encoder</module>
         <module>e2e-ha</module>
     </modules>
 

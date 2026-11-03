@@ -304,6 +304,36 @@ Shipped in the `arcadedb-studio` jar. Their licences are on the CLAUDE.md allow-
 licensed under the SIL Open Font License 1.1 (https://openfontlicense.org/) and the CSS under MIT. Full terms:
 https://fontawesome.com/license/free. Both are shipped unmodified.
 
+### SPORK Encoder Sidecar (spork-encoder module)
+
+A separate process, never loaded into the ArcadeDB server (`spork-encoder/`, `docs/spork/workstreams/ws13-encoder.md`).
+gson, slf4j-api and commons-compress also arrive through it, at the versions its dependency tree resolves; they are
+listed above under their project-wide versions.
+
+| Group ID | Artifact ID | Version | License | Homepage |
+|----------|-------------|---------|---------|----------|
+| com.microsoft.onnxruntime | onnxruntime (CPU build, bundles the native library; its third-party notices ship inside the jar as `ThirdPartyNotices.txt`) | 1.31.0 | MIT | https://github.com/microsoft/onnxruntime |
+| ai.djl.huggingface | tokenizers (JNI binding of Hugging Face tokenizers, bundles the native library) | 0.38.0 | Apache 2.0 | https://github.com/deepjavalibrary/djl |
+| ai.djl | api (transitive, via tokenizers) | 0.38.0 | Apache 2.0 | https://github.com/deepjavalibrary/djl |
+| net.java.dev.jna | jna (transitive, via ai.djl:api) | 5.17.0 | Apache 2.0 / LGPL 2.1+ (dual; Apache 2.0 selected) | https://github.com/java-native-access/jna |
+
+**License Note:** the tokenizers jar also carries Windows natives that include `libgcc_s_seh-1.dll` and
+`libstdc++-6.dll` (GPL-3.0 WITH GCC-exception-3.1, the runtime library exception that permits their use by any
+program). SPORK nodes run Linux and never load them; a packaging step may drop `native/lib/win-*` from the jar.
+
+### Machine-Learning Models (SPORK Encoder Sidecar)
+
+Model weights are not stored in this repository: `spork-encoder/scripts/export_gte.py` downloads them from the official
+Hugging Face repositories at the pinned revisions below, exports them to ONNX and quantizes them to int8.
+
+| Model | Used for | Revision | License | Source |
+|-------|----------|----------|---------|--------|
+| Alibaba-NLP/gte-multilingual-base | S-TEXT embeddings (`gte-multilingual-base@1`), weights, tokenizer | 9bbca17d9273fd0d03d5725c7a4b0f6b45142062 | Apache 2.0 | https://huggingface.co/Alibaba-NLP/gte-multilingual-base |
+| Alibaba-NLP/new-impl | the modeling code the export runs once (not shipped; the ONNX graph is derived from it) | 40ced75c3017eb27626c9d4ea981bde21a2662f4 | Apache 2.0 | https://huggingface.co/Alibaba-NLP/new-impl |
+
+**Planned, not yet a dependency:** libvips (LGPL-2.1-or-later) for image decode, loaded dynamically from an unmodified
+upstream build without GPL loaders; see `docs/spork/workstreams/ws13-encoder.md` ("libvips").
+
 ### Transitive Dependencies Found by the #5651 License Audit
 
 Not declared directly in any module's `pom.xml`; pulled in transitively and missing from this
