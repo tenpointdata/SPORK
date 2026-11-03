@@ -1313,7 +1313,9 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
    * unchecked and a missing record surfaced only when the shell was loaded (#4643). Where the single lookup raises
    * {@code RecordNotFoundException} - a deleted record, a position past its bucket, a bucket that no longer exists - the
    * entry is {@code null}, and so it is for a record an after-read event filtered away. A {@code null} RID is a {@code null}
-   * entry.
+   * entry. A record the batch could not load (a broken chunk chain, a chain that kept moving under the read) is answered by
+   * the single lookup: without content its lazy shell, never walking the chain, and with content the exception the single
+   * lookup raises.
    * <p>
    * The grouping is two primitive sorts and no objects: the input indexes packed under their bucket id, then the positions
    * of each bucket's run packed over their index in the run. A list whose shape does not fit the packing (over 4M RIDs, a
@@ -1368,6 +1370,8 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
       // 2. PER BUCKET: THE POSITIONS SORTED, ONE PAGE READ PER DISTINCT PAGE, THE MISSES PREFETCHED TOGETHER
       final long[] byPosition = new long[pending];
       final long[] positions = new long[pending];
+      // RAISED BY getRecords FOR A RECORD IT COULD NOT LOAD, CLEARED HERE AS EACH IS ANSWERED, SO ONE ARRAY SERVES EVERY BUCKET
+      final boolean[] unloaded = new boolean[pending];
       for (int runStart = 0; runStart < pending; ) {
         final int bucketId = (int) (byBucket[runStart] >>> 32);
         int runEnd = runStart + 1;
@@ -1387,12 +1391,19 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
           for (int k = 0; k < run; k++)
             positions[k] = byPosition[k] >>> LOOKUP_BATCH_INDEX_BITS;
 
-          final Binary[] contents = bucket.getRecords(positions, 0, run);
+          final Binary[] contents = bucket.getRecords(positions, 0, run, unloaded);
 
           for (int k = 0; k < run; k++) {
             final Binary content = contents[k];
-            if (content == null)
+            if (content == null) {
+              if (unloaded[k]) {
+                unloaded[k] = false;
+                final int index = (int) byBucket[runStart + (int) (byPosition[k] & ((1 << LOOKUP_BATCH_INDEX_BITS) - 1))];
+                // THE SINGLE LOOKUP'S VERDICT FOR THIS RECORD, WHATEVER IT IS
+                records[index] = lookupOne(rids[index], loadRecordContent);
+              }
               continue;
+            }
             final int index = (int) byBucket[runStart + (int) (byPosition[k] & ((1 << LOOKUP_BATCH_INDEX_BITS) - 1))];
             final RID rid = rids[index];
             if (!loadRecordContent && type != null) {
@@ -1422,14 +1433,20 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
       final RID rid = rids[i];
       if (rid == null || records[i] != null || rid.getBucketId() < 0 || rid.getPosition() < 0)
         continue;
-      try {
-        // A SHELL ONLY FOR A RECORD THAT EXISTS, AS THE BATCHED PATH ANSWERS
-        if (loadContent || existsRecord(rid))
-          records[i] = lookupByRID(rid, loadContent);
-      } catch (final RecordNotFoundException e) {
-        // A NULL ENTRY, AS THE BATCHED PATH ANSWERS
-      }
+      records[i] = lookupOne(rid, loadContent);
     }
+  }
+
+  /** One entry of {@link #lookupByRIDs} through the single lookup: a shell only for a record that exists, {@code null} for one that does not. */
+  private Record lookupOne(final RID rid, final boolean loadContent) {
+    try {
+      // A SHELL ONLY FOR A RECORD THAT EXISTS, AS THE BATCHED PATH ANSWERS
+      if (loadContent || existsRecord(rid))
+        return lookupByRID(rid, loadContent);
+    } catch (final RecordNotFoundException e) {
+      // A NULL ENTRY, AS THE BATCHED PATH ANSWERS
+    }
+    return null;
   }
 
   @Override

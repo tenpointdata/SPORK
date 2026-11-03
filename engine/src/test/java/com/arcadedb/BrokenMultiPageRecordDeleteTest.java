@@ -21,6 +21,7 @@ package com.arcadedb;
 import com.arcadedb.database.Binary;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.RID;
+import com.arcadedb.database.Record;
 import com.arcadedb.engine.LocalBucket;
 import com.arcadedb.engine.MutablePage;
 import com.arcadedb.engine.PageId;
@@ -34,9 +35,12 @@ import com.arcadedb.schema.Type;
 import com.arcadedb.schema.VertexType;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 
 /**
@@ -56,6 +60,9 @@ import static org.assertj.core.api.Assertions.fail;
 class BrokenMultiPageRecordDeleteTest extends TestHelper {
 
   private static final String TYPE = "LargeRecord";
+
+  /** The two small vertices {@link #createBrokenMultiPageVertex(boolean)} creates next to the broken one. */
+  private RID small1, small2;
 
   @Override
   protected boolean isCheckingDatabaseIntegrity() {
@@ -200,6 +207,55 @@ class BrokenMultiPageRecordDeleteTest extends TestHelper {
   }
 
   /**
+   * The batched hydration (SPORK L1) must answer a record whose chunk chain is broken exactly as one
+   * {@code lookupByRID} answers it, record by record: without content a lazy shell (the chain is never walked, so the
+   * tolerant DELETE path can still take the loader's verdict later), with content the loader's
+   * {@link BrokenChunkChainException}. It used to throw out of {@code LocalBucket.getRecords} for both, taking the
+   * healthy records of the batch down with it.
+   */
+  @Test
+  void theBatchedHydrationAnswersABrokenChainAsTheSingleLookupDoes() {
+    final RID broken = createBrokenMultiPageVertex();
+    final DatabaseInternal db = (DatabaseInternal) database;
+
+    final Record[] shells = db.lookupByRIDs(new RID[] { small1, broken, small2 }, false);
+    assertThat(shells[0].getIdentity()).isEqualTo(small1);
+    assertThat(shells[1]).as("a lazy shell, as lookupByRID(rid, false) answers").isNotNull();
+    assertThat(shells[1].getIdentity()).isEqualTo(broken);
+    assertThat(shells[2].getIdentity()).isEqualTo(small2);
+
+    assertThatThrownBy(() -> database.lookupByRID(broken, true)).isInstanceOf(BrokenChunkChainException.class);
+    assertThatThrownBy(() -> db.lookupByRIDs(new RID[] { small1, broken, small2 }, true))
+        .as("with content, the single lookup's verdict").isInstanceOf(BrokenChunkChainException.class);
+
+    // AN IDENTITY-ONLY PROJECTION NEVER LOADS THE CONTENT: EVERY RID THAT EXISTS IS ANSWERED, AS BEFORE THE BATCHING
+    final List<RID> rids = new ArrayList<>();
+    try (final ResultSet rs = database.query("sql", "SELECT @rid FROM [" + small1 + "," + broken + "," + small2 + "]")) {
+      while (rs.hasNext())
+        rids.add(rs.next().getProperty("@rid"));
+    }
+    assertThat(rids).containsExactly(small1, broken, small2);
+  }
+
+  /**
+   * A DELETE over a RID list hydrates the list in batches; a broken record among healthy ones must still be deleted
+   * through the tolerant path (the step falls back to the lazy shells the per-RID path handed out), and the healthy
+   * records of the same batch with it.
+   */
+  @Test
+  void aDeleteOfARidListWithABrokenRecordRemovesEveryRecordOfTheBatch() {
+    final RID broken = createBrokenMultiPageVertex(true);
+    database.getConfiguration().setValue(GlobalConfiguration.DELETE_TOLERATE_BROKEN_CHAIN, true);
+
+    database.transaction(() -> database.command("sql", "DELETE FROM [" + small1 + "," + broken + "," + small2 + "]"));
+
+    final LocalBucket bucket = (LocalBucket) database.getSchema().getBucketById(broken.getBucketId());
+    assertThat(bucket.existsRecord(broken)).isFalse();
+    assertThat(bucket.existsRecord(small1)).isFalse();
+    assertThat(bucket.existsRecord(small2)).isFalse();
+  }
+
+  /**
    * Creates a genuine multi-page vertex at position 0, then corrupts the FIRST_CHUNK's continuation pointer so the
    * chunk chain is broken at chunk 0 (points to a page well beyond the file). Reopens so the record is re-read from the
    * corrupted page, not the in-memory cache. Returns the RID of the broken record.
@@ -236,6 +292,8 @@ class BrokenMultiPageRecordDeleteTest extends TestHelper {
     });
 
     assertThat(rids[0].getPosition()).isEqualTo(0L);
+    small1 = rids[1];
+    small2 = rids[2];
 
     corruptFirstChunkPointer(bucketId);
 

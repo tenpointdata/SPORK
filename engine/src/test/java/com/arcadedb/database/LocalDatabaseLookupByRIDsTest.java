@@ -144,6 +144,13 @@ class LocalDatabaseLookupByRIDsTest extends TestHelper {
     }
     assertThat(pages.size()).isGreaterThan(4);
 
+    // EVERY PAGE ON DISK BEFORE THE CACHE IS EMPTIED, OR THE "MISSES" ARE NOT ALL DEVICE MISSES: beginTest's commit is flushed
+    // asynchronously, and a page still in the flush queue is served from it by loadPage (counted in pagesRead, as every load
+    // is) while prefetch() deliberately skips it, since it is in memory already and there is nothing to read ahead. On a busy
+    // machine the flush thread lags and the test saw 2, 18 or 29 prefetches for 40 pages, with not one page left unread
+    // through a path that bypasses the prefetch: the batch reads every page through tx.getPage, never through the shared view
+    // getRecordInternal uses, since none of these records is a chunk chain or a placeholder.
+    assertThat(pageManager.waitAllPagesOfDatabaseAreFlushed(db)).as("beginTest's pages reached the disk").isTrue();
     pageManager.removeAllReadPagesOfDatabase(db);
     final PageManager.PPageManagerStats before = pageManager.getStats();
     final Record[] records = local().lookupByRIDs(asked.toArray(new RID[0]), true);
