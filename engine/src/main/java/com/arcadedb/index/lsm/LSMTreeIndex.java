@@ -63,6 +63,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.Map;
 import java.util.Objects;
@@ -82,6 +83,7 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
   // and out underneath it, which is why getMostRecentFileName() and getName() can differ (issue #9213).
   private              String                        name;
   private final        RWLockContext                 lock         = new RWLockContext();
+  private final        AtomicReference<Runnable>     compactionListener = new AtomicReference<>();
   protected final      AtomicReference<INDEX_STATUS> status       = new AtomicReference<>(INDEX_STATUS.AVAILABLE);
   /**
    * Compacted files replaced by a FULL compaction, awaiting their physical drop. The swap (under the write
@@ -410,8 +412,9 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
       // COMPACTION NOT SCHEDULED
       return false;
 
+    final boolean compacted;
     try {
-      return database.getWrappedDatabaseInstance().runWithCompactionReplication(
+      compacted = database.getWrappedDatabaseInstance().runWithCompactionReplication(
           () -> new LSMTreeIndexCompactor().compact(this));
     } catch (final TimeoutException e) {
       // IGNORE IT, WILL RETRY LATER
@@ -419,6 +422,15 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
     } finally {
       status.set(INDEX_STATUS.AVAILABLE);
     }
+    final Runnable listener = compactionListener.get();
+    if (compacted && listener != null)
+      try {
+        listener.run();
+      } catch (final RuntimeException e) {
+        // A listener refreshes a derived structure: its failure must not fail the compaction that already happened
+        LogManager.instance().log(this, Level.WARNING, "Error after the compaction of index '%s'", e, getName());
+      }
+    return compacted;
   }
 
   @Override
@@ -640,6 +652,40 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
   @Override
   public IndexCursor get(final Object[] keys) {
     return get(keys, -1);
+  }
+
+  /**
+   * Runs {@code task} under the read lock that keeps a compaction from swapping the mutable and compacted parts while it reads
+   * them, so several lookups see one state of the index.
+   */
+  public <T> T executeInReadLock(final Callable<T> task) {
+    return lock.executeInReadLock(task);
+  }
+
+  /** True when the current transaction holds changes to this index that a commit has not applied yet. */
+  public boolean hasPendingChanges() {
+    final TransactionContext tx = getDatabase().getTransaction();
+    if (tx.getStatus() != TransactionContext.STATUS.BEGUN)
+      return false;
+    final Map<TransactionIndexContext.ComparableKey, Map<TransactionIndexContext.IndexKey, TransactionIndexContext.IndexKey>> changes =
+        tx.getIndexChanges().getIndexKeys(getName());
+    return changes != null && !changes.isEmpty();
+  }
+
+  /**
+   * Called after each compaction this index completes, on the thread that ran it. A full-text index refreshes its block-max
+   * sidecar from it.
+   */
+  public void setCompactionListener(final Runnable listener) {
+    compactionListener.set(listener);
+  }
+
+  /**
+   * Removes {@code listener} unless another one replaced it: a full-text wrapper a schema reload retired detaches its own, never the
+   * one a successor wrapping this same index installed since.
+   */
+  public void removeCompactionListener(final Runnable listener) {
+    compactionListener.compareAndSet(listener, null);
   }
 
   @Override

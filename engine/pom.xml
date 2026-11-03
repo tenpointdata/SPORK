@@ -191,6 +191,17 @@
         </dependency>
         <dependency>
             <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-phonetic</artifactId>
+            <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <!-- the phonetic encoders behind lucene-analysis-phonetic; pinned to the version the rest of the build ships -->
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.19.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
             <artifactId>lucene-spatial-extras</artifactId>
             <version>${lucene.version}</version>
         </dependency>

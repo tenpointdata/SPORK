@@ -983,6 +983,11 @@ public class LocalSchema implements Schema {
     // do it while this publication still holds the window open
     if (namesToWarm != null)
       requestWarmUpOf(namesToWarm, warmUpDelayMs);
+
+    // The full-text indexes this publication created ask for their block-max sidecar, which the instances it retired can no
+    // longer write (an HA follower reloads for every compaction it applies). After the window closes, for the warm-up's reason
+    if (previousIndexes != null)
+      LSMTreeFullTextIndex.afterSchemaReload(database, previousIndexes, indexMap.values());
   }
 
   /**

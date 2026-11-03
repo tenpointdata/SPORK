@@ -109,6 +109,7 @@ The following table lists runtime dependencies bundled with ArcadeDB distributio
 |----------|-------------|---------|---------|----------|
 | org.apache.lucene | lucene-core | 10.3.2 | Apache 2.0 | https://lucene.apache.org/ |
 | org.apache.lucene | lucene-analysis-common | 10.3.2 | Apache 2.0 | https://lucene.apache.org/ |
+| org.apache.lucene | lucene-analysis-phonetic | 10.5.2 | Apache 2.0 | https://lucene.apache.org/ |
 | org.apache.lucene | lucene-queryparser | 10.3.2 | Apache 2.0 | https://lucene.apache.org/ |
 | org.apache.lucene | lucene-queries | 10.3.2 | Apache 2.0 | https://lucene.apache.org/ |
 | org.apache.lucene | lucene-sandbox | 10.3.2 | Apache 2.0 | https://lucene.apache.org/ |
