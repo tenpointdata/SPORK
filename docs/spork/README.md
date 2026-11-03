@@ -83,8 +83,10 @@ owner review.
 - Point lookups are HASH indexes (3 cached touches + 1 cold read, no compaction traffic); range and composite
   indexes stay LSM. Record pages are 32 KB today, 16 KB once the 256-slot bucket format (M20) lands.
 - RAM: JVM 56 GB (23 GB page cache, 10 GB GC headroom, 8 GB vector residency), ROC 45 GB cap (about 205M interactive
-  face templates cluster-wide; crossed about 2028-02 at mid, then ROC indexed search or restricted representatives),
-  3 GB encoder sidecar. Encoding is CPU-only: the day-one index spaces backfill in 9.4 days on the 16 encode cores.
+  face templates cluster-wide; crossed about 2028-02 at mid, then ROC indexed search or restricted representatives), 3
+  GB encoder sidecar. Encoding is CPU-only: the day-one index spaces backfill in 13.4 days on the 16 encode cores plus
+  the 12 ROC worker cores that are idle in Q1 (WS13 measured text encoding at about 194 ms per ad at 100 tokens); it
+  starts by 2027-01-16.
 - LSM compaction must be scheduled, not automatic: the stock policy would ship about 320 GB/day of compacted pages
   through the Raft log for one index alone.
 

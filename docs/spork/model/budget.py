@@ -894,3 +894,53 @@ for sc in ('mid',):
     f = lambda R, sc=sc: m(R, sc)['tot'] - sum(opt(R, sc)[k] for k in A_NO4)
     print('  E26 deadline without the hot-window option (A minus option 4 reaches %.0f): %s; it crosses %.0f at %s'
           % (TRIG_4TB, fmt(cross(f, TRIG_4TB)), CEIL_4TB, fmt(cross(f, CEIL_4TB))))
+
+# WS13 measurement (round 10, branch claude/ws13-encoder-6f2eea, workstreams/ws13-encoder.md there): gte-multilingual-base
+# with MatMulNBits 8-bit weights on CPU, 4 workers x 1 thread, micro-batch 32, core-ms per text by token length. Upper
+# bounds: the machine's load average was 26 to 88 during the run; P0a re-runs it on a node. 128 tokens: 240.3 (a second
+# run gave 257.1). Supersedes the 60 ms planning figure above, which matched about 30 tokens.
+TEXT_CURVE = ((16, 33.0), (32, 75.7), (64, 134.5), (128, 240.3), (256, 411.8))
+
+
+def text_core_s(tokens):
+    for (t0, c0), (t1, c1) in zip(TEXT_CURVE, TEXT_CURVE[1:]):
+        if t0 <= tokens <= t1:
+            return (c0 + (c1 - c0) * (tokens - t0) / (t1 - t0)) / 1000
+    raise ValueError(tokens)
+
+
+TEXT_TOKENS = 100            # planning figure for a unique ad text after tokenization (P0a measures the distribution)
+uniq0, uniq_hot0 = R0 * UNIQ, hot_records(R0) * UNIQ
+print()
+print('WS13: S-TEXT on CPU at %d tokens = %.1f core-ms per text (round 10 assumed 60)' % (TEXT_TOKENS, text_core_s(TEXT_TOKENS) * 1000))
+for tok in (32, 64, 100, 128):
+    print('  %3d tokens: %.0f ms; full S-TEXT backfill %.0fM texts on 16 cores %.1f days, on 32 cores %.1f; hot window (%.0fM) on 16 cores %.1f days'
+          % (tok, text_core_s(tok) * 1000, uniq0 / 1e6, day(uniq0 * text_core_s(tok)), day(uniq0 * text_core_s(tok), 32),
+             uniq_hot0 / 1e6, day(uniq_hot0 * text_core_s(tok))))
+full_text_d = day(uniq0 * text_core_s(TEXT_TOKENS)); pdq_d16 = day(dimg0 * PDQ_CORE_MS / 1000)
+window_d = day(bf['S-PDQ (every distinct image)'] + bf['S-TEXT (unique texts)'])
+print('  round-10 window (start 2027-01-20 to the Q1 exit): %.1f days; S-PDQ %.1f + S-TEXT %.1f = %.1f days on the 16 encode cores, %.1f days over'
+      % (window_d, pdq_d16, full_text_d, pdq_d16 + full_text_d, pdq_d16 + full_text_d - window_d))
+# Recommended split: S-PDQ on the 12 roc-work cores, idle in Q1 (ROC arrives with W8 in Q2); S-TEXT hot window first on the
+# 16 encode cores; the warm remainder after the Q1 exit.
+pdq_rw = day(dimg0 * PDQ_CORE_MS / 1000, ROC_WORK_CORES)
+hot_d = day(uniq_hot0 * text_core_s(TEXT_TOKENS)); warm_d = full_text_d - hot_d
+print('  split: S-PDQ on the %d idle roc-work cores %.1f days, in parallel with S-TEXT hot window on 16 encode cores %.1f days (fits the %.1f-day window: %s);'
+      ' warm S-TEXT %.1f days after the Q1 exit, done about %s'
+      % (ROC_WORK_CORES, pdq_rw, hot_d, window_d, 'yes' if max(pdq_rw, hot_d) <= window_d else 'no', warm_d,
+         q1_exit - datetime.timedelta(days=window_d) + datetime.timedelta(days=hot_d + warm_d)))
+# Pooled: once S-PDQ is done the roc-work cores join S-TEXT, so 28 cores encode text until the Q1 exit and after it.
+bf_start = q1_exit - datetime.timedelta(days=window_d)
+text_cs = uniq0 * text_core_s(TEXT_TOKENS)
+by_exit = (ENC_CORES * window_d + ROC_WORK_CORES * (window_d - pdq_rw)) * 86400
+rest_d = max(text_cs - by_exit, 0) / (ENC_CORES + ROC_WORK_CORES) / 86400
+print('  pooled (roc-work cores join S-TEXT after S-PDQ): by the Q1 exit %.1fM of %.1fM core-s (%.0f%%, the hot window %.1fM first); the rest %.1f days on %d cores, done about %s'
+      % (min(by_exit, text_cs) / 1e6, text_cs / 1e6, min(by_exit, text_cs) / text_cs * 100, uniq_hot0 * text_core_s(TEXT_TOKENS) / 1e6, rest_d,
+         ENC_CORES + ROC_WORK_CORES, q1_exit + datetime.timedelta(days=rest_d)))
+print('  to finish the whole S-TEXT by the Q1 exit on 16 cores, start by %s (%.1f days before)' % (q1_exit - datetime.timedelta(days=full_text_d), full_text_d))
+for perday, lbl in ((300e3, 'today'), (1.25e6, '3x pace')):
+    rec_day = perday / 1.5; t60 = rec_day * UNIQ * 0.060 / ENC_CORES / 3600; tN = rec_day * UNIQ * text_core_s(TEXT_TOKENS) / ENC_CORES / 3600
+    print('  daily stream %s: S-TEXT %.2f h at %d tokens instead of %.2f h (+%.2f h on the 16 encode cores)' % (lbl, tN, TEXT_TOKENS, t60, tN - t60))
+pooled_need_d = (text_cs / 86400 + ROC_WORK_CORES * pdq_rw) / (ENC_CORES + ROC_WORK_CORES)
+print('  pooled, whole S-TEXT and S-PDQ by the Q1 exit: start by %s (%.1f days before the exit)'
+      % (q1_exit - datetime.timedelta(days=pooled_need_d), pooled_need_d))
