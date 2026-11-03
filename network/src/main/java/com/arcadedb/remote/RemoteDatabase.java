@@ -739,7 +739,7 @@ public class RemoteDatabase extends RemoteHttpComponent implements BasicDatabase
   @Override
   public Record lookupByRID(final RID rid, final boolean loadContent) {
     checkDatabaseIsOpen();
-    stats.readRecord.incrementAndGet();
+    stats.readRecord.increment();
     if (rid == null)
       throw new IllegalArgumentException("Record is null");
 
@@ -815,7 +815,7 @@ public class RemoteDatabase extends RemoteHttpComponent implements BasicDatabase
       @Override
       public Record next() {
         final Record record = resultSet.next().getElement().get();
-        stats.readRecord.incrementAndGet();
+        stats.readRecord.increment();
         return record;
       }
     };
@@ -930,7 +930,7 @@ public class RemoteDatabase extends RemoteHttpComponent implements BasicDatabase
    * {@code lookupByRID}, and not as a query (issue #11056).
    */
   ResultSet readRecordOrEmpty(final RID rid) {
-    stats.readRecord.incrementAndGet();
+    stats.readRecord.increment();
     return queryUncounted("sql", "select from " + rid, null);
   }
 

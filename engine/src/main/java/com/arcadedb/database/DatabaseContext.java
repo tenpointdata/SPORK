@@ -435,6 +435,11 @@ public class DatabaseContext extends ThreadLocal<Map<String, DatabaseContext.Dat
     private      Binary                   temporaryBuffer2;
     private      int                      maxNested                = 3;
     private      SecurityDatabaseUser     currentUser              = null;
+    // The last (file, access) GRANTED to currentUser on this thread, and the access version it was granted under, see
+    // isFileAccessGranted() (SPORK S14)
+    private      SecurityDatabaseUser     grantedUser              = null;
+    private      Object                   grantedAccessVersion     = null;
+    private      long                     grantedFileAccess        = -1L;
     // The stateful client session bound to this thread context (GQL SESSION statements).
     // Set by the protocol owner (HTTP/Bolt) alongside the transaction; null in plain embedded use.
     private      QuerySession             querySession = null;
@@ -525,6 +530,32 @@ public class DatabaseContext extends ThreadLocal<Map<String, DatabaseContext.Dat
 
     public void setCurrentUser(final SecurityDatabaseUser currentUser) {
       this.currentUser = currentUser;
+      // A NEW BINDING FORGETS THE PERMISSION VERDICT KEPT FOR THE PREVIOUS ONE (SPORK S14): A REQUEST BINDS ITS USER FIRST
+      this.grantedUser = null;
+      this.grantedAccessVersion = null;
+      this.grantedFileAccess = -1L;
+    }
+
+    /**
+     * Whether {@code user} was granted {@code fileAccess} - a file id and an access ordinal, packed by the caller - the last
+     * time it was asked on this thread, since it was bound, under the same permission state {@code accessVersion}
+     * ({@link SecurityDatabaseUser#getAccessVersion()}, compared by identity) (SPORK S14). Only a GRANT is kept, and only the
+     * last one: a hydrate reads a run of records of one bucket, which is the shape the one slot is for. Keying on the access
+     * version and not only on the user is what makes a revocation take effect at the next check on a thread that keeps its
+     * binding - a Postgres connection binds its user once, a gRPC client-managed transaction once per transaction.
+     */
+    public boolean isFileAccessGranted(final SecurityDatabaseUser user, final Object accessVersion, final long fileAccess) {
+      return grantedUser == user && grantedAccessVersion == accessVersion && grantedFileAccess == fileAccess;
+    }
+
+    /**
+     * @param accessVersion the version read BEFORE the user was asked: a state published in between makes the kept verdict
+     *                      stale at once, never the other way around
+     */
+    public void rememberFileAccessGranted(final SecurityDatabaseUser user, final Object accessVersion, final long fileAccess) {
+      grantedUser = user;
+      grantedAccessVersion = accessVersion;
+      grantedFileAccess = fileAccess;
     }
 
     public QuerySession getQuerySession() {

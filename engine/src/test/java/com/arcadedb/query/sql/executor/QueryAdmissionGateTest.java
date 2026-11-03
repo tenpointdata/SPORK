@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -541,6 +542,112 @@ class QueryAdmissionGateTest {
       }
     });
     return outcome.get(90, TimeUnit.SECONDS);
+  }
+
+  /**
+   * SPORK S8: a query that finds nobody waiting takes its slot with a CAS, no lock. What the fast path must keep: the limit,
+   * exactly, with many threads racing for the slots, and the accounting of every slot that comes back.
+   */
+  @Test
+  void manyThreadsAdmittingAtOnceWithoutWaitingNeverExceedTheLimit() throws Exception {
+    final int limit = 4;
+    final int threads = 32;
+    final int iterations = 2_000;
+    GlobalConfiguration.QUERY_MAX_CONCURRENT.setValue(limit);
+    // NO QUEUE: A QUERY THAT CANNOT START AT ONCE IS REFUSED, SO EVERY ADMISSION OF THIS TEST IS A FAST-PATH ONE
+    GlobalConfiguration.QUERY_QUEUE_TIMEOUT.setValue(0L);
+
+    final AtomicInteger inside = new AtomicInteger();
+    final AtomicInteger maxInside = new AtomicInteger();
+    final AtomicInteger admittedHere = new AtomicInteger();
+    final AtomicInteger refusedHere = new AtomicInteger();
+    final List<CompletableFuture<Void>> done = new ArrayList<>();
+    for (int t = 0; t < threads; t++) {
+      final CompletableFuture<Void> future = new CompletableFuture<>();
+      done.add(future);
+      startWaiter(() -> {
+        try {
+          for (int i = 0; i < iterations; i++) {
+            final QueryAdmissionGate.Ticket ticket;
+            try {
+              ticket = gate.admit();
+            } catch (final QueryAdmissionException e) {
+              refusedHere.incrementAndGet();
+              continue;
+            }
+            try {
+              final int now = inside.incrementAndGet();
+              maxInside.accumulateAndGet(now, Math::max);
+              assertThat(gate.getRunning()).isBetween(1, limit);
+              Thread.onSpinWait();
+              inside.decrementAndGet();
+              admittedHere.incrementAndGet();
+            } finally {
+              ticket.close();
+            }
+          }
+          future.complete(null);
+        } catch (final Throwable e) {
+          future.completeExceptionally(e);
+        }
+      });
+    }
+    for (final CompletableFuture<Void> future : done)
+      future.get(90, TimeUnit.SECONDS);
+
+    assertThat(maxInside.get()).as("queries inside the gate at once").isBetween(1, limit);
+    assertThat(gate.getRunning()).isZero();
+    assertThat(gate.getQueued()).isZero();
+    assertThat(gate.getAdmitted()).isEqualTo(admittedHere.get());
+    assertThat(gate.getRefused()).isEqualTo(refusedHere.get());
+    assertThat(admittedHere.get() + refusedHere.get()).isEqualTo(threads * iterations);
+    assertThat(gate.getAdmittedAfterWaiting()).as("nobody ever waited").isZero();
+  }
+
+  /** The fast path checks the heap watermark too: with running queries above it a newcomer that cannot wait is refused at once. */
+  @Test
+  void aNewcomerThatCannotWaitIsRefusedWhileTheRunningQueriesHoldTheHeapAboveTheWatermark() throws Exception {
+    GlobalConfiguration.QUERY_MAX_CONCURRENT.setValue(10);
+    GlobalConfiguration.QUERY_ADMISSION_HEAP_WATERMARK.setValue(50);
+    GlobalConfiguration.QUERY_QUEUE_TIMEOUT.setValue(0L);
+    // THE BUDGET IS JVM-WIDE: MEASURED FROM WHAT IT ALREADY HOLDS, SO A RESERVATION LEFT BY ANOTHER TEST CANNOT MATTER
+    GlobalConfiguration.QUERY_MAX_HEAP_RAM.setValue(QueryHeapBudget.getReservedBytes() / MB + 64);
+    final long limit = QueryHeapBudget.getLimitBytes();
+
+    final QueryAdmissionGate.Ticket running = gate.admit();
+    final long held = limit * 3 / 4 - QueryHeapBudget.getReservedBytes();
+    assertThat(held).isPositive();
+    assertThat(QueryHeapBudget.tryReserve(held, limit)).isTrue();
+    try {
+      assertThat(QueryHeapBudget.getReservedBytes()).as("the running queries hold the heap above the watermark").isGreaterThan(limit / 2);
+      // ON ANOTHER THREAD: ON THIS ONE A SECOND admit() WOULD SHARE THE SLOT THE RUNNING QUERY HOLDS
+      final AtomicReference<Throwable> refusal = new AtomicReference<>();
+      startWaiter(() -> {
+        try {
+          gate.admit().close();
+        } catch (final Throwable t) {
+          refusal.set(t);
+        }
+      }).join(30_000);
+      assertThat(refusal.get()).isInstanceOf(QueryAdmissionException.class);
+      assertThat(gate.getRunning()).isEqualTo(1);
+    } finally {
+      QueryHeapBudget.release(held);
+    }
+    // the heap given back: the next one starts at once, without any query having ended
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    startWaiter(() -> {
+      try {
+        gate.admit().close();
+      } catch (final Throwable t) {
+        failure.set(t);
+      }
+    }).join(30_000);
+    assertThat(failure.get()).isNull();
+    running.close();
+    assertThat(gate.getRunning()).isZero();
+    assertThat(gate.getRefused()).isEqualTo(1);
+    assertThat(gate.getAdmittedAfterWaiting()).isZero();
   }
 
   private Thread startWaiter(final Runnable body) {

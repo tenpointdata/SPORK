@@ -18,6 +18,7 @@
  */
 package com.arcadedb.utility;
 
+import com.arcadedb.exception.DatabaseOperationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -302,5 +303,107 @@ class RWLockContextTest {
     final Object result = simpleLock.executeInLock(() -> "returnValue");
 
     assertThat(result).isEqualTo("returnValue");
+  }
+
+  // SPORK S17: the index locks are striped and NON-fair. The fairness is the only thing that changes: a writer still excludes
+  // the readers of every stripe, a reader never waits for another reader, and a reader asking for the write lock is refused
+  @Test
+  void nonFairStripedWriterExcludesReadersOnEveryStripe() throws Exception {
+    final RWLockContext nonFair = new RWLockContext(RWLockContext.defaultStripeCount(), false);
+    final int readers = 32;
+    final AtomicInteger activeReaders = new AtomicInteger();
+    final AtomicInteger readersSeenInWrite = new AtomicInteger();
+    final AtomicInteger writes = new AtomicInteger();
+    final AtomicBoolean stop = new AtomicBoolean();
+    final CountDownLatch done = new CountDownLatch(readers);
+
+    for (int i = 0; i < readers; i++)
+      new Thread(() -> {
+        while (!stop.get())
+          nonFair.executeInReadLock(() -> {
+            activeReaders.incrementAndGet();
+            Thread.onSpinWait();
+            activeReaders.decrementAndGet();
+            return null;
+          });
+        done.countDown();
+      }).start();
+
+    final long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(300);
+    while (System.nanoTime() < until) {
+      nonFair.executeInWriteLock(() -> {
+        readersSeenInWrite.addAndGet(activeReaders.get());
+        writes.incrementAndGet();
+        return null;
+      });
+      Thread.yield();
+    }
+    stop.set(true);
+    assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(writes.get()).as("a non-fair writer is not starved by a stream of readers").isPositive();
+    assertThat(readersSeenInWrite.get()).as("readers active while the writer held the lock").isZero();
+  }
+
+  @Test
+  void nonFairStripedReadersOnDifferentStripesRunAtOnce() throws Exception {
+    final RWLockContext nonFair = new RWLockContext(16, false);
+    final int readers = 8;
+    final AtomicInteger concurrentReaders = new AtomicInteger();
+    final AtomicInteger maxConcurrentReaders = new AtomicInteger();
+    final CountDownLatch allIn = new CountDownLatch(readers);
+    final CountDownLatch done = new CountDownLatch(readers);
+
+    for (int i = 0; i < readers; i++)
+      new Thread(() -> {
+        nonFair.executeInReadLock(() -> {
+          final int current = concurrentReaders.incrementAndGet();
+          maxConcurrentReaders.updateAndGet(max -> Math.max(max, current));
+          allIn.countDown();
+          try {
+            // every reader waits for every other one INSIDE the lock: possible only if readers never exclude each other
+            allIn.await(5, TimeUnit.SECONDS);
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+          concurrentReaders.decrementAndGet();
+          return null;
+        });
+        done.countDown();
+      }).start();
+
+    assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(maxConcurrentReaders.get()).isEqualTo(readers);
+  }
+
+  @Test
+  void nonFairStripedReaderCannotUpgradeToWriter() {
+    final RWLockContext nonFair = new RWLockContext(8, false);
+    assertThatThrownBy(() -> nonFair.executeInReadLock(() -> nonFair.executeInWriteLock(() -> null)))
+        .isInstanceOf(DatabaseOperationException.class)
+        .hasMessageContaining("cannot be upgraded");
+    // and the stripe is released: a writer can take the lock afterwards
+    assertThat(nonFair.executeInWriteLock(() -> "ok")).isEqualTo("ok");
+  }
+
+  @Test
+  void nonFairStripedWriterCanReenterAndDowngrade() {
+    final RWLockContext nonFair = new RWLockContext(8, false);
+    final String result = nonFair.executeInWriteLock(() -> nonFair.executeInWriteLock(() -> nonFair.executeInReadLock(() -> "nested")));
+    assertThat(result).isEqualTo("nested");
+  }
+
+  /**
+   * SPORK S17 review finding (minor): a per-index lock exists per index object of every open database, so its stripes are
+   * capped well below the database lock's: 8 at most, whatever the core count, and still a power of two.
+   */
+  @Test
+  void anIndexLockKeepsAtMostEightStripes() {
+    assertThat(RWLockContext.indexStripeCount()).isLessThanOrEqualTo(RWLockContext.MAX_INDEX_STRIPES)
+        .isLessThanOrEqualTo(RWLockContext.defaultStripeCount());
+    final int stripes = new RWLockContext(RWLockContext.indexStripeCount(), false).getStripeCount();
+    assertThat(stripes).isBetween(4, 8);
+    assertThat(Integer.bitCount(stripes)).isEqualTo(1);
+    assertThat(new RWLockContext(1_000, false).getStripeCount()).as("the general cap still holds").isEqualTo(64);
   }
 }

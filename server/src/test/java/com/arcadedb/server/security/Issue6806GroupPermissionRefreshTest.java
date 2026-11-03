@@ -22,6 +22,7 @@ import com.arcadedb.ContextConfiguration;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.engine.FileManager;
 import com.arcadedb.schema.Schema;
+import com.arcadedb.security.SecurityDatabaseUser;
 import com.arcadedb.security.SecurityDatabaseUser.DATABASE_ACCESS;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
@@ -201,6 +202,36 @@ class Issue6806GroupPermissionRefreshTest {
 
     // First access builds the entry from the live configuration, which still grants nothing.
     assertThat(alice.getDatabaseUser(database).requestAccessOnDatabase(DATABASE_ACCESS.UPDATE_SCHEMA)).isFalse();
+  }
+
+  /**
+   * SPORK S14 review finding: the engine keeps a thread's last granted (file, access) verdict while the user's access version
+   * stays the same reference, and Postgres keeps one binding per connection, so EVERY change of what requestAccessOnFile can
+   * answer has to move the version on the cached user itself - a group refresh, either half on its own, and the refresh that
+   * covers a file previously allowed by default because the map did not know it yet.
+   */
+  @Test
+  void everyRefreshMovesTheAccessVersionOfTheCachedDatabaseUser() {
+    final DatabaseInternal database = mockDatabase();
+    final ServerSecurityUser alice = newUser(database, groups(new JSONArray(), -1L));
+    final ServerSecurityDatabaseUser dbUser = alice.getDatabaseUser(database);
+
+    final Object initial = dbUser.getAccessVersion();
+    assertThat(initial).isNotNull();
+    assertThat(dbUser.getAccessVersion()).as("stable while nothing changes").isSameAs(initial);
+    // the mocked database has no file yet, so any file id is answered by the "not yet registered" default
+    assertThat(dbUser.requestAccessOnFile(3, SecurityDatabaseUser.ACCESS.READ_RECORD)).isTrue();
+
+    alice.refreshDatabaseConfiguration(database, groups(new JSONArray(), -1L));
+    final Object afterRefresh = dbUser.getAccessVersion();
+    assertThat(afterRefresh).as("a group refresh, even to the same grants").isNotSameAs(initial);
+
+    dbUser.updateFileAccess(database, groups(new JSONArray(), -1L));
+    final Object afterFileAccess = dbUser.getAccessVersion();
+    assertThat(afterFileAccess).as("the file map alone").isNotSameAs(afterRefresh);
+
+    dbUser.updateDatabaseConfiguration(groups(new JSONArray().put("updateSchema"), -1L));
+    assertThat(dbUser.getAccessVersion()).as("the database half alone").isNotSameAs(afterFileAccess);
   }
 
   private static JSONObject groups(final JSONArray databaseAccess, final long resultSetLimit) {

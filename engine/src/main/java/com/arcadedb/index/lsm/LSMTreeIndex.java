@@ -81,7 +81,10 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
   // the load publishes it. The name is otherwise fixed for life: a compaction swaps the mutable FILE (and its name) in
   // and out underneath it, which is why getMostRecentFileName() and getName() can differ (issue #9213).
   private              String                        name;
-  private final        RWLockContext                 lock         = new RWLockContext();
+  // SPORK S17: striped per thread and non-fair. Every get, range and cursor takes the read lock, and the writers are rare (close,
+  // drop, the compaction's file swap): one fair single-stripe lock made concurrent lookups queue on one lock word. At most
+  // RWLockContext.MAX_INDEX_STRIPES stripes: one such lock exists per index object (a type index has one per bucket)
+  private final        RWLockContext                 lock         = new RWLockContext(RWLockContext.indexStripeCount(), false);
   protected final      AtomicReference<INDEX_STATUS> status       = new AtomicReference<>(INDEX_STATUS.AVAILABLE);
   /**
    * Compacted files replaced by a FULL compaction, awaiting their physical drop. The swap (under the write

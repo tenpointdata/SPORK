@@ -2630,8 +2630,16 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
       // the chain walk, one the transaction already held has been read by others in the image it has
       final BasePage heldPage = readTransaction.getPinnedPage(headPageId);
       final boolean headPrePinned = heldPage != null;
+      // SPORK S3: under READ_COMMITTED the transaction keeps no page, so a miss is answered with the page cache's shared view -
+      // the one every thread reads (#10654) - instead of a new ImmutablePage, Binary and buffer per record read. Every read
+      // below is at an absolute position, and the view handed out at the end is a slice of the page's bytes either way.
+      // REPEATABLE_READ keeps the page it read, so it goes through getPageNotHeld as before.
       // ONE LOOKUP OF THE TRANSACTION'S PAGES PER RECORD, NOT TWO: getPage() WOULD ASK THEM AGAIN (#11007)
-      final BasePage page = heldPage != null ? heldPage : readTransaction.getPageNotHeld(headPageId, pageSize);
+      final boolean sharedView = heldPage == null
+          && readTransaction.getIsolationLevel() == Database.TRANSACTION_ISOLATION_LEVEL.READ_COMMITTED;
+      final BasePage page = heldPage != null ? heldPage :
+          sharedView ? database.getPageManager().getSharedImmutablePage(headPageId, pageSize) :
+              readTransaction.getPageNotHeld(headPageId, pageSize);
 
       final short recordCountInPage = page.readShort(PAGE_RECORD_COUNT_IN_PAGE_OFFSET);
       if (positionInPage >= recordCountInPage)
@@ -2667,7 +2675,12 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
                 page.readLong(recordPositionInPage + recordHeaderSize));
         return getRecordInternal(placeHolderPointer, true, false);
       } else if (isChunkHead(recordSize)) {
-        // FOUND 1ST CHUNK, LOAD THE ENTIRE MULTI-PAGE RECORD
+        // FOUND 1ST CHUNK, LOAD THE ENTIRE MULTI-PAGE RECORD. The walk is handed THE image the offset, marker and header size
+        // above were read from, never a second fetch of the page: a commit landing between two fetches can re-flow the page
+        // (compressPage), leave another record's chunk head at this offset, and the walk would then assemble THAT record under
+        // this RID with a trace whose version is current, which validation takes for unchanged. The shared view serves the
+        // walk as the per-call one did: every read of it (readInt, readLong, readNumber, readNumberSize, getImmutableView) is
+        // at an absolute position. A retry still re-reads the head from the page manager and re-derives all three.
         return loadMultiPageRecord(rid, page, recordPositionInPage, recordSize, recordHeaderSize, !headPrePinned);
       } else if (recordSize == NEXT_CHUNK)
         // CANNOT LOAD PARTIAL CHUNK
@@ -6098,7 +6111,10 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
             break;
           }
 
-          if (nextPage.equals(page) && currentRecordPositionInPage == nextRecordPositionInPage) {
+          // By page id, not BasePage.equals(): that one also compares the class, and the head can be the page cache's shared
+          // view (a SharedImmutablePage) while every hop is a per-call ImmutablePage, so a chunk pointing at itself on the head
+          // page would never be recognized as the loop it is
+          if (nextPage.pageId.equals(page.pageId) && currentRecordPositionInPage == nextRecordPositionInPage) {
             brokenChainReason = "chain loop detected at chunk " + (chunks - 1) + " (" + chunkPageId + "/"
                     + chunkPositionInPage + ")";
             break;
