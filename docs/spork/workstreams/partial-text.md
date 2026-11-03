@@ -15,11 +15,11 @@ searches term lookups or short range scans.
 
    | Spec | Class | Stores | Query side |
    |------|-------|--------|------------|
-   | `ngram`, `ngram(min,max)` (default `3,8`) | `analysis.NGramAnalyzer` | each whitespace token, folded (lower case, ASCII), whole plus every gram of `min..max` code points | the fragment whole; one longer than `max` is split into `max`-sized windows that must all match |
-   | `edge_ngram`, `edge_ngram(min,max)` (default `2,15`) | `analysis.EdgeNGramAnalyzer` | each word (standard tokenizer), folded, whole plus its prefixes of `min..max` | the word, cut to `max` |
+   | `ngram`, `ngram(min,max)` (default `3,8`) | `analysis.NGramAnalyzer` | each whitespace token, folded (lower case, ASCII), whole plus every gram of `min..max` code points | the fragment whole; one longer than `max` is split into `max`-sized windows that must all match; one shorter than `min` matches only a whole token (see caveats) |
+   | `edge_ngram`, `edge_ngram(min,max)` (default `2,15`) | `analysis.EdgeNGramAnalyzer` | each word (standard tokenizer), folded, whole plus its prefixes of `min..max` | the word; one longer than `max` is the word itself or, cut to `max`, a longer word it starts, the word itself ranking first |
    | `reverse` | `analysis.ReverseAnalyzer` | each whitespace token, folded, plus its reversed copy behind a `\u0001` marker | a leading wildcard (`*1234`) becomes a range scan of reversed tokens; leading wildcards are accepted without `allowLeadingWildcard` |
-   | `phone`, `phone(minSuffix,countryCode)` (default `4,1`) | `analysis.PhoneAnalyzer` | every number in the value reduced to digits: canonical form (international prefix `+`/`00`/`011` dropped, country code added to a 10-digit national number) plus every suffix of at least `minSuffix` digits | the digits of the query, international prefix dropped |
-   | `phonetic`, `phonetic(double_metaphone)`, `phonetic(beider_morse)` | `analysis.PhoneticAnalyzer` | each word plus its Double Metaphone codes (or its Beider-Morse forms) | the same analysis: a word matches by spelling or by sound |
+   | `phone`, `phone(minSuffix,countryCode)`, `phone(minSuffix,countryCode,trunkPrefix)` (default `4,1`; trunk prefix `0` for a country code other than 1, none for 1) | `analysis.PhoneAnalyzer` | every number in the value reduced to digits: canonical form (international prefix `+`/`00`/`011` dropped; a national number starting with the trunk prefix loses it and gets the country code; otherwise a 10-digit national number gets the country code) plus every suffix of at least `minSuffix` digits | the digits of the query, international prefix dropped, also tried without the trunk prefix and without the country code when the digits are a whole number (9 or more national digits) |
+   | `phonetic`, `phonetic(double_metaphone)`, `phonetic(beider_morse)` | `analysis.PhoneticAnalyzer` | each word plus its Double Metaphone codes (or its Beider-Morse forms, computed before the word is folded to ASCII) | the same analysis: a word matches by spelling or by sound |
 
    Classes live in `com.arcadedb.index.fulltext.analysis`. A partial-match analyzer runs its *query-side counterpart* on
    queries automatically (grams OR-ed on the query side would match almost everything), unless `query_analyzer` names one
@@ -53,10 +53,14 @@ CREATE INDEX Profile_search ON Profile (name, handle, phone) FULL_TEXT METADATA 
 
 -- substring of a handle
 SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'handle:kitty') = true;
--- last 4 / last 7 digits, any format; quote a query that carries parentheses
+-- last 4 / last 7 digits, any format; quote every number of more than one token (parentheses group, spaces separate clauses)
 SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'phone:1234') = true;
 SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'phone:555-1234') = true;
 SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'phone:"(702) 555-1234"') = true;
+SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'phone:"+1 702 555 1234"') = true;
+-- a UK number, national or international on either side: phone(4,44) drops the trunk 0 and adds 44
+CREATE INDEX ON Contact (phone) FULL_TEXT METADATA {"analyzer": "phone(4,44)"};
+SELECT FROM Contact WHERE SEARCH_INDEX('Contact[phone]', '"020 7946 0958"') = true;
 -- sounds like
 SELECT FROM Profile WHERE SEARCH_INDEX('Profile_search', 'name:smyth') = true;
 -- misspelled, up to 2 edits
@@ -135,9 +139,31 @@ range to the fragments investigators actually type.
 
 ## Caveats and things deferred
 
-- **Existing indexes with `<field>_analyzer`** were built with the index-wide analyzer. After upgrading, queries on those
-  fields use the configured analyzer, so the postings must be rebuilt: `REBUILD INDEX <name>`. The BM25 length signature
-  now includes the per-field analyzers, so the drift check logs a warning naming the index on the first query.
+- **Existing indexes with `<field>_analyzer`** were built with the index-wide analyzer. An index whose definition has no
+  `ft_formatVersion` (written before this work) keeps indexing AND querying every field with the index-wide analyzer, so
+  updates and deletes keep removing the tokens that were stored; the open logs a warning naming the index and the
+  `REBUILD INDEX` that applies the per-field analyzers (it re-creates the index in the current format). Applying the field
+  analyzer to such an index at once made every update or delete remove tokens that were never stored and leave the real
+  ones, so deleted or rewritten documents kept matching their old content.
+- **Downgrading** to a version before this work: the LSM data is readable, a stale block-max file is ignored, but a schema
+  that names a built-in alias (`ngram`, `edge_ngram`, `reverse`, `phone`, `phonetic`) fails to load ("Cannot instantiate
+  analyzer: ngram"), and per-field analyzers are silently ignored again (with the same update mismatch as above). DROP or
+  REBUILD those indexes with plain Lucene analyzers before downgrading. The older version knows nothing of the
+  `fulltext-blockmax` directory in the database directory: a full-text index it drops or rebuilds leaves its `.bmx` files
+  there (22-46% of the index size). Upgrading again deletes those files at the first read-write open; a database that stays on
+  the older version can have the whole `fulltext-blockmax` directory deleted by hand while it is closed (the files are derived
+  data, the older version never reads them).
+- **Leading wildcards** are accepted by the parser on any index with a `reverse` field, but answered only on fields whose
+  tokens are reversed (a range scan); on another field, or an unqualified clause of an index where not every field is
+  reversed, they are refused as before unless `allowLeadingWildcard` is set, since they would walk every token of the field.
+- **N-gram fragments shorter than `min`** (`ab` on `ngram(3,8)`) match only a value whose whole token is that fragment: the
+  index stores no gram that short. Size `min` to the shortest fragment investigators type (`ngram(2,8)` for 2 characters).
+  Not changed: a prefix walk over the grams that start with the fragment finds it at the start or middle of a token but
+  misses it at the end, so it would answer some substrings and not others.
+- **Phone numbers:** only the configured (default) country code and trunk prefix are known. A national number of another
+  country written without its country code is stored as its digits; it is still found by its last digits.
+- **Phonetic encoders** read Latin script. Double Metaphone gives no code to a word in another script; Beider-Morse covers the
+  languages of its rule set (Latin-script languages, Cyrillic, Greek, Hebrew). Such a word still matches by spelling.
 - **`CONTAINSTEXT` keeps its OR-of-tokens semantics.** A fragment longer than the largest gram is split into windows; on the
   `CONTAINSTEXT` path they are OR-ed and ranked (documents holding all of them first), on the `SEARCH_INDEX` path they must
   all match. Use `SEARCH_INDEX` for a strict long-fragment match.
@@ -153,3 +179,6 @@ range to the fragments investigators actually type.
 - **Regexp queries** still evaluate `java.util.regex` per distinct term (now once per term instead of once per posting); an
   automaton-driven seek like the fuzzy one would need Lucene `RegExp` syntax, which differs from what the engine accepts.
 - **Phone splitting** is heuristic: two numbers separated only by spaces are read as one number.
+- **A changed analyzer changes what is stored.** The phone analyzer now stores a trunk-prefixed national number in its
+  international form, edge n-gram queries try the whole long word, and Beider-Morse keeps the word: an index built with the
+  earlier code of this workstream (not released) needs `REBUILD INDEX` to store the new forms.
