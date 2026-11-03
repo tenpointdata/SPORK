@@ -660,3 +660,80 @@ differenced around the call), so a stop-the-world pause in a long CI run does no
 the bound IS the assertion and loosening it deletes the test. With these baselines in place and the 3.0 headroom the gate passes 9 of 9 in 34.5 s (72 s with the Maven build, the gate
 dataset reused), and the placeholder run before it (headroom 1,000,000, used to capture the numbers) passed in 58 s with the
 gate dataset generated.
+
+## OrientDB 3.2.24 baseline (1M records, 2026-11-03)
+
+Recon's upstream corpus lives in OrientDB today, so stock ArcadeDB is not the only baseline that matters. `benchmarks-orientdb/`
+loads the same dataset into OrientDB 3.2.24 (embedded, plocal) and runs the same nine queries in OrientDB SQL. It is not in
+the root reactor: OrientDB 3.2 ships Lucene 7.7.3, the engine ships Lucene 10, under the same package names. It compiles
+`ReconDomain`, `ZipfSampler`, `LatencyStats` and `BenchProps` from `benchmarks/` so both generators and both parameter
+samplers make the same random draws in the same order.
+
+### Equivalence
+
+- **Data:** at 1M records (seed 42) both loaders produce 1,200,000 identifiers, 3,899,323 edges and the same `tsMin`/`tsMax`.
+- **Answers:** on the same 50 parameter sets per query, row totals match exactly for 8 of 9 queries. `geoRadius14d` differs
+  by under 2% (24,187 vs 24,292 rows at 1M): OrientDB's `ST_DWithin` measures in planar degrees, `geo.dWithin` on the sphere.
+- **Model, in OrientDB's favour where there was a choice:** lightweight edges (`useLightweightEdges` + `newEdge`; the
+  `newLightweightEdge` API alone links nothing), the style vector as packed `BINARY`, `OPoint` locations with a Lucene
+  `SPATIAL` index, Lucene `FULLTEXT` on `text`, default `UNIQUE` / `NOTUNIQUE` indexes. Both engines got a 4 GB page cache,
+  a 16 GB heap and ZGC.
+- **No equivalent:** OrientDB 3.2 has no vector index, so `vectorKnn20` is an exact scan of `Record.styleVec` with a top-20
+  heap. `hydrate200` uses `SELECT FROM :rids`, which OrientDB plans as direct record loads.
+
+### Fixed workload (1 thread, warm, same 50 parameter sets per query, 10 for kNN, best of 3 runs per set; ms)
+
+Each engine in its own fresh JVM, run back to back between 09:13 and 09:22 at load average 7 to 21. A second ArcadeDB pass
+(09:23 to 09:27) moved the same engine's medians by up to 2x, so only gaps well beyond 2x are findings. Fast queries run
+JIT-cold in this method, so their absolute times read high; the JMH runs below agree on their ordering.
+
+| query | OrientDB median | stock median | OrientDB / stock | OrientDB p90 | stock p90 |
+|---|---:|---:|---:|---:|---:|
+| identLookup | 0.120 | 0.080 | 1.5x | 0.196 | 0.095 |
+| hydrate200 | 0.094 | 0.106 | 0.9x | 0.102 | 0.125 |
+| feed24h | 0.172 | 0.145 | 1.2x | 0.203 | 0.179 |
+| pivot1Hop | 0.639 | 0.164 | 3.9x | 5.51 | 1.07 |
+| pivot2Hop | 12.34 | 0.722 | 17x | 330 | 14.9 |
+| structured | 39.35 | 88.16 | **0.45x** | 603 | 224 |
+| geoRadius14d | 46.83 | 14.48 | 3.2x | 413 | 21.9 |
+| fulltextTop20 | 267.5 | 12.50 | 21x | 840 | 44.9 |
+| vectorKnn20 | 343.9 | 0.439 | 783x | 354 | 0.472 |
+
+- **structured** is the one query OrientDB wins at the median (2.2x), and loses in the tail (p90 2.7x worse, mean 169 vs
+  104 ms). Both engines read `(age, tsPosted)` and test `state` and `services` per record; neither has an index that fits.
+- **geoRadius14d:** OrientDB's plan reads `Record.tsPosted` and filters both spatial predicates per record; the Lucene spatial
+  index is never used (`EXPLAIN` in `orientdb-bench.sh parity`).
+- **fulltextTop20:** OrientDB's `SEARCH_INDEX` is index-backed, but `ORDER BY $score` loads every match before the limit.
+
+### JMH warm runs (SampleTime, random parameters, 2 alternating rounds per engine)
+
+Agree with the fixed workload on every query except `structured`, whose OrientDB medians (1,256 ms in round 1, 49 ms in
+round 2, from 11 samples) say only that the method cannot resolve it. At 8 threads stock ArcadeDB kept 2x to 3.6x more
+throughput than OrientDB on `identLookup`, `hydrate200` and `feed24h`, where single-threaded they are within noise.
+
+### SPORK workstream builds on the same mix
+
+Each workstream's compiled engine (main at 08:29 before the index-locks merge; partial-text, graph-adjacency, index-locks
+with its stale `RWLockContext` recompiled, page-cache) ran the unchanged harness on an APFS clone of the stock dataset.
+
+- **partial-text (BM25 top-k scorer):** `fulltextTop20` 12.5 to 4.2 ms median, p90 44.9 to 13.1 ms: about 3x over stock,
+  64x over OrientDB. The only workstream change beyond noise on this mix.
+- **graph-adjacency, index-locks, page-cache, merged main:** within run-to-run noise of stock on every query. They target hub
+  edge counts, 32-thread lock contention and cold disk reads, which a warm, 1-thread, in-RAM run does not create.
+  Page-cache's warm `hydrate200` measured slower than stock, as its workstream doc already reports.
+- A JMH comparison first showed graph-adjacency 2x on `pivot2Hop` and 1.7x on `geoRadius14d`; stock had run at load 52 and
+  the workstream builds at 15 to 24, and the gain did not repeat in the fixed workload. Treat any SPORK-vs-stock JMH number
+  taken in a different load window the same way.
+
+### Reproduce
+
+```
+benchmarks/bin/retrieval-bench.sh generate -Darcadedb.retrievalBench.records=1000000
+benchmarks-orientdb/bin/orientdb-bench.sh generate -Darcadedb.retrievalBench.records=1000000
+benchmarks-orientdb/bin/orientdb-bench.sh parity -Darcadedb.retrievalBench.records=1000000
+benchmarks-orientdb/bin/orientdb-bench.sh warm -Darcadedb.retrievalBench.records=1000000 -Darcadedb.retrievalBench.threads=1,8
+```
+
+The fixed-workload driver used here is a pair of single-file programs (same seed 12345, 50 draws, best of 3) outside the
+repository; moving it into the two modules as a `fixed` mode is the next harness change, together with the 5M run and a
+cold-cache run on the NVMe nodes.
