@@ -50,6 +50,7 @@ public final class StructuredQuery {
   private int                     rankScanCap;
   private int                     rankFallbackCap;
   private RecordFilter            filter;
+  private boolean                 estimateTotal;
 
   private StructuredQuery(final boolean descending, final int limit) {
     this.descending = descending;
@@ -77,6 +78,7 @@ public final class StructuredQuery {
     q.rankScanCap = rankScanCap;
     q.rankFallbackCap = rankFallbackCap;
     q.filter = filter;
+    q.estimateTotal = estimateTotal;
     return q;
   }
 
@@ -146,6 +148,19 @@ public final class StructuredQuery {
     return q;
   }
 
+  /**
+   * Answer the total from the cardinality table the walk already keeps, without counting, when the search allows it: at most
+   * one facet (a single-value facet when its index is {@code BY ITEM}), no window, and no filter or one that
+   * {@link RecordFilter#hidesNothing() hides nothing}. The result then has {@code total = -1}, {@code totalPartial}, and
+   * {@code totalEstimate} = the table's sum, which is as old as the table (up to the cardinality TTL, an hour by default),
+   * and any {@link #count} is skipped. A search that does not allow it is answered as if this were not asked.
+   */
+  public StructuredQuery estimateTotal() {
+    final StructuredQuery q = copy();
+    q.estimateTotal = true;
+    return q;
+  }
+
   /** The count reads at most this many index entries past the page, then answers a lower bound with {@code totalPartial}. */
   public StructuredQuery countBudget(final int entries) {
     if (entries < 1)
@@ -204,6 +219,7 @@ public final class StructuredQuery {
     q.after = null;
     q.limit = pageLimit;
     q.countCap = cap;
+    q.estimateTotal = false;
     return q;
   }
 
@@ -259,6 +275,10 @@ public final class StructuredQuery {
     return filter;
   }
 
+  public boolean estimatesTotal() {
+    return estimateTotal;
+  }
+
   /** The most index entries one page may read: limit x over-read, saturating. */
   long overReadCap() {
     final long cap = (long) Math.max(limit, 1) * overRead;
@@ -269,6 +289,6 @@ public final class StructuredQuery {
   public String toString() {
     return (rankProperty != null ? "by " + rankProperty + " desc" : descending ? "newest" : "oldest") + " " + limit + " where "
         + facets + (windowFrom != Long.MIN_VALUE || windowTo != Long.MAX_VALUE ? " window " + windowFrom + ".." + windowTo : "")
-        + (after != null ? " after " + after : "") + " overRead " + overRead + (countCap > 0 ? " count " + countCap : "");
+        + (after != null ? " after " + after : "") + " overRead " + overRead + (countCap > 0 ? " count " + countCap : "") + (estimateTotal ? " estimateTotal" : "");
   }
 }

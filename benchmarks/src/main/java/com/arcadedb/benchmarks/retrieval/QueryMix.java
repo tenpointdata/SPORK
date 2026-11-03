@@ -49,6 +49,9 @@ public final class QueryMix {
   public static final int HYDRATE_COUNT = 200;
   /** An identifier with more records than this is a hub: the 2-hop pivot is not asked from it (its neighbourhood is the corpus). */
   public static final int HUB_DEGREE    = 2_000;
+  /** The search route's total cap and default estimate budget ({@code spork-recon} {@code SearchService}). */
+  public static final int COUNT_CAP       = 10_000;
+  public static final int ESTIMATE_BUDGET = 2_000;
   /** 200 km in degrees of great-circle arc, the unit {@code geo.dWithin} takes. */
   public static final double RADIUS_200KM_DEG = 200.0 / 111.195;
 
@@ -76,7 +79,18 @@ public final class QueryMix {
      * {@link #STRUCTURED}'s parameters and answer through the P4 core ({@link StructuredSearch}) instead of SQL: the newest-first
      * walk of the most selective {@code (facet, tsPosted)} composite. Exact (no over-read cap), so its rows equal SQL's.
      */
-    STRUCTURED_P4("structuredP4", "structured's filters through the P4 core (StructuredSearch), exact", null);
+    STRUCTURED_P4("structuredP4", "structured's filters through the P4 core (StructuredSearch), exact", null),
+    /** {@link #STRUCTURED_P4} plus the exact total capped at {@link #COUNT_CAP}: the route's {@code exactTotal} option. */
+    STRUCTURED_P4_COUNT("structuredP4Count", "structuredP4 + exact total capped at 10,000", null),
+    /**
+     * {@link #STRUCTURED_P4} plus the route's default total: the table estimate when the search allows one (it does not: three
+     * facets), otherwise the count within the {@link #ESTIMATE_BUDGET}, scaled.
+     */
+    STRUCTURED_P4_ESTIMATE("structuredP4Estimate", "structuredP4 + the route's default estimated total", null),
+    /** The state facet alone, newest 100, exact total capped at 10,000. */
+    STATE_P4_COUNT("stateP4Count", "state only through the P4 core + exact total capped at 10,000", null),
+    /** The state facet alone, newest 100, with the route's default total: here the table estimate answers it. */
+    STATE_P4_ESTIMATE("stateP4Estimate", "state only through the P4 core + the route's default estimated total", null);
 
     public final String id;
     public final String description;
@@ -106,8 +120,8 @@ public final class QueryMix {
 
   /** Executes one query embedded and returns the number of rows it produced (every row is consumed). */
   public static int execute(final Database database, final Query query, final Map<String, Object> params) {
-    if (query == Query.STRUCTURED_P4)
-      return structuredP4(database, params).rows().size();
+    if (!query.sqlServed())
+      return p4(database, query, params).rows().size();
     int rows = 0;
     try (final ResultSet rs = database.query("sql", query.sql, params)) {
       while (rs.hasNext()) {
@@ -129,14 +143,28 @@ public final class QueryMix {
 
   /** {@link Query#STRUCTURED}'s filters, newest {@link #SEARCH_LIMIT} first, through the P4 core. */
   public static StructuredSearch.Result structuredP4(final Database database, final Map<String, Object> params) {
+    return p4(database, Query.STRUCTURED_P4, params);
+  }
+
+  /**
+   * One of the P4-core queries: {@link Query#STRUCTURED}'s parameters (the state facet alone for the {@code state*} ones), newest
+   * {@link #SEARCH_LIMIT} first, no over-read cap so the rows equal SQL's, and the total the query names.
+   */
+  public static StructuredSearch.Result p4(final Database database, final Query query, final Map<String, Object> params) {
     final StructuredSearch search = P4.compute(database.getDatabasePath(), (path, cached) -> cached != null && cached.database() == database ?
         cached :
         new P4Search(database, new StructuredSearch(database, ReconSchema.RECORD, "tsPosted"))).search();
-    return search.search(StructuredQuery.newestFirst(SEARCH_LIMIT)
-        .where(Facet.eq("state", params.get("state")))
-        .where(Facet.intRange("age", (Integer) params.get("ageMin"), (Integer) params.get("ageMax")))
-        .where(Facet.eq("services", params.get("service")))
-        .overRead(Integer.MAX_VALUE));
+    StructuredQuery q = StructuredQuery.newestFirst(SEARCH_LIMIT).where(Facet.eq("state", params.get("state"))).overRead(Integer.MAX_VALUE);
+    if (query != Query.STATE_P4_COUNT && query != Query.STATE_P4_ESTIMATE)
+      q = q.where(Facet.intRange("age", (Integer) params.get("ageMin"), (Integer) params.get("ageMax")))
+          .where(Facet.eq("services", params.get("service")));
+    switch (query) {
+    case STRUCTURED_P4_COUNT, STATE_P4_COUNT -> q = q.count(COUNT_CAP);
+    case STRUCTURED_P4_ESTIMATE, STATE_P4_ESTIMATE -> q = q.count(COUNT_CAP).countBudget(ESTIMATE_BUDGET).estimateTotal();
+    default -> {
+    }
+    }
+    return search.search(q);
   }
 
   /** Parameters as the HTTP body wants them: vectors as JSON arrays, RIDs as their string form. */
@@ -187,7 +215,7 @@ public final class QueryMix {
       // HUB_DEGREE records two hops out, so the sampler starts below the hubs (they stay in the 1-hop pivot)
       case PIVOT_2HOP -> p.put("key", ReconDomain.phoneKey(tables.phoneZipf.sample(
           tables.hubPhoneMass + rnd.nextDouble() * (tables.referencedPhoneMass - tables.hubPhoneMass))));
-      case STRUCTURED, STRUCTURED_P4 -> {
+      case STRUCTURED, STRUCTURED_P4, STRUCTURED_P4_COUNT, STRUCTURED_P4_ESTIMATE, STATE_P4_COUNT, STATE_P4_ESTIMATE -> {
         final ReconDomain.City city = ReconDomain.city(tables.cityZipf.sample(rnd.nextDouble()));
         final int ageMin = 18 + rnd.nextInt(25);
         p.put("state", city.state());

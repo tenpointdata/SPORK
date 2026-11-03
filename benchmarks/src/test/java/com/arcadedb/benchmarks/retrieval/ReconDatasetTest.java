@@ -24,6 +24,7 @@ import com.arcadedb.database.Document;
 import com.arcadedb.graph.Vertex;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultSet;
+import com.arcadedb.query.structured.StructuredSearch;
 import com.arcadedb.schema.Schema;
 import com.arcadedb.utility.FileUtils;
 import org.junit.jupiter.api.AfterAll;
@@ -154,7 +155,8 @@ class ReconDatasetTest {
       switch (q) {
       case IDENT_LOOKUP -> assertThat(rows).isEqualTo(1);
       case PIVOT_1HOP, PIVOT_2HOP -> assertThat(rows).as("%s with %s", q.id, params).isBetween(1, QueryMix.PIVOT_LIMIT);
-      case STRUCTURED, STRUCTURED_P4 -> assertThat(rows).isBetween(0, QueryMix.SEARCH_LIMIT);
+      case STRUCTURED, STRUCTURED_P4, STRUCTURED_P4_COUNT, STRUCTURED_P4_ESTIMATE, STATE_P4_COUNT, STATE_P4_ESTIMATE ->
+          assertThat(rows).isBetween(0, QueryMix.SEARCH_LIMIT);
       case FEED_24H -> assertThat(rows).isBetween(1, QueryMix.FEED_LIMIT);
       case GEO_RADIUS_14D -> assertThat(rows).isBetween(0, QueryMix.PIVOT_LIMIT);
       case FULLTEXT_TOP20 -> assertThat(rows).isBetween(1, QueryMix.TEXT_LIMIT);
@@ -281,5 +283,36 @@ class ReconDatasetTest {
         nonEmpty++;
     }
     assertThat(nonEmpty).as("draws that found rows").isGreaterThan(5);
+  }
+
+  @Test
+  void theP4TotalsAgreeWithSqlCounts() {
+    final QueryMix.ParamSampler sampler = new QueryMix.ParamSampler(new QueryMix.Tables(manifest), 77L, database);
+    for (int i = 0; i < 25; i++) {
+      final Map<String, Object> params = sampler.params(QueryMix.Query.STRUCTURED);
+      final long sqlAll = sqlCount("state = :state AND age >= :ageMin AND age <= :ageMax AND services CONTAINS :service", params);
+      final long sqlState = sqlCount("state = :state", params);
+
+      final StructuredSearch.Result exact = QueryMix.p4(database, QueryMix.Query.STRUCTURED_P4_COUNT, params);
+      assertThat(exact.total()).as("draw %d %s", i, params).isEqualTo(Math.min(sqlAll, QueryMix.COUNT_CAP));
+      assertThat(exact.totalCapped()).isEqualTo(sqlAll > QueryMix.COUNT_CAP);
+
+      // three facets: the table cannot answer, so the route's default is the budgeted count (exact here: the dataset is small)
+      final StructuredSearch.Result routeDefault = QueryMix.p4(database, QueryMix.Query.STRUCTURED_P4_ESTIMATE, params);
+      assertThat(routeDefault.totalEstimate()).isEqualTo(Math.min(sqlAll, QueryMix.COUNT_CAP));
+
+      // one facet: the table answers, with no count
+      final StructuredSearch.Result fromTable = QueryMix.p4(database, QueryMix.Query.STATE_P4_ESTIMATE, params);
+      assertThat(fromTable.total()).isEqualTo(-1L);
+      assertThat(fromTable.totalEstimate()).as("draw %d %s", i, params).isEqualTo(sqlState);
+      assertThat(QueryMix.p4(database, QueryMix.Query.STATE_P4_COUNT, params).total()).isEqualTo(Math.min(sqlState, QueryMix.COUNT_CAP));
+    }
+  }
+
+  /** {@code count(@rid)}, not {@code count(*)}: the latter may answer from the buckets' cached counters (engine/CLAUDE.md). */
+  private long sqlCount(final String where, final Map<String, Object> params) {
+    try (final ResultSet rs = database.query("sql", "SELECT count(@rid) AS n FROM Record WHERE " + where, params)) {
+      return ((Number) rs.next().getProperty("n")).longValue();
+    }
   }
 }

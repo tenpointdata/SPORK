@@ -116,11 +116,66 @@ public final class StructuredSearch {
     final DocumentType type = database.getSchema().existsType(typeName) ? database.getSchema().getType(typeName) : null;
     if (type == null)
       throw new IllegalArgumentException("Type '" + typeName + "' does not exist");
-    if (query.rankProperty() != null)
-      return rank(type, query);
 
-    final Candidate walked = choose(type, query);
-    return walk(query, walked, residual(query, walked));
+    // an estimated total replaces the count: the page is searched without one
+    final long tableTotal = query.estimatesTotal() ? tableTotal(type, query) : -1L;
+    final StructuredQuery paged = tableTotal >= 0 && query.countCap() > 0 ? query.count(0) : query;
+
+    final Result result;
+    if (paged.rankProperty() != null)
+      result = rank(type, paged);
+    else {
+      final Candidate walked = choose(type, paged);
+      result = walk(paged, walked, residual(paged, walked));
+    }
+    if (tableTotal < 0)
+      return result;
+    return new Result(result.rows(), result.partial(), result.scanned(), result.walkedIndex(), result.next(), -1L, false, true, tableTotal,
+        result.recordsRead());
+  }
+
+  /**
+   * The search's total from statistics, or -1 when it has none: {@link StructuredQuery#estimateTotal()} lists when it does. No
+   * facet: the type's record count (the buckets' cached counters). One facet: the entries per value of an ordered index the
+   * facet leads, summed over its values, from the same cardinality table the walk chooses its index with.
+   */
+  private long tableTotal(final DocumentType type, final StructuredQuery query) {
+    if (query.windowFrom() != Long.MIN_VALUE || query.windowTo() != Long.MAX_VALUE)
+      return -1L;
+    if (query.filter() != null && !query.filter().hidesNothing())
+      return -1L;
+    final List<Facet> facets = query.facets();
+    if (facets.isEmpty())
+      return database.countType(typeName, true);
+    if (facets.size() > 1)
+      return -1L;
+
+    final Facet facet = facets.get(0);
+    TypeIndex counted = null;
+    boolean byItem = false;
+    for (final TypeIndex index : type.getAllIndexes(true)) {
+      if (!index.supportsOrderedIterations())
+        continue;
+      final String leading = index.getPropertyNames().get(0);
+      final boolean item = leading.toLowerCase(Locale.ROOT).endsWith(" by item");
+      final String leadingProperty = item ? leading.substring(0, leading.length() - " by item".length()) : leading;
+      if (!leadingProperty.equals(facet.property()))
+        continue;
+      // prefer a table the walk has already built
+      if (counted == null || cardinalities.containsKey(index.getName()) && !cardinalities.containsKey(counted.getName())) {
+        counted = index;
+        byItem = item;
+      }
+    }
+    // a record listing two of the values is one entry per value: the sum would count it twice
+    if (counted == null || byItem && facet.valuesArray().length > 1)
+      return -1L;
+
+    final Map<Object, Long> counts = cardinality(counted);
+    long total = 0;
+    for (final Object v : facet.valuesArray())
+      total += counts.getOrDefault(Facet.normalize(v), 0L);
+    return total;
   }
 
   private static List<Facet> residual(final StructuredQuery query, final Candidate walked) {

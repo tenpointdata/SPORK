@@ -1,6 +1,6 @@
 # Workstream: P4 structured-search core
 
-Status: implemented and tested on branch `claude/p4-structured-core`, 2026-11-03. Design: `../02-retrieval-speed.md` 2.4.
+Status: in main (core, count, rank order); the estimated total on branch `claude/p4-count-estimate`, 2026-11-03. Design: `../02-retrieval-speed.md` 2.4.
 Consumer: the `spork-recon` search route (WS3 slice 2, `ws3-recon-plugin.md`), which owns the route, visibility, the
 console/ops boundary and titles; this is the walk underneath it, with the count and the rank order.
 
@@ -56,6 +56,17 @@ Added by WS3 (2026-11-03, the owner's decision of one core with the plugin on to
 7. The unfiltered walk takes the shortest index led by the sort property, `(tsPosted)` or `(tsPosted, views)` (schema v1 has
    only the latter).
 
+8. **Estimated total** (`estimateTotal()`, the owner's decision of 2026-11-03: Recon shows the page with an estimated total by
+   default, the exact count capped at 10,000 is opt-in). When the search has at most one facet (a single value when its index
+   is `BY ITEM`, since a record listing two values is one entry per value), no window, and no record filter or one whose
+   `RecordFilter.hidesNothing()` is true, the total comes from the cardinality table the walk already keeps: the facet's
+   entries summed over its values, or the type's record count with no facet. No count is run, even when `count(cap)` was also
+   asked: `total = -1`, `totalPartial`, `totalEstimate` = the sum. It is as old as the table, up to the cardinality TTL (an
+   hour), and `refreshCardinality()` renews it. `hidesNothing()` defaults to false because a statistic counts every entry, and
+   a total that included records the caller may not see would disclose how many there are. Any other search ignores the
+   request, so the route can always ask for it and keep its budgeted count as the fallback. Tests:
+   `StructuredSearchEstimateTest` (10, against a full-scan count).
+
 Still not in it: substring arms (P4s), residuals tested on the key bytes of a 3-column composite (saves the record load),
 titles from `txt_<p>` (the route's).
 
@@ -69,6 +80,24 @@ titles from `txt_<p>` (the route's).
 Same 50 parameter sets, same rows. OrientDB 3.2.24 on the SQL shape: 230 ms median. With this in the Recon mix, the
 traffic-weighted mean read drops from about 150 ms to about 5 ms (structured is 15% of reads). The benchmark query runs with
 no over-read cap so its rows equal SQL's; the 40x cap only bounds the tail further.
+
+### With the total (5M records, fixed workload, 1 thread, 14:14, branch `claude/p4-count-estimate`)
+
+Same 50 parameter sets; the route's default is `count(10_000).countBudget(2_000).estimateTotal()` (`SearchService`), its
+`exactTotal` option `count(10_000)` with the core's default budget.
+
+| query | total | median | mean | p90 |
+|---|---|---:|---:|---:|
+| `structured` (SQL) | none | 532 ms | 659 ms | 1,439 ms |
+| `structuredP4` | none | 2.65 ms | 10.0 ms | 23.2 ms |
+| `structuredP4Estimate` | route default: three facets, so the budgeted count | **5.03 ms** | 12.3 ms | 25.5 ms |
+| `structuredP4Count` | exact, capped at 10,000 | 23.9 ms | 24.5 ms | 34.9 ms |
+| `stateP4Estimate` | route default: one facet, so the table | **0.068 ms** | 0.075 ms | 0.099 ms |
+| `stateP4Count` | exact, capped at 10,000 | 3.11 ms | 3.10 ms | 3.14 ms |
+
+Recon's default search (page and estimated total) meets the 5 ms p50 target at 5M, and the exact count is opt-in at about
+24 ms. The table estimate makes a single-facet total free; a multi-facet search pays the 2,000-entry budgeted count, about
+2.4 ms on top of its page.
 
 ## Tests
 

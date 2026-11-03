@@ -163,6 +163,26 @@ public class EmbeddedRetrievalBenchmark {
     return run(d, p, QueryMix.Query.STRUCTURED_P4);
   }
 
+  @Benchmark
+  public int structuredP4Count(final Dataset d, final Params p) {
+    return run(d, p, QueryMix.Query.STRUCTURED_P4_COUNT);
+  }
+
+  @Benchmark
+  public int structuredP4Estimate(final Dataset d, final Params p) {
+    return run(d, p, QueryMix.Query.STRUCTURED_P4_ESTIMATE);
+  }
+
+  @Benchmark
+  public int stateP4Count(final Dataset d, final Params p) {
+    return run(d, p, QueryMix.Query.STATE_P4_COUNT);
+  }
+
+  @Benchmark
+  public int stateP4Estimate(final Dataset d, final Params p) {
+    return run(d, p, QueryMix.Query.STATE_P4_ESTIMATE);
+  }
+
   // ---------------------------------------------------------------------------------------------------------------------
 
   public static void main(final String[] args) throws Exception {

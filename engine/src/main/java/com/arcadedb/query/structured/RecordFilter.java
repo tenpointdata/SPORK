@@ -37,4 +37,13 @@ public interface RecordFilter {
   default boolean mustRead(final RID rid) {
     return true;
   }
+
+  /**
+   * True when this filter accepts every record of the type for this caller, so a total read from index statistics counts
+   * nothing the caller may not see ({@link StructuredQuery#estimateTotal()}). False, the default, keeps such totals off: a
+   * statistic counts every entry, and a total that included hidden records would disclose how many there are.
+   */
+  default boolean hidesNothing() {
+    return false;
+  }
 }
