@@ -84,6 +84,10 @@ public class PostResyncDatabaseHandler extends AbstractServerHttpHandler {
     if (!PostVerifyDatabaseHandler.VALID_DATABASE_NAME.matcher(databaseName).matches())
       return new ExecutionResponse(400, new JSONObject().put("error", "Invalid database name").toString());
 
+    if (httpServer.getServer().isHALocalDatabase(databaseName))
+      return new ExecutionResponse(400, new JSONObject().put("error",
+          "Cannot resync database '" + databaseName + "': it is node-local (HA_LOCAL_DATABASES), outside the Raft group").toString());
+
     if (raftHAServer.isLeader())
       return new ExecutionResponse(400, new JSONObject().put("error",
           "Cannot resync database '" + databaseName

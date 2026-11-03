@@ -327,6 +327,10 @@ public class ArcadeDBServer {
    */
   private final       AtomicInteger                         snapshotInstallsInProgress           = new AtomicInteger(0);
   private volatile    Function<LocalDatabase, DatabaseInternal> databaseWrapper;
+  /** {@link GlobalConfiguration#HA_LOCAL_DATABASES}, parsed once in {@link #init()}: the databases served outside the Raft group. */
+  private             Set<String>                           haLocalDatabases                     = Set.of();
+  /** The entries of {@link GlobalConfiguration#HA_LOCAL_DATABASES} that end in {@code *}, without it: name prefixes. */
+  private             String[]                              haLocalDatabasePrefixes              = new String[0];
   /**
    * True while this server is starting with high availability requested and no HA plugin has installed its
    * {@link #databaseWrapper} yet (issue #8270). The databases are opened and the network listeners started BEFORE the
@@ -1772,6 +1776,7 @@ public class ArcadeDBServer {
 
   public ServerDatabase createDatabase(final String databaseName, final ComponentFile.MODE mode) {
     checkDatabaseNameIsValid(databaseName);
+    checkNotHALocalDatabase(databaseName);
 
     ServerDatabase serverDatabase;
     synchronized (databasesLock) {
@@ -1917,6 +1922,38 @@ public class ArcadeDBServer {
    * volume, so it appears in the database directory whenever a volume is mounted there directly
    * (issue #8805).
    */
+  /**
+   * Whether {@code databaseName} is served node-locally, outside the Raft group ({@link GlobalConfiguration#HA_LOCAL_DATABASES},
+   * SPORK E26): opened READ_ONLY, never wrapped for replication, and skipped by every HA path that walks this server's
+   * databases. Applied with or without HA: a listed database is read-only either way.
+   */
+  public boolean isHALocalDatabase(final String databaseName) {
+    if (databaseName == null)
+      return false;
+    if (haLocalDatabases.contains(databaseName))
+      return true;
+    for (final String prefix : haLocalDatabasePrefixes)
+      if (databaseName.startsWith(prefix))
+        return true;
+    return false;
+  }
+
+  static Set<String> parseHALocalDatabases(final String value) {
+    if (value == null || value.isBlank())
+      return Set.of();
+    final Set<String> names = new HashSet<>();
+    for (final String name : value.split(","))
+      if (!name.isBlank())
+        names.add(name.trim());
+    return Set.copyOf(names);
+  }
+
+  private void checkNotHALocalDatabase(final String databaseName) {
+    if (isHALocalDatabase(databaseName))
+      throw new IllegalArgumentException("Database '" + databaseName + "' is listed in '" + GlobalConfiguration.HA_LOCAL_DATABASES.getKey()
+          + "': it is served node-locally and read-only, and is never created through the server");
+  }
+
   public static boolean isReservedDatabaseName(final String databaseName) {
     return databaseName != null && (databaseName.startsWith(RESERVED_DATABASE_PREFIX) || databaseName.equals(
         FILESYSTEM_RECOVERY_DIRECTORY));
@@ -2149,7 +2186,13 @@ public class ArcadeDBServer {
           "Cannot drop database '" + databaseName + "': it is already being dropped");
 
     try {
-      embedded.drop();
+      if (isHALocalDatabase(databaseName)) {
+        // A node-local database is READ_ONLY, which drop() refuses: closed, then its files deleted (SPORK E26)
+        final String path = embedded.getDatabasePath();
+        embedded.close();
+        FileUtils.deleteRecursively(new File(path));
+      } else
+        embedded.drop();
       removeDatabase(databaseName);
     } catch (final RuntimeException e) {
       // The instance is closed and its files may be partly deleted: say so where an operator looks, the next request reopens it
@@ -2622,12 +2665,16 @@ public class ArcadeDBServer {
                 ComponentFile.MODE.class);
         if (defaultDbMode == null)
           defaultDbMode = READ_WRITE;
+        // A node-local database outside the Raft group (SPORK E26) is read-only whatever the default: a write would reach no peer
+        if (isHALocalDatabase(databaseName))
+          defaultDbMode = READ_ONLY;
 
         DatabaseInternal embDatabase;
         if (createIfNotExists) {
           if (factory.exists())
             embDatabase = (DatabaseInternal) factory.open(defaultDbMode);
           else {
+            checkNotHALocalDatabase(databaseName);
             // The second of the two places a database comes into existence on a server - createDatabase above is the
             // other - so the restore claim has to be honoured here too (issue #7441). Only the create arm asks: an
             // OPEN of a directory that is already there is what 'restore backup ... overwrite' means to replace, and
@@ -3151,6 +3198,16 @@ public class ArcadeDBServer {
   }
 
   private void init() {
+    final Set<String> localEntries = parseHALocalDatabases(configuration.getValueAsString(GlobalConfiguration.HA_LOCAL_DATABASES));
+    final Set<String> exact = new HashSet<>();
+    final List<String> prefixes = new ArrayList<>();
+    for (final String entry : localEntries)
+      if (entry.endsWith("*"))
+        prefixes.add(entry.substring(0, entry.length() - 1));
+      else
+        exact.add(entry);
+    haLocalDatabases = Set.copyOf(exact);
+    haLocalDatabasePrefixes = prefixes.toArray(new String[0]);
     eventLog = new FileServerEventLog(this);
     queryProfiler = new ServerQueryProfiler(this);
     String configuredPlugins = configuration.getValueAsString(GlobalConfiguration.SERVER_PLUGINS);

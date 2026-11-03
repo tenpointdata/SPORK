@@ -2114,6 +2114,14 @@ public class ArcadeStateMachine extends BaseStateMachine {
           && isCarriedByInstalledCopy(decoded.type(), originatedLocally);
       final Runnable dispatch = () -> {
         securitySuperseded[0] = false;
+        // An entry naming a node-local database (HA_LOCAL_DATABASES, SPORK E26) reaches here only from a leader configured
+        // without it: the name is not the group's on this node, so the entry is applied as a no-op and this node's copy kept
+        if (isNodeLocalDatabase(decoded.databaseName())) {
+          LogManager.instance().log(this, Level.SEVERE,
+              "Ignoring Raft entry %d (%s) for database '%s': it is node-local here (%s). Configure the setting alike on every node",
+              index, decoded.type(), decoded.databaseName(), GlobalConfiguration.HA_LOCAL_DATABASES.getKey());
+          return;
+        }
         switch (decoded.type()) {
         case TX_ENTRY -> applyTxEntry(decoded, index, context instanceof AppendedEntry appended ? appended.pages() : null);
         case SCHEMA_ENTRY -> {
@@ -4024,6 +4032,11 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * opened itself.
    */
   // @VisibleForTesting
+  private boolean isNodeLocalDatabase(final String databaseName) {
+    final ArcadeDBServer srv = this.server;
+    return srv != null && srv.isHALocalDatabase(databaseName);
+  }
+
   DatabaseInternal databaseFor(final String databaseName) {
     return (DatabaseInternal) serverDatabaseFor(databaseName);
   }
@@ -8378,7 +8391,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
       globalAppliedIndex = index;
       if (server != null)
         for (final String dbName : server.getDatabaseNames())
-          if (!excluded.contains(dbName))
+          if (!excluded.contains(dbName) && !server.isHALocalDatabase(dbName))
             appliedIndexByDb.put(dbName, index);
       persistAppliedIndexFile();
     }
@@ -8976,6 +8989,9 @@ public class ArcadeStateMachine extends BaseStateMachine {
     // replaced them either - so their bootstrap-divergence marks are theirs to keep (issues #8559, #8588).
     final Set<String> leaderMissing = new HashSet<>();
     for (final String dbName : server.getDatabaseNames()) {
+      // A node-local database (HA_LOCAL_DATABASES, SPORK E26) is not the group's: nothing the leader holds replaces it
+      if (server.isHALocalDatabase(dbName))
+        continue;
       // install() keeps the database open during the download and rolls back on failure, so a
       // watchdog-triggered resync never leaves it closed.
       if (server.existsDatabase(dbName)) {
@@ -9358,7 +9374,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
         globalAppliedIndex = snapshotIndex;
         if (server != null)
           for (final String dbName : server.getDatabaseNames())
-            if (!notInstalled.contains(dbName) && !notRefreshed.contains(dbName))
+            if (!notInstalled.contains(dbName) && !notRefreshed.contains(dbName) && !server.isHALocalDatabase(dbName))
               appliedIndexByDb.put(dbName, snapshotIndex);
       }
       for (final String dbName : notInstalled) {
@@ -9701,7 +9717,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
           globalAppliedIndex = accepted;
           if (server != null)
             for (final String dbName : server.getDatabaseNames())
-              if (!divergedDatabases.containsKey(dbName) && !staleDatabaseAppliedFloors.containsKey(dbName)) {
+              if (!divergedDatabases.containsKey(dbName) && !staleDatabaseAppliedFloors.containsKey(dbName)
+                  && !server.isHALocalDatabase(dbName)) {
                 final Long previousPosition = appliedIndexByDb.get(dbName);
                 if (previousPosition == null || previousPosition < accepted) {
                   previousByDb.put(dbName, previousPosition != null ? previousPosition : -1L);

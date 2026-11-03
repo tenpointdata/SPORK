@@ -935,7 +935,7 @@ public class RaftHAServer implements HealthMonitor.HealthTarget {
         // follower rejects it) but would log spurious warnings, so stop early instead.
         if (!isLeader())
           return;
-        if (ArcadeDBServer.isReservedDatabaseName(dbName))
+        if (ArcadeDBServer.isReservedDatabaseName(dbName) || arcadeServer.isHALocalDatabase(dbName))
           continue;
         // Issue #8490: the task may run long after the decision (queued behind another, or behind the previous
         // database's snapshot download), and each database is one more copy the follower drops. Re-check that the

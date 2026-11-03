@@ -197,6 +197,10 @@ public class RaftHAPlugin implements HAServerPlugin, HAReplicationStatsProvider 
       // transaction committed on it before then fails and is rolled back - either way nothing is applied locally
       // without going through Raft.
       server.setDatabaseWrapper(db -> {
+        // A node-local database (HA_LOCAL_DATABASES, SPORK E26) stays outside the group: never wrapped, so nothing it
+        // does can become a Raft entry, and it is opened READ_ONLY by the server
+        if (server.isHALocalDatabase(db.getName()))
+          return db;
         warnIfSingleBucketTypes(db);
         // Shared client, not one built per database (review finding on PR #7650): see RaftHAServer's
         // forwardHttpClient field javadoc.
@@ -553,21 +557,24 @@ public class RaftHAPlugin implements HAServerPlugin, HAReplicationStatsProvider 
   @Override
   public void holdReplicatedWritesForRestore(final String databaseName) {
     final RaftHAServer raft = raftHAServer;
-    if (raft != null)
+    // A node-local database has no replicated writes to hold: its restore is this node's alone, on any role (SPORK E26)
+    if (raft != null && !server.isHALocalDatabase(databaseName))
       raft.holdForRestore(databaseName);
   }
 
   @Override
   public void ensureReplicatedWritesHeldForRestore(final String databaseName) {
     final RaftHAServer raft = raftHAServer;
-    if (raft != null)
+    // A node-local database has no replicated writes to hold: its restore is this node's alone, on any role (SPORK E26)
+    if (raft != null && !server.isHALocalDatabase(databaseName))
       raft.ensureRestoreHoldStands(databaseName);
   }
 
   @Override
   public void releaseReplicatedWritesForRestore(final String databaseName) {
     final RaftHAServer raft = raftHAServer;
-    if (raft != null)
+    // A node-local database has no replicated writes to hold: its restore is this node's alone, on any role (SPORK E26)
+    if (raft != null && !server.isHALocalDatabase(databaseName))
       raft.releaseRestoreHold(databaseName);
   }
 

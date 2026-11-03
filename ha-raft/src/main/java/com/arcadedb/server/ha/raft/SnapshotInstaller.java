@@ -941,7 +941,8 @@ public final class SnapshotInstaller {
     try (final DirectoryStream<Path> entries = Files.newDirectoryStream(databasesDir)) {
       for (final Path entry : entries) {
         final String name = entry.getFileName().toString();
-        if (ArcadeDBServer.isReservedDatabaseName(name) || !Files.isDirectory(entry) || server.existsDatabase(name))
+        if (ArcadeDBServer.isReservedDatabaseName(name) || server.isHALocalDatabase(name) || !Files.isDirectory(entry)
+            || server.existsDatabase(name))
           continue;
         try {
           server.checkDatabaseNameIsValid(name);
