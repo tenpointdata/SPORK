@@ -80,6 +80,11 @@ public class ProjectReturnStep extends AbstractExecutionStep {
 
     final boolean distinct = returnClause != null && returnClause.isDistinct();
 
+    // THE n.a, n.b, n.c ITEMS THAT READ ONE BOUND RECORD, LOCATED IN ONE PASS OVER ITS HEADER PER ROW (SPORK S4). PER RESULT
+    // SET: IT HOLDS THE POSITIONS OF THE ROW IN FLIGHT
+    final BoundPropertyReads reads = evaluator != null && returnClause != null && !returnClause.isReturnAll() ?
+        BoundPropertyReads.of(returnClause.getReturnItems(), context.getDatabase()) : null;
+
     return new ResultSet() {
       private ResultSet prevResults = null;
       private final List<Result> buffer = new ArrayList<>();
@@ -130,7 +135,7 @@ public class ProjectReturnStep extends AbstractExecutionStep {
             if (context.isProfiling())
               rowCount++;
 
-            final ResultInternal projectedResult = projectResult(inputResult);
+            final ResultInternal projectedResult = projectResult(inputResult, reads);
 
             // DISTINCT: for RETURN * the single return item is the unexpanded "*", so hash on
             // the projected row's properties (sorted for stable ordering across rows) instead.
@@ -197,7 +202,7 @@ public class ProjectReturnStep extends AbstractExecutionStep {
    * Projects a result according to the RETURN clause.
    * Note: Preserves original variables for ORDER BY access.
    */
-  private ResultInternal projectResult(final Result inputResult) {
+  private ResultInternal projectResult(final Result inputResult, final BoundPropertyReads reads) {
     final ResultInternal result = new ResultInternal();
 
     // IMPORTANT: Copy all original properties first
@@ -213,12 +218,16 @@ public class ProjectReturnStep extends AbstractExecutionStep {
 
     // Use expression-based projection if available
     if (evaluator != null && returnClause.getReturnItems() != null && !returnClause.getReturnItems().isEmpty()) {
-      for (final ReturnClause.ReturnItem item : returnClause.getReturnItems()) {
+      final List<ReturnClause.ReturnItem> items = returnClause.getReturnItems();
+      if (reads != null)
+        reads.begin(inputResult);
+      for (int i = 0; i < items.size(); i++) {
+        final ReturnClause.ReturnItem item = items.get(i);
         final Expression expr = item.getExpression();
         final String outputName = item.getOutputName();
 
-        // Evaluate expression
-        final Object value = evaluator.evaluate(expr, inputResult, context);
+        // Evaluate expression: a property read of a record the row binds comes from the one header pass
+        final Object value = reads != null && reads.covers(i) ? reads.value(i) : evaluator.evaluate(expr, inputResult, context);
         result.setProperty(outputName, value);
       }
       return result;

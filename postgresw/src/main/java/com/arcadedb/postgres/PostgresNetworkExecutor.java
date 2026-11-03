@@ -2820,10 +2820,11 @@ public class PostgresNetworkExecutor extends Thread {
       final Binary bufferData, final Binary bufferValues) throws IOException {
     bufferValues.putShort((short) columns.size()); // Int16 The number of column values that follow (possibly zero).
 
+    final Map<String, Object> stored = storedProperties(row);
     int colIndex = 0;
     for (final Map.Entry<String, PostgresType> postgresTypeEntry : columns.entrySet()) {
       final String propertyName = postgresTypeEntry.getKey();
-      final Object value = columnValue(row, propertyName);
+      final Object value = columnValue(row, propertyName, stored);
 
       final PostgresType columnType = postgresTypeEntry.getValue();
       if (resolveResultFormat(resultFormats, colIndex++) == 1)
@@ -2857,7 +2858,23 @@ public class PostgresNetworkExecutor extends Thread {
    * {@code DataRow} writer and by {@code COPY ... TO STDOUT} (issue #7188), so the two encode the same value for
    * the same column.
    */
-  private static Object columnValue(final Result row, final String propertyName) {
+  static Object columnValue(final Result row, final String propertyName) {
+    return columnValue(row, propertyName, storedProperties(row));
+  }
+
+  /**
+   * The properties of an element row that reshapes nothing, read off its record in ONE pass (SPORK retrieval speed, item S4),
+   * or null for any other row: {@link #columnValue} asked the record for every column, which walked the record header once
+   * per column. {@code toPropertyMap(false)} answers the same values the row's getters do, the reading an
+   * {@code INSERT ... FROM SELECT} takes (issue #10098).
+   */
+  private static Map<String, Object> storedProperties(final Result row) {
+    return row.getClass() == ResultInternal.class && row.isElement() && !((ResultInternal) row).hasProjectedProperties() ?
+        row.toPropertyMap(false) :
+        null;
+  }
+
+  private static Object columnValue(final Result row, final String propertyName, final Map<String, Object> stored) {
     return switch (propertyName) {
       case RID_PROPERTY -> row.isElement() ? row.getElement().get().getIdentity() : row.getProperty(propertyName);
       case TYPE_PROPERTY -> row.isElement() ? row.getElement().get().getTypeName() : row.getProperty(propertyName);
@@ -2894,7 +2911,9 @@ public class PostgresNetworkExecutor extends Thread {
         yield row.getProperty(propertyName);
       }
       default -> {
-        Object v = row.getProperty(propertyName);
+        // THE ONE-PASS READING OF A PLAIN ELEMENT ROW ANSWERS WHAT row.getProperty() ANSWERS FOR IT. A null (A NAME IT LACKS,
+        // OR ONE REMOVED FROM THE ROW, A TOMBSTONE) TAKES THE ELEMENT FALLBACK BELOW, AS THE PER-COLUMN READING ALWAYS DID
+        Object v = stored != null ? stored.get(propertyName) : row.getProperty(propertyName);
         // When content map exists but doesn't have the property (e.g., OpenCypher RETURN n
         // sets content with variable name but element has the actual properties), fall back to element
         if (v == null && row.isElement())
@@ -3039,14 +3058,15 @@ public class PostgresNetworkExecutor extends Thread {
 
       checkRowFitsAnnouncedColumns(row, columns);
 
+      final Map<String, Object> stored = storedProperties(row);
       if (binary) {
         payload.putShort((short) names.length);
         for (int i = 0; i < names.length; i++)
-          types[i].serializeAsBinary(types[i], payload, columnValue(row, names[i]));
+          types[i].serializeAsBinary(types[i], payload, columnValue(row, names[i], stored));
         appendCopyData(out, payload);
       } else {
         for (int i = 0; i < names.length; i++)
-          texts[i] = types[i].toText(types[i], columnValue(row, names[i]));
+          texts[i] = types[i].toText(types[i], columnValue(row, names[i], stored));
         copy.appendRow(line, texts, names);
         encoded = appendCopyData(out, line, encoder, encoded);
       }

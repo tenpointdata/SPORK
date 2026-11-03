@@ -24,13 +24,9 @@ import com.arcadedb.function.sql.DefaultSQLFunctionFactory;
 import com.arcadedb.function.sql.SQLAggregatedFunction;
 import com.arcadedb.function.sql.math.SQLFunctionCount;
 import com.arcadedb.query.sql.parser.Expression;
-import com.arcadedb.query.sql.parser.FunctionCall;
 import com.arcadedb.query.sql.parser.GroupBy;
-import com.arcadedb.query.sql.parser.NestedProjection;
 import com.arcadedb.query.sql.parser.Projection;
 import com.arcadedb.query.sql.parser.ProjectionItem;
-import com.arcadedb.query.sql.parser.SimpleNode;
-import com.arcadedb.query.sql.parser.Statement;
 import com.arcadedb.query.sql.parser.SubQueryCollector;
 import com.arcadedb.query.sql.parser.SuffixIdentifier;
 import com.arcadedb.query.sql.parser.WhereClause;
@@ -392,22 +388,11 @@ final class AggregateRowEvaluator {
   }
 
   /**
-   * Whether evaluating {@code fragment} on the caching view can never hand the view out, so the view can serve the next
-   * row: no {@code *}, which answers the row itself, no function call, which gets the row, no nested projection and no
-   * sub-query.
-   * <p>
-   * THE CONTRACT OF {@link PropertyCachingResult}: a node that can answer, or keep, the row it is evaluated on must be
-   * refused here. Every other node reads values off the row or computes on values; {@code @this} answers the record, not
-   * the row, and {@code $current} is the row the scan set, not the view. A new node type that can answer the row it gets
-   * belongs in this list.
+   * Whether evaluating {@code fragment} on the caching view can never hand the view out: the contract of
+   * {@link PropertyCachingResult#isSafeOnView}, shared with the projection step.
    */
   private static boolean isSafeOnView(final Object fragment) {
-    return SqlAstInspector.allNodesMatch(fragment, AggregateRowEvaluator::isSafeNodeOnView);
-  }
-
-  private static boolean isSafeNodeOnView(final SimpleNode node) {
-    return !(node instanceof FunctionCall) && !(node instanceof Statement) && !(node instanceof NestedProjection) && !(
-        node instanceof SuffixIdentifier suffix && suffix.star);
+    return PropertyCachingResult.isSafeOnView(fragment);
   }
 
   /**

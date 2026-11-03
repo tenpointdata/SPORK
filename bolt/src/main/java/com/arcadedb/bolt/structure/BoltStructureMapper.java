@@ -20,6 +20,7 @@ package com.arcadedb.bolt.structure;
 
 import com.arcadedb.bolt.packstream.PackStreamReader;
 import com.arcadedb.bolt.packstream.PackStreamStructure;
+import com.arcadedb.database.BaseDocument;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.database.RID;
@@ -269,16 +270,29 @@ public class BoltStructureMapper {
    * Convert a Document to a properties map.
    */
   public static Map<String, Object> toProperties(final Document document) {
-    final Map<String, Object> properties = new LinkedHashMap<>();
+    // ONE PASS OVER THE RECORD (SPORK retrieval speed, item S4): getPropertyNames() then get() per name walked the record header
+    // once per property. For a record-backed document toMap(false) answers the same names and values in the same order, without
+    // the record attributes. Any other implementation is read name by name: a GAVVertex answers get() from the view's column
+    // store and toMap() from the live record, which disagree once a commit lands after the snapshot pin
+    if (!(document instanceof BaseDocument)) {
+      final Map<String, Object> properties = new LinkedHashMap<>();
+      for (final String propertyName : document.getPropertyNames())
+        if (!propertyName.startsWith("@"))
+          properties.put(propertyName, toPackStreamValue(document.get(propertyName)));
+      return properties;
+    }
 
-    for (final String propertyName : document.getPropertyNames()) {
+    final Map<String, Object> stored = document.toMap(false);
+    final Map<String, Object> properties = new LinkedHashMap<>(stored.size() + (stored.size() >> 1) + 1);
+
+    for (final Map.Entry<String, Object> entry : stored.entrySet()) {
+      final String propertyName = entry.getKey();
       // Skip internal properties
       if (propertyName.startsWith("@")) {
         continue;
       }
 
-      final Object value = document.get(propertyName);
-      properties.put(propertyName, toPackStreamValue(value));
+      properties.put(propertyName, toPackStreamValue(entry.getValue()));
     }
 
     return properties;

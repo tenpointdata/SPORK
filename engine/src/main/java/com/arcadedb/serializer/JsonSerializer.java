@@ -32,6 +32,7 @@ import com.arcadedb.log.LogManager;
 import com.arcadedb.query.opencypher.temporal.CypherDuration;
 import com.arcadedb.query.opencypher.traversal.TraversalPath;
 import com.arcadedb.query.sql.executor.Result;
+import com.arcadedb.query.sql.executor.ResultInternal;
 import com.arcadedb.query.sql.executor.ResultSet;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.schema.EdgeType;
@@ -189,8 +190,17 @@ public class JsonSerializer {
 
     final StringBuilder propertyTypes = includeTypeHints ? new StringBuilder() : null;
 
-    for (final String propertyName : result.getPropertyNames()) {
-      Object value = result.getProperty(propertyName);
+    // AN ELEMENT ROW THAT RESHAPES NOTHING IS READ OFF ITS RECORD IN ONE PASS (SPORK retrieval speed, item S4): getPropertyNames()
+    // THEN getProperty() PER NAME WALKED THE RECORD HEADER ONCE PER PROPERTY, N + 1 PASSES FOR N PROPERTIES. toPropertyMap()
+    // ANSWERS THE SAME NAMES AND VALUES, IN THE SAME ORDER, THROUGH THE READING AN INSERT ... FROM SELECT TAKES (issue #10098)
+    final Map<String, Object> stored =
+        result.getClass() == ResultInternal.class && result.isElement() && !((ResultInternal) result).hasProjectedProperties() ?
+            result.toPropertyMap(false) :
+            null;
+    final Iterable<String> propertyNames = stored != null ? stored.keySet() : result.getPropertyNames();
+
+    for (final String propertyName : propertyNames) {
+      Object value = stored != null ? stored.get(propertyName) : result.getProperty(propertyName);
 
       // Property type from the document's schema only - issue #4149: getTypeByClass(LocalDateTime)
       // collapses every datetime variant onto DATETIME (millis), so the schema lookup is the

@@ -18,8 +18,11 @@
  */
 package com.arcadedb.query.opencypher.executor.operators;
 
+import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.database.RID;
+import com.arcadedb.database.RecordEventsRegistry;
+import com.arcadedb.engine.Bucket;
 import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.graph.Vertex;
 import com.arcadedb.index.ConsistentKeyLookup;
@@ -32,7 +35,10 @@ import com.arcadedb.query.sql.executor.ResultInternal;
 import com.arcadedb.query.sql.executor.ResultSet;
 import com.arcadedb.query.sql.executor.WorkGuard;
 import com.arcadedb.schema.DocumentType;
+import com.arcadedb.schema.LocalDocumentType;
+import com.arcadedb.schema.Schema;
 import com.arcadedb.schema.VertexType;
+import com.arcadedb.security.SecurityDatabaseUser;
 
 import com.arcadedb.query.opencypher.Labels;
 import com.arcadedb.query.opencypher.ast.BooleanExpression;
@@ -144,6 +150,8 @@ public class NodeIndexSeek extends AbstractPhysicalOperator {
       private int bufferIndex = 0;
       private boolean initialized = false;
       private boolean finished = false;
+      /** The last bucket whose vertices may be handed out unloaded: its READ_RECORD permission was granted, it has no listener. */
+      private int unloadedBucketId = -1;
 
       @Override
       public boolean hasNext() {
@@ -328,8 +336,12 @@ public class NodeIndexSeek extends AbstractPhysicalOperator {
           if (inheritedIndex && !Labels.carriesLabel(context.getDatabase().getSchema(), identifiable, label))
             continue;
 
-          // Load the actual record from the identifiable (may be RID)
-          final Vertex vertex = identifiable.asVertex();
+          // The vertex of the entry, its content NOT loaded yet (SPORK retrieval speed, item S5): what the statement reads
+          // of it - a property of the RETURN, the pushed-down filter below, the adjacency of an expansion - loads it on
+          // first use, so a seek whose rows are counted, identified or type-checked never copies a record. A vertex the
+          // consistent lookup already loaded is answered as it is. What the load did besides copying the content is
+          // still done here, see mayHandOutUnloaded()
+          final Vertex vertex = identifiable.asVertex(!mayHandOutUnloaded(identifiable.getIdentity().getBucketId()));
 
           // Create result with vertex bound to variable
           final ResultInternal result = new ResultInternal();
@@ -341,6 +353,34 @@ public class NodeIndexSeek extends AbstractPhysicalOperator {
 
           buffer.add(result);
         }
+      }
+
+      /**
+       * Whether the vertex of an entry in {@code bucketId} may be handed out with its content unloaded. A load does more than
+       * copy the content, and what it does that the statement can observe is kept: the READ_RECORD permission on the bucket is
+       * asked here (a user that may not read the type learns nothing of its records, not their count, not their RIDs), and
+       * a type or database with a read listener or trigger keeps the eager load, so the listener sees (and may veto or
+       * replace) every vertex the seek hands out, as before. The answer is cached for the last bucket: one int compare per
+       * row on a seek that stays in one bucket, and the two volatile reads of the listener counts.
+       */
+      private boolean mayHandOutUnloaded(final int bucketId) {
+        final DatabaseInternal database = context.getDatabase();
+        if (!(database.getEvents() instanceof RecordEventsRegistry events) || events.hasBeforeReadListenersInDatabase()
+            || events.hasAfterReadListeners())
+          return false;
+        if (bucketId == unloadedBucketId)
+          return true;
+        final Schema schema = database.getSchema();
+        if (!(schema.getTypeByBucketId(bucketId) instanceof LocalDocumentType type) || type.hasAfterReadListeners())
+          return false;
+        // A DANGLING ENTRY (ITS BUCKET IS GONE) IS LEFT TO THE LOAD, WHICH REPORTS IT AS IT ALWAYS DID (#4501)
+        final Bucket bucket = schema.getBucketByIdIfExists(bucketId);
+        if (bucket == null)
+          return false;
+        // THROWS SecurityException AS THE LOAD WOULD HAVE
+        database.checkPermissionsOnFile(bucket.getFileId(), SecurityDatabaseUser.ACCESS.READ_RECORD);
+        unloadedBucketId = bucketId;
+        return true;
       }
 
       @Override

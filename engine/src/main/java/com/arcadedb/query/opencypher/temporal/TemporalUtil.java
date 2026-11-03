@@ -575,7 +575,16 @@ public final class TemporalUtil {
    * stored these temporals as text, see {@link #restoreLegacyText(Document, String, String)} (issue #9636).
    */
   public static Object convertFromStorage(final Document document, final String propertyName) {
-    final Object value = document.get(propertyName);
+    return convertFromStorage(document, propertyName, document.get(propertyName));
+  }
+
+  /**
+   * {@link #convertFromStorage(Document, String)} for a value already read off the record: {@code value} is what
+   * {@code document.get(propertyName)} answers, read by a caller that located several properties of the record in one
+   * pass over its header (SPORK retrieval speed, item S4) and must give each the reading a single {@code n.property}
+   * gets.
+   */
+  public static Object convertFromStorage(final Document document, final String propertyName, final Object value) {
     // A ZonedDateTime on an undeclared (or ZONED_DATETIME) property is the native type that kept its zone, not a
     // DATETIME read back in the configured Java class, so it is a real zoned value (issue #8572)
     if (value instanceof ZonedDateTime zoned && keepsZone(document, propertyName))
