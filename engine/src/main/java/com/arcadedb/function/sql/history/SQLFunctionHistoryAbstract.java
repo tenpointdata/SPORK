@@ -65,7 +65,7 @@ public abstract class SQLFunctionHistoryAbstract extends SQLFunctionAbstract {
   protected long toEpochMillis(final Object value) {
     return switch (value) {
       case Date date -> date.getTime();
-      case Number number -> number.longValue();
+      case Number number -> requireWholeLongArgument(getName(), number, "instant");
       case Instant instant -> instant.toEpochMilli();
       case LocalDateTime dateTime -> dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
       case ZonedDateTime dateTime -> dateTime.toInstant().toEpochMilli();

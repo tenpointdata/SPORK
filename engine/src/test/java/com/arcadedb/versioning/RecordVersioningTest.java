@@ -21,6 +21,7 @@ package com.arcadedb.versioning;
 import com.arcadedb.TestHelper;
 import com.arcadedb.database.MutableDocument;
 import com.arcadedb.database.RID;
+import com.arcadedb.exception.ValidationException;
 import com.arcadedb.graph.MutableEdge;
 import com.arcadedb.graph.MutableVertex;
 import com.arcadedb.graph.Vertex;
@@ -431,6 +432,63 @@ class RecordVersioningTest extends TestHelper {
       }
     });
     assertThat(versioning.history(ann)).hasSize(1);
+  }
+
+  @Test
+  void aFailedStatementThatVersionedARecordDoesNotLoseItsHistory() {
+    final RID ann = withAgeLimit();
+    final long entriesBefore = versioning.historyEntryCount();
+
+    database.begin();
+    // keeps Ann's committed image in the history store, then fails validating Bob: the statement is taken back, entry included
+    assertThatThrownBy(() -> database.command("sql", "UPDATE Person SET age = age + 50").close()).isInstanceOf(ValidationException.class);
+    assertThat(ann.asVertex().get("age")).isEqualTo(30);
+    // the transaction goes on: this update must keep the committed image again, not trust the entry the failed statement wrote
+    database.command("sql", "UPDATE Person SET age = 31 WHERE name = 'Ann'").close();
+    database.commit();
+
+    final List<RecordVersion> versions = versioning.history(ann);
+    assertThat(versions).hasSize(2);
+    assertThat(versions.get(0).get("age")).isEqualTo(30);
+    assertThat(versions.get(1).get("age")).isEqualTo(31);
+    assertThat(versions.get(0).getTxToMicros()).isEqualTo(versions.get(1).getTxFromMicros());
+    assertThat(versioning.historyEntryCount()).isEqualTo(entriesBefore + 1);
+  }
+
+  @Test
+  void aFailedStatementAfterAVersioningOneKeepsTheFirstEntry() {
+    final RID ann = withAgeLimit();
+    final long entriesBefore = versioning.historyEntryCount();
+
+    database.begin();
+    database.command("sql", "UPDATE Person SET age = 31 WHERE name = 'Ann'").close();
+    assertThatThrownBy(() -> database.command("sql", "UPDATE Person SET age = age + 50").close()).isInstanceOf(ValidationException.class);
+    database.command("sql", "UPDATE Person SET age = 32 WHERE name = 'Ann'").close();
+    database.commit();
+
+    final List<RecordVersion> versions = versioning.history(ann);
+    assertThat(versions).hasSize(2);
+    assertThat(versions.get(0).get("age")).isEqualTo(30);
+    assertThat(versions.get(1).get("age")).isEqualTo(32);
+    assertThat(versioning.historyEntryCount()).isEqualTo(entriesBefore + 1);
+  }
+
+  /** Ann (30) then Bob (60) under an age limit of 100: adding 50 to every Person passes Ann, then fails on Bob in the same statement. */
+  private RID withAgeLimit() {
+    database.command("sql", "CREATE PROPERTY Person.age INTEGER (MAX 100)");
+    final RID ann = createPerson("Ann", 30);
+    createPerson("Bob", 60);
+    return ann;
+  }
+
+  @Test
+  void aFractionalInstantIsRefusedNotTruncated() {
+    final RID rid = createPerson("Ann", 30);
+    assertThatThrownBy(() -> {
+      try (final ResultSet rs = database.query("sql", "SELECT history.asOf(?, 2.5) AS v", rid)) {
+        rs.next();
+      }
+    }).hasMessageContaining("whole number");
   }
 
   @Test
