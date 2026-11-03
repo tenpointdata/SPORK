@@ -38,11 +38,14 @@ public class AuthApiSpec implements OpenApiContributor {
     openAPI.getPaths().addPathItem("/api/v1/logout", createLogoutPath());
     openAPI.getPaths().addPathItem("/api/v1/sessions", createSessionsPath());
     openAPI.getPaths().addPathItem("/api/v1/cluster/auth-session", createClusterAuthSessionPath());
+    openAPI.getPaths().addPathItem("/api/v1/entry/lifecycle", createEntryLifecyclePath());
 
     openAPI.getComponents().addSchemas("LoginResponse", createLoginResponseSchema());
     openAPI.getComponents().addSchemas("SessionList", createSessionListSchema());
     openAPI.getComponents().addSchemas("ClusterAuthSessionRequest", createClusterAuthSessionRequestSchema());
     openAPI.getComponents().addSchemas("ClusterAuthSessionResponse", createClusterAuthSessionResponseSchema());
+    openAPI.getComponents().addSchemas("EntryLifecycleDelivery", createEntryLifecycleDeliverySchema());
+    openAPI.getComponents().addSchemas("EntryLifecycleAcknowledgement", createEntryLifecycleAcknowledgementSchema());
   }
 
   private PathItem createLoginPath() {
@@ -101,6 +104,37 @@ public class AuthApiSpec implements OpenApiContributor {
     responses.addApiResponse("403", SpecBuilders.errorResponse("Not a cluster peer"));
     responses.addApiResponse("404", SpecBuilders.errorResponse("The issuer does not hold this session"));
     responses.addApiResponse("500", SpecBuilders.errorResponse("Internal server error"));
+    post.setResponses(responses);
+
+    final PathItem pathItem = new PathItem();
+    pathItem.setPost(post);
+    return pathItem;
+  }
+
+  private PathItem createEntryLifecyclePath() {
+    final Operation post = SpecBuilders.operation("receiveEntryLifecycle", "Auth",
+        "Apply an Entry account lifecycle event",
+        """
+            Called by Entry's lifecycle dispatcher, not by users. The bearer is the installation credential whose SHA-256 \
+            is configured in server-entry.json ('lifecycleCredentialSha256'). Disabling an account or suspending it in \
+            the configured enterprise denies that Entry person on the next request on every node; the state change, its \
+            'entry.lifecycle' audit entry and the receipt commit in one transaction. A replay of the same delivery \
+            answers the stored receipt. Restoration never recreates grants. Bodies are limited to 16 KiB. \
+            Without server-entry.json the route answers 404.""");
+    SpecBuilders.publicOperation(post);
+    post.setRequestBody(SpecBuilders.jsonBody("Entry's TLifecycleDelivery, schema version 2", "EntryLifecycleDelivery", true));
+    final ApiResponses responses = new ApiResponses();
+    responses.addApiResponse("200", SpecBuilders.jsonResponse("Entry's TLifecycleAcknowledgement",
+        "EntryLifecycleAcknowledgement"));
+    responses.addApiResponse("400", SpecBuilders.errorResponse("The delivery is not a valid version 2 delivery"));
+    responses.addApiResponse("401", SpecBuilders.errorResponse("Not Entry's installation credential"));
+    responses.addApiResponse("404", SpecBuilders.errorResponse("Entry lifecycle is not configured on this server"));
+    responses.addApiResponse("409", SpecBuilders.errorResponse(
+        "Conflicting replay, stale sequence, changed binding or regressed revocation"));
+    responses.addApiResponse("413", SpecBuilders.errorResponse("The delivery is larger than 16 KiB"));
+    responses.addApiResponse("422", SpecBuilders.errorResponse(
+        "Another installation, an unsupported scope or a subject that is not the Entry account"));
+    responses.addApiResponse("503", SpecBuilders.errorResponse("The lifecycle state database is not available"));
     post.setResponses(responses);
 
     final PathItem pathItem = new PathItem();
@@ -186,6 +220,48 @@ public class AuthApiSpec implements OpenApiContributor {
     schema.addProperty("createdAt", SpecBuilders.integer("Creation time, epoch milliseconds"));
     // Both written in one chained expression on the only path that answers 200 (issue #7578).
     schema.setRequired(List.of("user", "createdAt"));
+    return schema;
+  }
+
+  private Schema<?> createEntryLifecycleDeliverySchema() {
+    final Schema<Object> schema = SpecBuilders.object("An Entry lifecycle event for one account, as Entry's dispatcher sends it");
+    schema.addProperty("schemaVersion", SpecBuilders.integer("Always 2"));
+    schema.addProperty("deliveryId", SpecBuilders.string("Idempotency key of this delivery"));
+    schema.addProperty("eventId", SpecBuilders.string("The Entry lifecycle event"));
+    schema.addProperty("environmentId", SpecBuilders.string("Must equal the configured environmentId"));
+    schema.addProperty("serviceId", SpecBuilders.string("Must equal the configured serviceId"));
+    schema.addProperty("bindingId", SpecBuilders.string("Entry's binding of this account to this installation"));
+    schema.addProperty("bindingRevision", SpecBuilders.integer("Never decreases on a stream"));
+    schema.addProperty("userId", SpecBuilders.string("The Entry account"));
+    schema.addProperty("consumerSubjectId", SpecBuilders.string("Must equal userId: this server keeps no local accounts"));
+    schema.addProperty("consumerContextId", SpecBuilders.string("For enterprise-person, must equal orgId"));
+    schema.addProperty("sequence", SpecBuilders.integer("Strictly increasing per stream"));
+    final Schema<String> scope = SpecBuilders.string("Account-wide standing or participation in one enterprise");
+    scope.setEnum(List.of("account", "enterprise-person"));
+    schema.addProperty("scope", scope);
+    schema.addProperty("orgId", SpecBuilders.string("Null for account scope, the Entry organization otherwise"));
+    final Schema<String> state = SpecBuilders.string("active or disabled (account), active or suspended (enterprise-person)");
+    state.setEnum(List.of("active", "disabled", "suspended"));
+    schema.addProperty("desiredState", state);
+    schema.addProperty("requiredPaths", SpecBuilders.arrayOf(SpecBuilders.string("session, pat or mcp"), "Credential paths"));
+    schema.addProperty("revocations", SpecBuilders.arrayOf(SpecBuilders.freeFormObject("{path, sequence}"),
+        "Latest restrictive event per credential path"));
+    schema.addProperty("recreateGrants", SpecBuilders.bool("Always false"));
+    schema.setRequired(List.of("schemaVersion", "deliveryId", "eventId", "environmentId", "serviceId", "bindingId",
+        "bindingRevision", "userId", "consumerSubjectId", "consumerContextId", "sequence", "scope", "desiredState",
+        "requiredPaths", "revocations", "recreateGrants"));
+    return schema;
+  }
+
+  private Schema<?> createEntryLifecycleAcknowledgementSchema() {
+    final Schema<Object> schema = SpecBuilders.object("The receipt Entry records: the delivery's intent, applied in full");
+    schema.addProperty("schemaVersion", SpecBuilders.integer("Always 2"));
+    schema.addProperty("deliveryId", SpecBuilders.string("The acknowledged delivery"));
+    schema.addProperty("sequence", SpecBuilders.integer("The applied sequence"));
+    schema.addProperty("desiredState", SpecBuilders.string("The applied state"));
+    schema.addProperty("consumerReceiptId", SpecBuilders.string("This server's receipt id; a replay answers the same one"));
+    schema.addProperty("appliedPaths", SpecBuilders.arrayOf(SpecBuilders.string("session, pat or mcp"), "Every required path"));
+    schema.addProperty("grantsRecreated", SpecBuilders.bool("Always false"));
     return schema;
   }
 }

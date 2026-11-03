@@ -443,7 +443,7 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
       "POST /api/v1/selection/{database}/drop", "POST /api/v1/selection/{database}/purge",
       // Auth
       "POST /api/v1/login", "POST /api/v1/logout", "GET /api/v1/sessions",
-      "POST /api/v1/cluster/auth-session",
+      "POST /api/v1/cluster/auth-session", "POST /api/v1/entry/lifecycle",
       // Security admin
       "GET /api/v1/server/users", "POST /api/v1/server/users",
       "PUT /api/v1/server/users", "DELETE /api/v1/server/users",
@@ -535,7 +535,7 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
     assertThat(EXPECTED_OPERATIONS)
         .as("the inventory itself must hold no duplicate")
         .doesNotHaveDuplicates()
-        .hasSize(104);
+        .hasSize(105);
 
     assertThat(declared)
         .as("operations missing from the specification")
@@ -602,7 +602,7 @@ class OpenApiSpecGenerationIT extends BaseGraphServerTest {
         .as("client generators derive a method name per operationId, so a collision breaks codegen")
         .doesNotHaveDuplicates()
         .doesNotContainNull()
-        .hasSize(104);
+        .hasSize(105);
   }
 
   @Test

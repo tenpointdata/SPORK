@@ -121,6 +121,8 @@ class Issue9849ServerRoutesIoThreadDispatchTest extends BaseGraphServerTest {
     put("GET /api/v1/progress/{database}", Dispatch.NEVER);
     // In-memory: the authentication-session map. (The PBKDF2 of a Basic credential is the separate trigger of issue #7785.)
     put("POST /api/v1/login", Dispatch.NEVER);
+    // Entry's lifecycle delivery: reads its body and commits state, audit and receipt in one transaction
+    put("POST /api/v1/entry/lifecycle", Dispatch.ALWAYS);
     put("GET /api/v1/sessions", Dispatch.NEVER);
     // Revokes the token on every peer of a cluster, a synchronous RPC bounded by the proxy connect timeout (issue #9849).
     put("POST /api/v1/logout", Dispatch.ALWAYS);

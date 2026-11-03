@@ -54,6 +54,7 @@ import com.arcadedb.server.http.handler.PostVectorSearchHandler;
 import com.arcadedb.server.http.handler.PutUserHandler;
 import com.arcadedb.server.http.handler.PostCommandHandler;
 import com.arcadedb.server.http.handler.PostCommitHandler;
+import com.arcadedb.server.http.handler.PostEntryLifecycleHandler;
 import com.arcadedb.server.http.handler.PostLoginHandler;
 import com.arcadedb.server.http.handler.PostClusterAuthSessionHandler;
 import com.arcadedb.server.http.handler.PostLogoutHandler;
@@ -360,6 +361,7 @@ public class HttpServer implements ServerPlugin {
         .get("/exists/{database}", new GetExistsDatabaseHandler(this))
         .get("/progress/{database}", new GetProgressHandler(this))
         .post("/login", new PostLoginHandler(this))
+        .post("/entry/lifecycle", new PostEntryLifecycleHandler(this))
         .post("/logout", new PostLogoutHandler(this))
         .post("/cluster/auth-session", new PostClusterAuthSessionHandler(this))
         .get("/query/{database}/{language}/{command}", new GetQueryHandler(this))
