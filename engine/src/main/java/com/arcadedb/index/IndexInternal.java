@@ -165,6 +165,13 @@ public interface IndexInternal extends Index {
   }
 
   /**
+   * Called once {@code REBUILD INDEX} has re-created and filled this index, outside the rebuild's own locks: an index that keeps
+   * derived structures (the block-max sidecar of a full-text index) writes them here. Most indexes have none.
+   */
+  default void onRebuilt() {
+  }
+
+  /**
    * Performs a lightweight structural/metadata integrity check of the index, independent of record content, and
    * returns a list of human-readable problem descriptions. An empty list means the index metadata is healthy.
    * Used by CHECK DATABASE to surface on-disk corruption (e.g. a damaged hash index metadata page, issue #352)

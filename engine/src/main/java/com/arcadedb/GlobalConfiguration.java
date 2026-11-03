@@ -1259,6 +1259,22 @@ public enum GlobalConfiguration {
       Integer.class, 200),
 
   // INDEXES
+  FULL_TEXT_TOP_K("arcadedb.fullText.topK", SCOPE.DATABASE,
+      """
+      Whether a BM25 full-text search with a limit (SEARCH_INDEX ... ORDER BY $score DESC LIMIT k, db.index.fulltext.queryNodes \
+      with a limit) whose query is made of plain terms (OR, AND, boosts, field qualifiers) is answered by the top-k scorer: one \
+      read of each term's postings into primitive arrays, scored into a bounded heap, instead of materializing every match into \
+      maps and reading the postings twice. The answer is the same; set to false to force the general path.""",
+      Boolean.class, true),
+
+  FULL_TEXT_BLOCK_MAX("arcadedb.fullText.blockMax", SCOPE.DATABASE,
+      """
+      Whether the top-k scorer of a BM25 full-text search reads the block-max sidecar of an index that has one (the index format \
+      of new and rebuilt full-text indexes): postings in document order with per-block score bounds, so whole blocks that cannot \
+      reach the k-th best score are skipped. The answer is the same; set to false to read every posting instead. The sidecars \
+      are still written at compaction.""",
+      Boolean.class, true),
+
   INDEX_BUILD_CHUNK_SIZE_MB("arcadedb.index.buildChunkSizeMB", SCOPE.DATABASE,
       """
       Size in MB for transaction chunks during bulk index creation with WAL disabled. \

@@ -18,6 +18,7 @@
  */
 package com.arcadedb.index.fulltext;
 
+import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseRID;
 import com.arcadedb.database.Identifiable;
@@ -185,6 +186,18 @@ public class FullTextSearch {
     if (bucketIndexes.isEmpty() || (ridFilter != null && ridFilter.acceptsNothing()))
       return Map.of();
 
+    // The best `limit` of a query made of plain terms: the top-k scorer reads each posting list once and keeps no match set
+    if (effectiveLimit > 0 && ridFilter == null && bucketIndexes.getFirst().isBM25() && bucketIndexes.getFirst().getDatabase()
+        .getConfiguration().getValueAsBoolean(GlobalConfiguration.FULL_TEXT_TOP_K) && analyzeQueriesAlike(bucketIndexes)) {
+      final List<FullTextTopK.Term> terms = new FullTextQueryExecutor(bucketIndexes.getFirst(), guard, restrictedFields, null)
+          .planTopK(queryText);
+      if (terms != null) {
+        final Map<RID, Float> best = FullTextTopK.search(bucketIndexes, terms, effectiveLimit, guard);
+        if (best != null)
+          return best;
+      }
+    }
+
     if (bucketIndexes.size() > 1 && bucketIndexes.getFirst().isBM25())
       return searchBM25(bucketIndexes, queryText, effectiveLimit, guard, restrictedFields, ridFilter);
 
@@ -202,6 +215,22 @@ public class FullTextSearch {
     }
 
     return allResults;
+  }
+
+  /**
+   * True when every bucket index turns a query into the same stored keys: the top-k scorer plans the query once, with the first
+   * bucket's analyzers, and looks the keys up in all of them. Buckets of one logical index share their definition, but buckets
+   * re-created one at a time can carry copies, and a copy in another format applies other analyzers (the per-field ones). Those
+   * take the general path, which analyzes the query for each bucket.
+   */
+  static boolean analyzeQueriesAlike(final List<LSMTreeFullTextIndex> bucketIndexes) {
+    final FullTextIndexMetadata first = bucketIndexes.getFirst().getFullTextMetadata();
+    for (int i = 1; i < bucketIndexes.size(); i++) {
+      final FullTextIndexMetadata other = bucketIndexes.get(i).getFullTextMetadata();
+      if (first == null ? other != null : !first.analyzesQueriesLike(other))
+        return false;
+    }
+    return true;
   }
 
   private static Map<RID, Float> searchBM25(final List<LSMTreeFullTextIndex> bucketIndexes, final String queryText,

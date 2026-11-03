@@ -550,6 +550,18 @@ public class RebuildIndexStatement extends DDLStatement {
           throw e;
         }
 
+        // Derived structures (a full-text index's block-max sidecar) are written once the index holds its data. They are
+        // an acceleration only: a failure leaves the index answering the slower way, never wrongly
+        try {
+          if (created[0] instanceof TypeIndex typeIndex)
+            for (final IndexInternal bucketIndex : typeIndex.getIndexesOnBuckets())
+              bucketIndex.onRebuilt();
+          else if (created[0] instanceof IndexInternal bucketIndex)
+            bucketIndex.onRebuilt();
+        } catch (final RuntimeException e) {
+          LogManager.instance().log(RebuildIndexStatement.class, Level.WARNING, "Error writing the derived structures of rebuilt index '%s'", e, idx.getName());
+        }
+
         // OK
         return created[0];
 

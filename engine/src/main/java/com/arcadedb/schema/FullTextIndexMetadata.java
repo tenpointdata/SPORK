@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -97,7 +98,22 @@ public class FullTextIndexMetadata extends IndexMetadata {
    * persisted corpus counters ({@code ft_*}) are deliberately absent - they are maintained by the index, not configured.
    */
   private static final Set<String> USER_METADATA_KEYS = Set.of("analyzer", "index_analyzer", "query_analyzer",
-      "allowLeadingWildcard", "defaultOperator", "similarity", "bm25_k1", "bm25_b");
+      "allowLeadingWildcard", "defaultOperator", "similarity", "bm25_k1", "bm25_b", "blockMax");
+
+  /**
+   * The on-disk format of a full-text index. 1: the LSM-Tree postings alone, the format of every index persisted before the
+   * version was recorded. 2: plus the block-max sidecar a BM25 top-k query skips postings with (see
+   * {@code com.arcadedb.index.fulltext.BlockMaxPostings}). A new index, and every index a REBUILD INDEX re-creates, is written in
+   * the current format; an index read back keeps the format it was written in.
+   */
+  public static final int FORMAT_VERSION_LSM       = 1;
+  public static final int FORMAT_VERSION_BLOCK_MAX = 2;
+  /**
+   * The first format whose postings were built with the per-field analyzers ({@code <field>_analyzer}). Before it they were parsed
+   * and persisted but every field was indexed with the index-wide analyzer, so an index in an older format keeps that analyzer.
+   */
+  public static final int FORMAT_VERSION_FIELD_ANALYZERS = 2;
+  public static final int CURRENT_FORMAT_VERSION   = FORMAT_VERSION_BLOCK_MAX;
 
   // These scalar fields (analyzers, operator, wildcard flag, similarity, k1/b) are set once at index creation / schema load,
   // before any query-path read, so they need no volatile/synchronization (unlike the live corpus counters and the per-field
@@ -108,6 +124,9 @@ public class FullTextIndexMetadata extends IndexMetadata {
   private          String              queryAnalyzerClass   = null;
   private          boolean             allowLeadingWildcard = false;
   private          String              defaultOperator      = "OR";
+  private          int                 formatVersion        = CURRENT_FORMAT_VERSION;
+  // The block-max sidecar is written unless the definition opts out ("blockMax": false): it costs disk space
+  private          boolean             blockMax             = true;
   // Per-field maps are concurrent: they are populated at index creation but read on the query path (getFieldBoost,
   // getAnalyzerClass) and iterated by writeToJSON on schema save, so a HashMap could throw ConcurrentModificationException.
   private final    Map<String, String> fieldAnalyzers       = new ConcurrentHashMap<>();
@@ -222,6 +241,8 @@ public class FullTextIndexMetadata extends IndexMetadata {
     copy.bm25K1 = bm25K1;
     copy.bm25B = bm25B;
     copy.fieldBoosts.putAll(fieldBoosts);
+    // The format is NOT copied: a copy is written as a new file, in the current format. This is how REBUILD INDEX migrates
+    copy.blockMax = blockMax;
     return copy;
   }
 
@@ -244,6 +265,10 @@ public class FullTextIndexMetadata extends IndexMetadata {
 
     if (metadata.has("defaultOperator"))
       this.defaultOperator = metadata.getString("defaultOperator");
+
+    // A definition persisted before the format was recorded is in the first one: its index has no block-max sidecar
+    this.formatVersion = metadata.getInt("ft_formatVersion", FORMAT_VERSION_LSM);
+    this.blockMax = metadata.getBoolean("blockMax", true);
 
     // An index persisted before BM25 support has no "similarity" key: keep it on CLASSIC so an upgrade does not silently change
     // ranking. Route an explicit value through the validating setter so an unknown similarity in METADATA {...} is rejected.
@@ -347,6 +372,9 @@ public class FullTextIndexMetadata extends IndexMetadata {
     if (json.has("defaultOperator"))
       setDefaultOperator(json.getString("defaultOperator"));
 
+    if (json.has("blockMax"))
+      this.blockMax = metadataBoolean(json, "blockMax");
+
     // Route through the validating setters so an unknown similarity or an out-of-range k1/b in METADATA {...} is
     // reported at creation rather than silently scoring wrong.
     if (json.has("similarity"))
@@ -381,6 +409,7 @@ public class FullTextIndexMetadata extends IndexMetadata {
       case "similarity" -> similarity;
       case "bm25_k1" -> bm25K1;
       case "bm25_b" -> bm25B;
+      case "blockMax" -> blockMax;
       default -> {
         if (key.endsWith(ANALYZER_SUFFIX))
           yield fieldAnalyzers.get(key.substring(0, key.length() - ANALYZER_SUFFIX.length()));
@@ -433,6 +462,9 @@ public class FullTextIndexMetadata extends IndexMetadata {
       metadata.put("allowLeadingWildcard", true);
     if (!"OR".equalsIgnoreCase(defaultOperator))
       metadata.put("defaultOperator", defaultOperator);
+    metadata.put("ft_formatVersion", formatVersion);
+    if (!blockMax)
+      metadata.put("blockMax", false);
 
     for (final Map.Entry<String, String> entry : fieldAnalyzers.entrySet())
       metadata.put(entry.getKey() + ANALYZER_SUFFIX, entry.getValue());
@@ -633,6 +665,56 @@ public class FullTextIndexMetadata extends IndexMetadata {
       throw new IllegalArgumentException(
           "Unknown full-text similarity '" + similarity + "'. Valid values: " + String.join(", ", SIMILARITIES));
     this.similarity = upper;
+  }
+
+  /** The on-disk format the index was written in: {@link #FORMAT_VERSION_LSM} or {@link #FORMAT_VERSION_BLOCK_MAX}. */
+  public int getFormatVersion() {
+    return formatVersion;
+  }
+
+  /**
+   * Sets the on-disk format a copy is written in. Only a rebuild of ONE bucket sub-index uses it, to write that bucket in the format
+   * of its siblings: the buckets of one logical index must never disagree on it (see
+   * {@link IndexMetadata#reconstructForRebuild}).
+   */
+  void setFormatVersion(final int formatVersion) {
+    if (formatVersion < FORMAT_VERSION_LSM || formatVersion > CURRENT_FORMAT_VERSION)
+      throw new IllegalArgumentException("Unknown full-text index format " + formatVersion);
+    this.formatVersion = formatVersion;
+  }
+
+  /**
+   * True when an index with {@code other} as its definition turns a query into the same stored keys, with the same boosts and the
+   * same BM25 parameters, as an index with this one: same analyzers, applied the same way (the format decides whether the per-field
+   * ones are), same query-parser options. The buckets of one logical index normally share one definition; the top-k scorer, which
+   * plans a query once for every bucket, checks this before it does.
+   */
+  public boolean analyzesQueriesLike(final FullTextIndexMetadata other) {
+    if (other == this)
+      return true;
+    if (other == null)
+      return false;
+    final boolean fieldAnalyzersApplied = isFieldAnalyzersApplied();
+    return fieldAnalyzersApplied == other.isFieldAnalyzersApplied() && Objects.equals(analyzerClass, other.analyzerClass)
+        && Objects.equals(indexAnalyzerClass, other.indexAnalyzerClass) && Objects.equals(queryAnalyzerClass,
+        other.queryAnalyzerClass) && allowLeadingWildcard == other.allowLeadingWildcard && defaultOperator.equalsIgnoreCase(
+        other.defaultOperator) && similarity.equals(other.similarity) && bm25K1 == other.bm25K1 && bm25B == other.bm25B
+        && fieldBoosts.equals(other.fieldBoosts) && (!fieldAnalyzersApplied || fieldAnalyzers.equals(other.fieldAnalyzers));
+  }
+
+  /**
+   * True when the postings were built with the per-field analyzers: the index was written in
+   * {@link #FORMAT_VERSION_FIELD_ANALYZERS} or later (created, or re-created by REBUILD INDEX, since they are applied).
+   */
+  public boolean isFieldAnalyzersApplied() {
+    return formatVersion >= FORMAT_VERSION_FIELD_ANALYZERS;
+  }
+
+  /**
+   * True when the index keeps a block-max sidecar: written in the block-max format, ranked with BM25, and not opted out.
+   */
+  public boolean isBlockMax() {
+    return formatVersion >= FORMAT_VERSION_BLOCK_MAX && blockMax && isBM25();
   }
 
   /**

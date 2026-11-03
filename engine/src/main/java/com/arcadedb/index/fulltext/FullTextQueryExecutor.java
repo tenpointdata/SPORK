@@ -20,8 +20,9 @@ package com.arcadedb.index.fulltext;
 
 import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.RID;
-import com.arcadedb.function.text.TextLevenshteinDistance;
 import com.arcadedb.index.Index;
+import com.arcadedb.index.fulltext.analysis.PartialMatchAnalyzer;
+import com.arcadedb.index.fulltext.analysis.ReverseAnalyzer;
 import com.arcadedb.index.IndexCursor;
 import com.arcadedb.index.IndexCursorEntry;
 import com.arcadedb.index.TempIndexCursor;
@@ -29,9 +30,11 @@ import com.arcadedb.log.LogManager;
 import com.arcadedb.query.sql.executor.RIDFilter;
 import com.arcadedb.query.sql.executor.WorkGuard;
 import com.arcadedb.schema.FullTextIndexMetadata;
+import com.arcadedb.serializer.BinaryComparator;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.utility.TimeBoundRegex;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.reverse.ReverseStringFilter;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
@@ -40,12 +43,15 @@ import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.BoostQuery;
 import org.apache.lucene.search.FuzzyQuery;
+import org.apache.lucene.search.MultiPhraseQuery;
 import org.apache.lucene.search.PhraseQuery;
 import org.apache.lucene.search.PrefixQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.RegexpQuery;
+import org.apache.lucene.search.SynonymQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.WildcardQuery;
+import org.apache.lucene.util.automaton.Automaton;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -53,6 +59,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
@@ -104,6 +111,23 @@ public class FullTextQueryExecutor {
    * the complement) logs a throttled WARNING so operators notice the O(index) cost.
    */
   static final int PURE_NEGATIVE_WARN_THRESHOLD = 100_000;
+
+  /**
+   * Least number of postings a term walk reads past a rejected term before it gives up walking and seeks to the next term that
+   * may match. A seek opens a new cursor, which probes every mutable page of the LSM-Tree and every compacted series, so the
+   * actual threshold grows with the number of pages ({@link #SEEK_COST_PER_PAGE} postings each): on an index with many
+   * uncompacted pages reading on is cheaper than reopening.
+   */
+  static final int SEEK_AFTER_SKIPPED_POSTINGS = 32;
+  /** Postings a walk would rather read than pay for one more page probe of a seek: about one binary search of a page. */
+  static final int SEEK_COST_PER_PAGE          = 16;
+
+  /** {@link TermDecider} answer: the key matches. Compared by identity. */
+  private static final String ACCEPT   = new String("accept");
+  /** {@link TermDecider} answer: no key from this one on can match. Compared by identity. */
+  private static final String STOP     = new String("stop");
+  /** {@link TermDecider} answer: the key does not match, go on with the next key. Compared by identity. */
+  private static final String NEXT_KEY = new String("next");
 
   private final LSMTreeFullTextIndex   index;
   private final Analyzer               analyzer;
@@ -182,7 +206,7 @@ public class FullTextQueryExecutor {
       final RIDFilter ridFilter) {
     this.index = index;
     this.guard = guard;
-    this.analyzer = index.getAnalyzer();
+    this.analyzer = index.getQueryParserAnalyzer();
     this.metadata = index.getFullTextMetadata();
     this.propertyNames = index.getPropertyNames();
     this.restrictedFields = restrictedFields != null ? restrictedFields.toArray(new String[0]) : null;
@@ -203,10 +227,18 @@ public class FullTextQueryExecutor {
         new MultiFieldQueryParser(restrictedFields, analyzer) :
         new QueryParser(DEFAULT_FIELD, analyzer);
     if (metadata != null) {
-      parser.setAllowLeadingWildcard(metadata.isAllowLeadingWildcard());
+      // A suffix analyzer turns a leading wildcard into a range scan: it is what such an index is for
+      parser.setAllowLeadingWildcard(metadata.isAllowLeadingWildcard() || index.hasReversedTokens());
       if ("AND".equalsIgnoreCase(metadata.getDefaultOperator())) {
         parser.setDefaultOperator(QueryParser.Operator.AND);
       }
+    }
+    // A fragment a partial-match analyzer splits into several tokens (an n-gram fragment longer than the largest gram) matches
+    // only where all of them do: a phrase, which the collectors below answer as a conjunction
+    // (one word at a time, which the phrase generation needs: the parser refuses it on a whole clause)
+    if (index.isPartialMatch()) {
+      parser.setSplitOnWhitespace(true);
+      parser.setAutoGeneratePhraseQueries(true);
     }
     return parser;
   }
@@ -275,6 +307,83 @@ public class FullTextQueryExecutor {
     resetState();
     final Map<RID, AtomicInteger> matches = collectQueryMatches(parseQuery(queryString));
     return new BM25QueryMatch(Set.copyOf(matches.keySet()), Map.copyOf(scoringTokens), Map.copyOf(documentFrequencies));
+  }
+
+  /**
+   * The terms of a query the top-k scorer ({@link FullTextTopK}) can answer, sorted by stored key, or null when the query needs
+   * the general path. Eligible: term clauses, possibly boosted, combined with {@code SHOULD} (any of them) and {@code MUST}
+   * (all of them), where a nested group of {@code SHOULD} terms may stand in for a {@code SHOULD} clause and a nested group of
+   * {@code MUST} terms for a {@code MUST} one. Each term's key and boost are those the general path records for it
+   * ({@link #recordScoringToken}). Phrases, wildcards, fuzzy and regexp terms, exclusions and minimum-should-match are not.
+   */
+  List<FullTextTopK.Term> planTopK(final String queryString) {
+    if (!index.isBM25())
+      return null;
+    resetState();
+    final Map<String, Float> boosts = new TreeMap<>();
+    final Set<String> required = new HashSet<>();
+    final Query query = parseQuery(queryString);
+    if (!planClause(query, query instanceof BooleanQuery bq && hasRequiredClause(bq) ? BooleanClause.Occur.MUST :
+        BooleanClause.Occur.SHOULD, 1.0f, boosts, required, true))
+      return null;
+    if (boosts.isEmpty() || boosts.size() > FullTextTopK.MAX_TERMS)
+      return null;
+    final List<FullTextTopK.Term> terms = new ArrayList<>(boosts.size());
+    for (final Map.Entry<String, Float> term : boosts.entrySet())
+      terms.add(new FullTextTopK.Term(term.getKey(), term.getValue(), required.contains(term.getKey())));
+    return terms;
+  }
+
+  private static boolean hasRequiredClause(final BooleanQuery query) {
+    for (final BooleanClause clause : query.clauses())
+      if (clause.occur() == BooleanClause.Occur.MUST)
+        return true;
+    return false;
+  }
+
+  /**
+   * Adds the terms of {@code query} to the plan, as required ones under {@code occur} MUST. Answers false for a shape the top-k
+   * scorer cannot answer. {@code top} is true for the query itself, the only level where SHOULD and MUST clauses may mix.
+   */
+  private boolean planClause(final Query query, final BooleanClause.Occur occur, final float boost, final Map<String, Float> boosts,
+      final Set<String> required, final boolean top) {
+    if (query instanceof final BoostQuery bq)
+      return planClause(bq.getQuery(), occur, boost * bq.getBoost(), boosts, required, top);
+
+    if (query instanceof final TermQuery tq) {
+      final String field = tq.getTerm().field();
+      final String key = buildSearchKey(field, tq.getTerm().text());
+      boosts.merge(key, boostFor(field) * boost, Math::max);
+      if (occur == BooleanClause.Occur.MUST)
+        required.add(key);
+      return true;
+    }
+
+    if (query instanceof final BooleanQuery bq) {
+      if (bq.getMinimumNumberShouldMatch() > 0 || bq.clauses().isEmpty())
+        return false;
+      final boolean anyRequired = hasRequiredClause(bq);
+      for (final BooleanClause clause : bq.clauses()) {
+        final BooleanClause.Occur clauseOccur = clause.occur();
+        if (clauseOccur != BooleanClause.Occur.MUST && clauseOccur != BooleanClause.Occur.SHOULD)
+          return false;
+        if (top) {
+          // The query itself: each clause keeps its own occurrence
+          if (!planClause(clause.query(), clauseOccur, boost, boosts, required, false))
+            return false;
+        } else {
+          // A nested group stands for its parent clause only when it means the same: all-optional under SHOULD, all-required
+          // under MUST. A single clause means its parent either way
+          final boolean sameMeaning = bq.clauses().size() == 1 || (occur == BooleanClause.Occur.MUST ?
+              clauseOccur == BooleanClause.Occur.MUST :
+              !anyRequired);
+          if (!sameMeaning || !planClause(clause.query(), occur, boost, boosts, required, false))
+            return false;
+        }
+      }
+      return true;
+    }
+    return false;
   }
 
   private Query parseQuery(final String queryString) {
@@ -430,6 +539,10 @@ public class FullTextQueryExecutor {
       collectTermMatches(tq, scoreMap);
     } else if (query instanceof final PhraseQuery pq) {
       collectPhraseMatches(pq, scoreMap);
+    } else if (query instanceof final SynonymQuery sq) {
+      collectSynonymMatches(sq, scoreMap);
+    } else if (query instanceof final MultiPhraseQuery mpq) {
+      collectMultiPhraseMatches(mpq, scoreMap);
     } else if (query instanceof final PrefixQuery pq) {
       collectPrefixMatches(pq, scoreMap);
     } else if (query instanceof final WildcardQuery wq) {
@@ -679,19 +792,62 @@ public class FullTextQueryExecutor {
     }
   }
 
+  /**
+   * Several terms at one position (an analyzer that emits a word with its phonetic codes, or with synonyms): any of them.
+   */
+  private void collectSynonymMatches(final SynonymQuery query, final Map<RID, AtomicInteger> scoreMap) {
+    for (final Term term : query.getTerms())
+      collectTermMatches(new TermQuery(term), scoreMap);
+  }
+
+  /**
+   * A phrase with several terms at some positions: every position must match, through any of its terms. Like
+   * {@link #collectPhraseMatches} it cannot check the order without positions.
+   */
+  private void collectMultiPhraseMatches(final MultiPhraseQuery query, final Map<RID, AtomicInteger> scoreMap) {
+    final Term[][] positions = query.getTermArrays();
+    if (positions.length == 0)
+      return;
+
+    Map<RID, AtomicInteger> intersection = null;
+    for (final Term[] alternatives : positions) {
+      final Map<RID, AtomicInteger> positionMatches = new HashMap<>();
+      for (final Term term : alternatives)
+        collectTermMatches(new TermQuery(term), positionMatches);
+      if (tokensOnly)
+        continue;
+      if (intersection == null)
+        intersection = positionMatches;
+      else
+        intersection.keySet().retainAll(positionMatches.keySet());
+    }
+
+    if (intersection != null)
+      for (final RID rid : intersection.keySet()) {
+        tick();
+        scoreMap.computeIfAbsent(rid, k -> new AtomicInteger(0)).addAndGet(positions.length);
+      }
+  }
+
   private void collectPrefixMatches(final PrefixQuery query, final Map<RID, AtomicInteger> scoreMap) {
     final String field = query.getPrefix().field();
-    final String prefix = normalizeText(query.getPrefix().text());
+    final String prefix = normalizeText(field, query.getPrefix().text());
     if (prefix.isEmpty())
       return;
 
+    final String fieldPrefix = fieldPrefix(field);
     final String searchPrefix = buildSearchKey(field, prefix);
-    iterateAndMatch(searchPrefix, key -> key.startsWith(searchPrefix), scoreMap, boostFor(field));
+    walkTerms(searchPrefix, key -> {
+      if (!key.startsWith(searchPrefix))
+        return STOP;
+      final String skip = skipForeignToken(key, fieldPrefix);
+      return skip != null ? skip : ACCEPT;
+    }, scoreMap, boostFor(field));
   }
 
   private void collectWildcardMatches(final WildcardQuery query, final Map<RID, AtomicInteger> scoreMap) {
     final String field = query.getTerm().field();
-    final String pattern = normalizeText(query.getTerm().text());
+    final String pattern = normalizeText(field, query.getTerm().text());
     if (pattern.isEmpty())
       return;
 
@@ -704,56 +860,84 @@ public class FullTextQueryExecutor {
     // catastrophic backtracking without needing grouping/alternation/nested quantifiers - issue #5886 follow-up.
     // One shared deadline for the whole scan, same rationale as collectRegexpMatches.
     final long deadline = TimeBoundRegex.newDeadline(GlobalConfiguration.COMMAND_REGEX_TIMEOUT.getValueAsLong(index.getDatabase()));
+    final float boost = boostFor(field);
 
     if (literalPrefix.isEmpty()) {
-      // Leading wildcard: full scan, then regex match against the unprefixed token portion
-      iterateAndMatch(null, key -> {
+      final String literalSuffix = extractLiteralSuffix(pattern);
+      final boolean reversed = index.isIndexingReversedTokens(isUnqualified(field) ? null : storedField(field));
+      if (!literalSuffix.isEmpty() && reversed) {
+        // Suffix search on an index that stores every token reversed: a range scan over the reversed tokens that start with the
+        // reversed literal suffix, each matched (un-reversed) against the whole pattern
+        final String reversedPrefix = fieldPrefix + ReverseAnalyzer.reversedKey(literalSuffix);
+        final int tokenStart = fieldPrefix.length() + 1;
+        walkTerms(reversedPrefix, key -> {
+          if (!key.startsWith(reversedPrefix))
+            return STOP;
+          final String token = ReverseStringFilter.reverse(key.substring(tokenStart));
+          return TimeBoundRegex.matchesUntil(regex, token, deadline) ? ACCEPT : NEXT_KEY;
+        }, scoreMap, boost);
+        return;
+      }
+
+      // The parser accepts a leading wildcard on an index where some field stores reversed tokens: on a field that does not, it is
+      // the walk of every token that allowLeadingWildcard exists to refuse
+      if (!reversed && metadata != null && !metadata.isAllowLeadingWildcard())
+        throw new FullTextQueryParseException("Invalid search query: a leading wildcard ('" + query.getTerm().text() + "') is not "
+            + "allowed on " + (isUnqualified(field) ? "an unqualified clause" : "field '" + field + "'")
+            + ": only a field indexed with the 'reverse' analyzer answers it, or set allowLeadingWildcard", null);
+
+      // Leading wildcard: every token of the field, each matched against the pattern
+      walkTerms(fieldPrefix, key -> {
         if (!key.startsWith(fieldPrefix))
-          return false;
-        final String token = key.substring(fieldPrefix.length());
-        // Skip cross-field tokens for unqualified queries on multi-property indexes
-        if (fieldPrefix.isEmpty() && token.indexOf(':') >= 0)
-          return false;
-        return TimeBoundRegex.matchesUntil(regex, token, deadline);
-      }, scoreMap, boostFor(field));
+          return STOP;
+        final String skip = skipForeignToken(key, fieldPrefix);
+        if (skip != null)
+          return skip;
+        return TimeBoundRegex.matchesUntil(regex, key.substring(fieldPrefix.length()), deadline) ? ACCEPT : NEXT_KEY;
+      }, scoreMap, boost);
     } else {
       // Range scan starting at the literal prefix and stop when keys no longer share it
-      iterateAndMatch(searchPrefix, key -> {
+      walkTerms(searchPrefix, key -> {
         if (!key.startsWith(searchPrefix))
-          return false;
-        final String token = key.substring(fieldPrefix.length());
-        if (fieldPrefix.isEmpty() && token.indexOf(':') >= 0)
-          return false;
-        return TimeBoundRegex.matchesUntil(regex, token, deadline);
-      }, scoreMap, boostFor(field));
+          return STOP;
+        final String skip = skipForeignToken(key, fieldPrefix);
+        if (skip != null)
+          return skip;
+        return TimeBoundRegex.matchesUntil(regex, key.substring(fieldPrefix.length()), deadline) ? ACCEPT : NEXT_KEY;
+      }, scoreMap, boost);
     }
   }
 
   private void collectFuzzyMatches(final FuzzyQuery query, final Map<RID, AtomicInteger> scoreMap) {
     final String field = query.getTerm().field();
-    final String term = normalizeText(query.getTerm().text());
+    final String term = normalizeText(field, query.getTerm().text());
     if (term.isEmpty())
       return;
 
-    final int maxEdits = query.getMaxEdits();
-    final int prefixLen = Math.min(query.getPrefixLength(), term.length());
-    final String requiredPrefix = term.substring(0, prefixLen);
+    // A Levenshtein automaton walks the sorted terms: a term it rejects tells where the next one it may accept starts, and the
+    // walk seeks there, so a fuzzy term reads the few terms near it instead of every posting of the field
+    final Automaton automaton = AutomatonTermSeeker.fuzzy(term, query.getPrefixLength(), query.getMaxEdits(),
+        query.getTranspositions());
     final String fieldPrefix = fieldPrefix(field);
-    final String searchPrefix = fieldPrefix + requiredPrefix;
+    final int requiredPrefix = term.offsetByCodePoints(0, Math.min(query.getPrefixLength(), term.codePointCount(0, term.length())));
 
-    iterateAndMatch(searchPrefix.isEmpty() ? null : searchPrefix, key -> {
-      if (!key.startsWith(searchPrefix))
-        return false;
+    walkTerms(fieldPrefix + term.substring(0, requiredPrefix), key -> {
+      if (!key.startsWith(fieldPrefix))
+        return STOP;
+      final String skip = skipForeignToken(key, fieldPrefix);
+      if (skip != null)
+        return skip;
       final String token = key.substring(fieldPrefix.length());
-      if (fieldPrefix.isEmpty() && token.indexOf(':') >= 0)
-        return false;
-      return TextLevenshteinDistance.levenshteinDistance(token, term) <= maxEdits;
+      if (AutomatonTermSeeker.accepts(automaton, token))
+        return ACCEPT;
+      final String next = AutomatonTermSeeker.nextAfter(automaton, token);
+      return next != null ? fieldPrefix + next : STOP;
     }, scoreMap, boostFor(field));
   }
 
   private void collectRegexpMatches(final RegexpQuery query, final Map<RID, AtomicInteger> scoreMap) {
     final String field = query.getRegexp().field();
-    final String regexText = normalizeText(query.getRegexp().text());
+    final String regexText = normalizeText(field, query.getRegexp().text());
     if (regexText.isEmpty())
       return;
 
@@ -765,35 +949,41 @@ public class FullTextQueryExecutor {
     }
 
     final String fieldPrefix = fieldPrefix(field);
-    // A user-supplied regexp query (/pattern/ syntax) is matched against every token in what is, absent a literal
-    // prefix, a full index scan (issue #5886) - one shared deadline for the whole scan, not a fresh one per token,
-    // otherwise a crafted index could still tie the thread up for token count * regexTimeout.
+    // A user-supplied regexp query (/pattern/ syntax) is matched against every token of the field, absent a literal
+    // prefix (issue #5886) - one shared deadline for the whole scan, not a fresh one per token, otherwise a crafted index
+    // could still tie the thread up for token count * regexTimeout. Each distinct token is matched once, not once per posting.
     final long deadline = TimeBoundRegex.newDeadline(GlobalConfiguration.COMMAND_REGEX_TIMEOUT.getValueAsLong(index.getDatabase()));
 
-    iterateAndMatch(null, key -> {
+    walkTerms(fieldPrefix, key -> {
       if (!key.startsWith(fieldPrefix))
-        return false;
-      final String token = key.substring(fieldPrefix.length());
-      if (fieldPrefix.isEmpty() && token.indexOf(':') >= 0)
-        return false;
-      return TimeBoundRegex.matchesUntil(regex, token, deadline);
+        return STOP;
+      final String skip = skipForeignToken(key, fieldPrefix);
+      if (skip != null)
+        return skip;
+      return TimeBoundRegex.matchesUntil(regex, key.substring(fieldPrefix.length()), deadline) ? ACCEPT : NEXT_KEY;
     }, scoreMap, boostFor(field));
   }
 
   /**
-   * Iterates the underlying index from the given start key and accumulates RIDs whose keys pass the matcher.
-   * Stops as soon as the matcher rejects a key when {@code startKey} is non-null (since keys are sorted
-   * and a non-prefix means we've left the relevant range). When {@code startKey} is null, performs a full
-   * scan and applies the matcher to every key.
+   * Walks the sorted keys of the underlying index from {@code startKey} (the first key when null or empty), DISTINCT keys at a
+   * time: {@code decider} is asked once per key, never once per posting, and accumulates the postings of the keys it accepts.
+   * A key it rejects comes with the smallest key that may match next; the walk reads on to it when it is close and otherwise
+   * seeks there ({@link #SEEK_AFTER_SKIPPED_POSTINGS}), so a rejected term with a long posting list, or a long run of
+   * rejected terms, costs one seek instead of a read of every posting in between.
    */
-  private void iterateAndMatch(final String startKey, final KeyMatcher matcher, final Map<RID, AtomicInteger> scoreMap,
+  private void walkTerms(final String startKey, final TermDecider decider, final Map<RID, AtomicInteger> scoreMap,
       final float boost) {
-    final boolean rangeScan = startKey != null;
-    final IndexCursor cursor = index.iterateUnderlying(true,
-        rangeScan ? new String[] { startKey } : null, true);
+    final int seekThreshold = Math.max(SEEK_AFTER_SKIPPED_POSTINGS, SEEK_COST_PER_PAGE * index.getSeekCost());
+    IndexCursor cursor = index.iterateUnderlying(true, startKey == null || startKey.isEmpty() ? null : new String[] { startKey }, true);
     // Per-expanded-key document frequency for this walk, accumulated in a primitive cell (one allocation per distinct key
     // rather than a boxed Long per posting) and flushed once the range has been consumed.
     final Map<String, long[]> walkFrequencies = new HashMap<>();
+    String acceptedKey = null;
+    long[] acceptedFrequency = null;
+    // At most one of the two is set: the rest of a rejected key's postings to step over, or the key to skip to
+    String rejectedKey = null;
+    String skipTo = null;
+    int skipped = 0;
     try {
       while (cursor.hasNext()) {
         tick();
@@ -802,16 +992,58 @@ public class FullTextQueryExecutor {
         if (keys == null || keys.length == 0 || keys[0] == null)
           continue;
         final String key = keys[0].toString();
-        if (matcher.matches(key)) {
-          recordScoringToken(key, boost);
-          // Deletion markers carry a negative bucket id and must not inflate the document frequency.
-          if (rid.getBucketId() >= 0)
-            ++walkFrequencies.computeIfAbsent(key, k -> new long[1])[0];
-          if (!tokensOnly)
-            scoreMap.computeIfAbsent(rid, k -> new AtomicInteger(0)).incrementAndGet();
-        } else if (rangeScan && key.compareTo(startKey) > 0 && !key.startsWith(startKey)) {
-          break;
+
+        if (acceptedKey != null) {
+          if (acceptedKey.equals(key)) {
+            collectPosting(rid, acceptedFrequency, scoreMap);
+            continue;
+          }
+          acceptedKey = null;
         }
+
+        if (rejectedKey != null) {
+          if (rejectedKey.equals(key)) {
+            if (++skipped >= seekThreshold) {
+              cursor.close();
+              cursor = index.iterateUnderlying(true, new String[] { successor(rejectedKey) }, true);
+              rejectedKey = null;
+              skipped = 0;
+            }
+            continue;
+          }
+          rejectedKey = null;
+          skipped = 0;
+        } else if (skipTo != null) {
+          if (BinaryComparator.compareStrings(key, skipTo) < 0) {
+            if (++skipped >= seekThreshold) {
+              cursor.close();
+              cursor = index.iterateUnderlying(true, new String[] { skipTo }, true);
+              skipTo = null;
+              skipped = 0;
+            }
+            continue;
+          }
+          skipTo = null;
+          skipped = 0;
+        }
+
+        final String decision = decider.decide(key);
+        if (decision == STOP)
+          break;
+        if (decision == ACCEPT) {
+          recordScoringToken(key, boost);
+          if (tokensOnly) {
+            // Discovering the tokens needs no posting: go straight to the next key
+            rejectedKey = key;
+            continue;
+          }
+          acceptedKey = key;
+          acceptedFrequency = walkFrequencies.computeIfAbsent(key, k -> new long[1]);
+          collectPosting(rid, acceptedFrequency, scoreMap);
+        } else if (decision == NEXT_KEY)
+          rejectedKey = key;
+        else
+          skipTo = decision;
       }
     } finally {
       // the walk usually stops on the prefix boundary rather than on exhaustion, so this is the common path, not the
@@ -821,6 +1053,42 @@ public class FullTextQueryExecutor {
 
     for (final Map.Entry<String, long[]> frequency : walkFrequencies.entrySet())
       recordDocumentFrequency(frequency.getKey(), frequency.getValue()[0]);
+  }
+
+  private void collectPosting(final RID rid, final long[] frequency, final Map<RID, AtomicInteger> scoreMap) {
+    // Deletion markers carry a negative bucket id and must not inflate the document frequency.
+    if (rid.getBucketId() >= 0)
+      ++frequency[0];
+    scoreMap.computeIfAbsent(rid, k -> new AtomicInteger(0)).incrementAndGet();
+  }
+
+  /**
+   * Where a walk over the tokens of a field goes when {@code key} is not one of them, or null when it is. Two kinds of key share
+   * the key space of a field without being its tokens: on a multi-property index the field-qualified copies
+   * ({@code title:java}) sit among the unqualified tokens, and a suffix analyzer stores the reversed copy of every token behind
+   * a marker. The answer skips the whole block such a key starts.
+   */
+  private String skipForeignToken(final String key, final String fieldPrefix) {
+    final int tokenStart = fieldPrefix.length();
+    if (key.length() > tokenStart && key.charAt(tokenStart) == PartialMatchAnalyzer.REVERSED_TOKEN_MARKER)
+      return prefixSuccessor(key.substring(0, tokenStart + 1));
+    if (tokenStart == 0 && propertyNames != null && propertyNames.size() > 1) {
+      final int colon = key.indexOf(':');
+      if (colon > 0 && storedFieldFor(propertyNames, key.substring(0, colon)) != null)
+        return prefixSuccessor(key.substring(0, colon + 1));
+    }
+    return null;
+  }
+
+  /** The smallest key greater than {@code key}. */
+  private static String successor(final String key) {
+    return key + '\u0000';
+  }
+
+  /** The smallest key greater than every key that starts with {@code prefix}. */
+  private static String prefixSuccessor(final String prefix) {
+    final int last = prefix.length() - 1;
+    return prefix.substring(0, last) + (char) (prefix.charAt(last) + 1);
   }
 
   /**
@@ -891,13 +1159,14 @@ public class FullTextQueryExecutor {
    * {@code Fo*} into a prefix the stored {@code Foo} could never match (issue #7000). This is also what the Lucene
    * QueryParser itself does for the prefix, wildcard and fuzzy forms; the regexp form it hands over untouched.
    */
-  private String normalizeText(final String text) {
+  private String normalizeText(final String field, final String text) {
     if (text == null || text.isEmpty())
       return "";
-    // Normalized under the one field name the write path tokenizes every property under (LSMTreeFullTextIndex.tokenize),
-    // not under the query's qualifier: a field-aware analyzer folds by that name, and the stored tokens are what the
-    // pattern has to match.
-    return analyzer.normalize(LSMTreeFullTextIndex.ANALYZED_FIELD, text).utf8ToString();
+    // Normalized by the analyzer of the field the clause targets (its own when it has one), under the one field name the write
+    // path tokenizes every property under (LSMTreeFullTextIndex.tokenize), not under the query's qualifier: a field-aware
+    // analyzer folds by that name, and the stored tokens are what the pattern has to match.
+    final Analyzer fieldAnalyzer = index.getQueryAnalyzer(isUnqualified(field) ? null : storedField(field));
+    return fieldAnalyzer.normalize(LSMTreeFullTextIndex.ANALYZED_FIELD, text).utf8ToString();
   }
 
   /**
@@ -918,6 +1187,17 @@ public class FullTextQueryExecutor {
       sb.append(c);
     }
     return sb.toString();
+  }
+
+  /**
+   * Extracts the literal suffix of a wildcard pattern (everything after the last {@code *} or {@code ?}), or the empty string
+   * when the pattern carries an escape, which this simple reading does not resolve.
+   */
+  private static String extractLiteralSuffix(final String pattern) {
+    if (pattern.indexOf('\\') >= 0)
+      return "";
+    final int last = Math.max(pattern.lastIndexOf('*'), pattern.lastIndexOf('?'));
+    return pattern.substring(last + 1);
   }
 
   /**
@@ -944,8 +1224,12 @@ public class FullTextQueryExecutor {
     return Pattern.compile(sb.toString());
   }
 
+  /**
+   * Decides one distinct key of a term walk: {@link #ACCEPT} it, {@link #STOP} the walk, go on with the {@link #NEXT_KEY}, or
+   * answer the smallest key that may match next, strictly greater than {@code key}.
+   */
   @FunctionalInterface
-  private interface KeyMatcher {
-    boolean matches(String key);
+  private interface TermDecider {
+    String decide(String key);
   }
 }

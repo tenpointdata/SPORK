@@ -19,6 +19,7 @@
 package com.arcadedb.schema;
 
 import com.arcadedb.index.IndexInternal;
+import com.arcadedb.index.TypeIndex;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 
@@ -456,6 +457,28 @@ public class IndexMetadata {
       // re-tokenized from every record under the current reading of a shape (issue #10210)
       geoMetadata.setPlanar(true);
     }
+    if (metadata instanceof FullTextIndexMetadata fullTextMetadata)
+      keepFormatOfSiblings(idx, fullTextMetadata);
     return metadata;
+  }
+
+  /**
+   * A copy of a full-text definition is written in the current format, which is how a REBUILD INDEX of the whole index migrates
+   * it. A rebuild of ONE bucket sub-index (or CHECK DATABASE FIX of a corrupted one) must not: its siblings stay in the format
+   * they were written in, and buckets of one logical index in two formats analyze a query differently (the per-field analyzers
+   * apply from format 2 on). The rebuilt bucket takes the format of its siblings, the lowest when they disagree already.
+   */
+  private static void keepFormatOfSiblings(final IndexInternal idx, final FullTextIndexMetadata metadata) {
+    if (idx instanceof TypeIndex)
+      return;
+    final TypeIndex typeIndex = idx.getTypeIndex();
+    if (typeIndex == null)
+      return;
+    int format = Integer.MAX_VALUE;
+    for (final IndexInternal sibling : typeIndex.getIndexesOnBuckets())
+      if (sibling != idx && sibling.getMetadataForNewFile() instanceof FullTextIndexMetadata siblingMetadata)
+        format = Math.min(format, siblingMetadata.getFormatVersion());
+    if (format != Integer.MAX_VALUE)
+      metadata.setFormatVersion(format);
   }
 }

@@ -299,6 +299,42 @@ public class LSMTreeIndexMutable extends LSMTreeIndexAbstract {
     return subIndex;
   }
 
+  /**
+   * The live entries of {@code keys} written after the compacted series that end at {@code compactedSeriesEnd}: the mutable pages
+   * and the series appended since, walked newest first exactly as {@link #get} walks them. The per-RID deletions they carry
+   * against older entries are added to {@code deletedRIDs}.
+   *
+   * @return true when a key-wide tombstone among them removes every older entry of the key
+   */
+  public boolean searchNewerThan(final Object[] keys, final int compactedSeriesEnd, final Set<IndexCursorEntry> set,
+      final RidHashSet deletedRIDs) throws IOException {
+    final Object[] convertedKeys = convertKeys(keys, binaryKeyTypes);
+    final Set<TransactionIndexContext.ComparableKey> removedKeys = new HashSet<>();
+    final int totalPages = getTotalPages();
+    for (int p = totalPages - 1; p > -1; --p) {
+      final BasePage currentPage = database.getTransaction().getPageForAbsoluteReads(pageIds.get(p), pageSize);
+      final int count = getCount(currentPage);
+      if (count < 1)
+        continue;
+      lookupInPageAndAddInResultset(currentPage, new Binary(currentPage.slice()), count, keys, convertedKeys, -1, set, removedKeys,
+          deletedRIDs);
+    }
+    if (subIndex != null)
+      subIndex.searchInCompactedIndex(keys, convertedKeys, -1, set, removedKeys, deletedRIDs, compactedSeriesEnd, Integer.MAX_VALUE);
+    return !removedKeys.isEmpty();
+  }
+
+  /**
+   * The live entries of {@code keys} in the compacted series that end at {@code compactedSeriesEnd}, resolved among themselves:
+   * what a reader saw of the key in the compacted part when the series ended there.
+   */
+  public void searchCompactedOlderThan(final Object[] keys, final int compactedSeriesEnd, final Set<IndexCursorEntry> set)
+      throws IOException {
+    if (subIndex == null)
+      return;
+    subIndex.searchSeriesBelow(keys, compactedSeriesEnd, set);
+  }
+
   public IndexCursor get(final Object[] keys, final int limit) throws IOException {
     checkForNulls(keys);
 

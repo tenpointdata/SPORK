@@ -21,6 +21,7 @@ package com.arcadedb.query.opencypher.query;
 import com.arcadedb.exception.CommandParsingException;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.fulltext.StandardEnglishStopWordsAnalyzer;
+import com.arcadedb.index.fulltext.analysis.FullTextAnalyzers;
 import com.arcadedb.schema.FullTextIndexMetadata;
 import com.arcadedb.schema.IndexMetadata;
 import com.arcadedb.schema.LSMVectorIndexMetadata;
@@ -394,6 +395,10 @@ final class CypherIndexOptions {
     if (mapped != null)
       return mapped;
 
+    // A built-in partial-match analyzer (ngram, edge_ngram, reverse, phone, phonetic), parameters included
+    if (FullTextAnalyzers.isBuiltIn(name))
+      return name.trim();
+
     if (name.indexOf('.') > 0)
       try {
         // not initialized: a class that is no analyzer must not run its static initializer because a statement named it
@@ -407,6 +412,7 @@ final class CypherIndexOptions {
       }
 
     throw new CommandParsingException("Unsupported `" + FULLTEXT_ANALYZER + "` '" + name + "': use one of "
-        + ANALYZERS.keySet().stream().sorted().toList() + " or the class name of a Lucene analyzer with a no-argument constructor");
+        + ANALYZERS.keySet().stream().sorted().toList()
+        + ", a built-in partial-match analyzer (ngram, edge_ngram, reverse, phone, phonetic) or the class name of a Lucene analyzer with a no-argument constructor");
   }
 }

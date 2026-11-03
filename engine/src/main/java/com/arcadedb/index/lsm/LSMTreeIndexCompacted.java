@@ -653,6 +653,82 @@ public class LSMTreeIndexCompacted extends LSMTreeIndexAbstract {
   protected void searchInCompactedIndex(final Object[] originalKeys, final Object[] convertedKeys, final int limit,
       final Set<IndexCursorEntry> set,
       final Set<TransactionIndexContext.ComparableKey> removedKeys, final RidHashSet deletedRIDs) throws IOException {
+    searchInCompactedIndex(originalKeys, convertedKeys, limit, set, removedKeys, deletedRIDs, 0, Integer.MAX_VALUE);
+  }
+
+  /**
+   * The number of pages the published series of this compacted index span: a series whose root page lies below it is part of
+   * what a reader sees now, one appended later starts at or above it. A full-text block-max sidecar records it as the mark that
+   * splits what it holds from what it does not.
+   */
+  public int getSeriesEnd() throws IOException {
+    final BasePage mainPage = database.getTransaction().getPageForAbsoluteReads(new PageId(database, file.getFileId(), 0), pageSize);
+    return Math.min(getCompactedPageNumberOfSeries(mainPage), getTotalPages());
+  }
+
+  /**
+   * The live entries of {@code keys} in the series whose root page lies below {@code seriesEnd}, resolved among themselves: what a
+   * reader saw of the key in this file when its series ended there. Reads only pages below the mark, which no later compaction
+   * rewrites, so it needs no index lock while the file is pinned ({@link #pinForReading()}).
+   */
+  public void searchSeriesBelow(final Object[] keys, final int seriesEnd, final Set<IndexCursorEntry> set) throws IOException {
+    searchInCompactedIndex(keys, convertKeys(keys, binaryKeyTypes), -1, set, new HashSet<>(), new RidHashSet(), 0, seriesEnd);
+  }
+
+  /**
+   * An identity of the content below a series end ({@link #getSeriesEnd()}): the root page of the series that ends there, in the
+   * high 32 bits, and that series' {@link #seriesFingerprint} in the low ones. Two files, or one file before and after a crash
+   * recovery that lost the last series, can share a file id and a series end; they do not share this as well. Answers -1 when no
+   * series ends at {@code seriesEnd} in the file as it is now.
+   */
+  public long getSeriesFingerprint(final int seriesEnd) throws IOException {
+    if (seriesEnd < 2 || seriesEnd > getTotalPages())
+      return -1L;
+    final BasePage lastPage = database.getTransaction()
+        .getPageForAbsoluteReads(new PageId(database, file.getFileId(), seriesEnd - 1), pageSize);
+    final int rootPageCount = getCompactedPageNumberOfSeries(lastPage);
+    final int rootPage = seriesEnd - 1 - rootPageCount;
+    if (rootPageCount <= 0 || rootPage < 0)
+      return -1L;
+    return ((long) rootPage << 32) | (seriesFingerprint(lastPage) & 0xFFFFFFFFL);
+  }
+
+  /**
+   * Keeps this file from being physically dropped while the caller reads it outside the index lock, as an open series cursor
+   * does: a full compaction that replaces it retires it, and the retired file is dropped only once every reader has closed.
+   * Must be called under the index read lock, where the file cannot be retired in between. The caller closes what it gets.
+   */
+  public Pin pinForReading() {
+    return new Pin(this);
+  }
+
+  /** A registration that keeps a compacted file from being dropped; it is its own live token. */
+  public static final class Pin implements AutoCloseable {
+    private final LSMTreeIndexCompacted index;
+    private final WeakReference<Object> registration;
+    private       boolean               closed;
+
+    private Pin(final LSMTreeIndexCompacted index) {
+      this.index = index;
+      this.registration = index.onCursorOpened(this);
+    }
+
+    @Override
+    public void close() {
+      if (!closed) {
+        closed = true;
+        index.onCursorClosed(registration);
+      }
+    }
+  }
+
+  /**
+   * {@link #searchInCompactedIndex} restricted to the series whose root page is in {@code [minRootPage, maxRootPageExclusive)},
+   * still newest first: the series older than a mark ({@code [0, mark)}) or newer than it ({@code [mark, MAX)}).
+   */
+  protected void searchInCompactedIndex(final Object[] originalKeys, final Object[] convertedKeys, final int limit,
+      final Set<IndexCursorEntry> set, final Set<TransactionIndexContext.ComparableKey> removedKeys, final RidHashSet deletedRIDs,
+      final int minRootPage, final int maxRootPageExclusive) throws IOException {
     // JUMP TO ROOT PAGES BEFORE LOADING THE PAGE WITH THE KEY/VALUES
     final BasePage mainPage = database.getTransaction().getPageForAbsoluteReads(new PageId(database, file.getFileId(), 0), pageSize);
     final int mainPageCount = getCompactedPageNumberOfSeries(mainPage);
@@ -726,6 +802,15 @@ public class LSMTreeIndexCompacted extends LSMTreeIndexAbstract {
       }
 
       pageNumber -= rootPageCount;
+
+      if (pageNumber >= maxRootPageExclusive) {
+        // A SERIES NEWER THAN THE WINDOW: SKIP IT
+        --pageNumber;
+        continue;
+      }
+      if (pageNumber < minRootPage)
+        // THIS SERIES AND EVERY OLDER ONE ARE BEFORE THE WINDOW
+        break;
 
       if (useFilters) {
         final int fingerprint = seriesFingerprint(lastPage);

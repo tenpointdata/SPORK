@@ -18,6 +18,8 @@
  */
 package com.arcadedb.index.fulltext;
 
+import com.arcadedb.GlobalConfiguration;
+import com.arcadedb.database.DatabaseContext;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.DatabaseRID;
 import com.arcadedb.database.Document;
@@ -38,8 +40,13 @@ import com.arcadedb.index.IndexFactoryHandler;
 import com.arcadedb.index.IndexInternal;
 import com.arcadedb.index.TempIndexCursor;
 import com.arcadedb.index.TypeIndex;
+import com.arcadedb.index.fulltext.analysis.FullTextAnalyzers;
+import com.arcadedb.index.fulltext.analysis.PartialMatchAnalyzer;
 import com.arcadedb.index.lsm.LSMTreeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndexAbstract;
+import com.arcadedb.index.lsm.LSMTreeIndexCompacted;
+import com.arcadedb.index.lsm.LSMTreeIndexMutable;
+import com.arcadedb.index.lsm.LSMTreeIndexUnderlyingCompactedSeriesCursor;
 import com.arcadedb.index.lsm.FullTextPostingRID;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.query.sql.executor.WorkGuard;
@@ -49,28 +56,39 @@ import com.arcadedb.schema.IndexMetadata;
 import com.arcadedb.schema.LocalSchema;
 import com.arcadedb.schema.Schema;
 import com.arcadedb.schema.Type;
+import com.arcadedb.serializer.BinaryComparator;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
+import com.arcadedb.utility.RidHashSet;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.DelegatingAnalyzerWrapper;
 import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.logging.Level;
 
@@ -108,8 +126,44 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
   private final LSMTreeIndex          underlyingIndex;
   private final Analyzer              indexAnalyzer;
   private final Analyzer              queryAnalyzer;
+  /**
+   * The analyzers of the properties configured with their own ({@code <field>_analyzer}), keyed by the property name the index
+   * carries AND by its base name. Empty for an index with none, which keeps every lookup below a single {@code isEmpty()}.
+   */
+  private final Map<String, Analyzer> fieldIndexAnalyzers;
+  private final Map<String, Analyzer> fieldQueryAnalyzers;
+  /** True when any analyzer of this index expands the stored tokens (n-grams, prefixes, reversed copies, phone suffixes). */
+  private final boolean               partialMatch;
   private final FullTextIndexMetadata ftMetadata;
   private       TypeIndex             typeIndex;
+  /** The analyzer the query parser runs, resolving each clause's field to its own analyzer. Built on first use. */
+  private volatile Analyzer           queryParserAnalyzer;
+  /** The block-max sidecar of a BM25 index in the block-max format, or null when it has none (yet) or it cannot be read. */
+  private volatile BlockMaxPostings   blockMax;
+  /** Serializes the sidecar builds of this index: a second build waits for the first, then finds the sidecar current. */
+  private final    ReentrantLock      blockMaxBuildLock = new ReentrantLock();
+  /** Guards the publication of a sidecar against a concurrent close or drop. */
+  private final    Object             blockMaxMonitor   = new Object();
+  /**
+   * Set by close(), drop() and releaseBackgroundResources() (the database close and DROP DATABASE, which never call close()): a
+   * build stops at its next term, and what it wrote is deleted instead of published.
+   */
+  private volatile boolean            blockMaxClosed;
+  /**
+   * Set with {@link #blockMaxClosed} by {@link #onSuperseded()}: a schema reload published another instance over the same files,
+   * which may have opened the generation a build of this one is about to publish.
+   */
+  private volatile boolean            blockMaxSuperseded;
+  /** The listener this instance installs on its LSM-Tree, kept so that it can remove that one and no other. */
+  private final    Runnable           compactionListener = this::onCompacted;
+  /** The last generation a build of this instance wrote; guarded by {@link #blockMaxBuildLock}. */
+  private          long               lastBlockMaxGeneration;
+  /**
+   * The thread running an explicit compaction of this index, which writes the sidecar itself once the compaction returns: the
+   * compaction's listener, which runs on that thread, leaves the background builder alone then. One compaction of an index runs at
+   * a time, so one thread is enough.
+   */
+  private volatile Thread             explicitCompaction;
 
   /**
    * Factory handler for creating LSMTreeFullTextIndex instances.
@@ -177,7 +231,16 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     this.ftMetadata = metadata;
     this.indexAnalyzer = createAnalyzer(metadata, true);
     this.queryAnalyzer = createAnalyzer(metadata, false);
-    bindLengthRule(metadata, indexAnalyzer);
+    this.fieldIndexAnalyzers = createFieldAnalyzers(metadata);
+    this.fieldQueryAnalyzers = queryAnalyzersOf(fieldIndexAnalyzers);
+    this.partialMatch = isPartialMatch(indexAnalyzer, fieldIndexAnalyzers);
+    bindLengthRule(metadata, indexAnalyzer, fieldIndexAnalyzers);
+    if (metadata != null && !metadata.getFieldAnalyzers().isEmpty() && !metadata.isFieldAnalyzersApplied())
+      LogManager.instance().log(this, Level.WARNING,
+          "Full-text index '%s' configures per-field analyzers (%s) but was written before they were applied: it indexes and queries "
+              + "with its index-wide analyzer until 'REBUILD INDEX `%s`' writes it again with them", null, index.getName(),
+          metadata.getFieldAnalyzers().keySet(), metadata.typeIndexName != null ? metadata.typeIndexName : index.getName());
+    initBlockMax();
     if (metadata != null && metadata.isBM25()) {
       index.setStoreTermFrequency(true);
       // Warn at open time (not only when the first query triggers it) so operators can pre-warm before serving traffic: a BM25
@@ -199,8 +262,12 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     this.ftMetadata = metadata;
     this.indexAnalyzer = createAnalyzer(metadata, true);
     this.queryAnalyzer = createAnalyzer(metadata, false);
-    bindLengthRule(metadata, indexAnalyzer);
+    this.fieldIndexAnalyzers = createFieldAnalyzers(metadata);
+    this.fieldQueryAnalyzers = queryAnalyzersOf(fieldIndexAnalyzers);
+    this.partialMatch = isPartialMatch(indexAnalyzer, fieldIndexAnalyzers);
+    bindLengthRule(metadata, indexAnalyzer, fieldIndexAnalyzers);
     underlyingIndex = new LSMTreeIndex(database, name, false, filePath, mode, new Type[] { Type.STRING }, pageSize, nullStrategy);
+    initBlockMax();
     if (metadata != null && metadata.isBM25()) {
       underlyingIndex.setStoreTermFrequency(true);
       // A brand-new index starts empty: the corpus counters are trivially valid (0 docs, 0 tokens).
@@ -223,6 +290,9 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     this.ftMetadata = null;
     this.indexAnalyzer = new StandardAnalyzer();
     this.queryAnalyzer = new StandardAnalyzer();
+    this.fieldIndexAnalyzers = Map.of();
+    this.fieldQueryAnalyzers = Map.of();
+    this.partialMatch = false;
   }
 
   /**
@@ -230,9 +300,18 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
    * writes with and of the rule every writer uses, over a fixed corpus. The metadata lives in the schema package, which cannot see
    * this one, so the index that owns both says it. Every bucket index of the logical index binds the same value.
    */
-  private static void bindLengthRule(final FullTextIndexMetadata metadata, final Analyzer indexAnalyzer) {
-    if (metadata != null)
-      metadata.bindLengthRule(FullTextLengthSignature.of(indexAnalyzer));
+  private static void bindLengthRule(final FullTextIndexMetadata metadata, final Analyzer indexAnalyzer,
+      final Map<String, Analyzer> fieldIndexAnalyzers) {
+    if (metadata == null)
+      return;
+    // An index without per-field analyzers keeps the signature it always had, so no persisted counters are rescanned for it
+    final StringBuilder signature = new StringBuilder(FullTextLengthSignature.of(indexAnalyzer));
+    for (final Map.Entry<String, String> field : new TreeMap<>(metadata.getFieldAnalyzers()).entrySet()) {
+      final Analyzer analyzer = fieldIndexAnalyzers.get(field.getKey());
+      if (analyzer != null)
+        signature.append(',').append(field.getKey()).append('=').append(FullTextLengthSignature.of(analyzer));
+    }
+    metadata.bindLengthRule(signature.toString());
   }
 
   @Override
@@ -427,8 +506,8 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     int ticks = 0;
 
     for (final QueryTerm term : queryTerms) {
-      // Analyze the term value
-      final List<String> keywords = analyzeText(queryAnalyzer, new Object[] { term.value });
+      // Analyze the term value with the analyzer of the field it targets
+      final List<String> keywords = analyzeText(getQueryAnalyzer(term.fieldName), new Object[] { term.value });
 
       for (final String k : keywords) {
         final IndexCursor rids;
@@ -535,7 +614,10 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     // Reused across tokens to avoid per-token allocations (candidate path only).
     final List<FullTextPostingRID> hits = new ArrayList<>();
 
-    for (final Map.Entry<String, Float> e : tokenBoosts.entrySet()) {
+    // Tokens in key order: a document's score is a sum of doubles, and summing in one fixed order is what lets the top-k scorer
+    // (FullTextTopK) answer the very same floats. The map's own order is whatever hashing gave it.
+    final Map<String, Float> orderedTokens = tokenBoosts instanceof TreeMap ? tokenBoosts : new TreeMap<>(tokenBoosts);
+    for (final Map.Entry<String, Float> e : orderedTokens.entrySet()) {
       // Fresh single-element lookup key per token: it is handed to underlyingIndex.get(), and allocating it here (rather than
       // reusing one array) keeps this correct even if that lookup ever became lazy/async and retained the array - the few small
       // arrays per query are negligible GC.
@@ -650,7 +732,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     final Map<String, Float> tokenBoosts = new HashMap<>();
     for (final QueryTerm term : queryTerms) {
       final float boost = term.fieldName != null ? ftMetadata.getFieldBoost(term.fieldName) : 1.0f;
-      for (final String k : analyzeText(queryAnalyzer, new Object[] { term.value })) {
+      for (final String k : analyzeText(getQueryAnalyzer(term.fieldName), new Object[] { term.value })) {
         final String storedKey = term.fieldName != null ? term.fieldName + ":" + k : k;
         tokenBoosts.merge(storedKey, boost, Math::max);
       }
@@ -775,6 +857,15 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
    */
   void ensureTypeWideBM25Counters() {
     ensureCounters();
+  }
+
+  /**
+   * The corpus statistics a bucket-level BM25 lookup scores with, {N, avgdl}, once the counters are trustworthy: what
+   * {@link #computeBM25Scores} uses when no type-wide context is supplied.
+   */
+  double[] bucketBM25Statistics() {
+    ensureCounters();
+    return new double[] { resolveTotalDocs(), resolveAvgDocLength() };
   }
 
   long getTypeWideDocumentCount() {
@@ -1126,7 +1217,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
         // The keys the writers put, built by the same indexer: a BY ITEM property is read from its list, not as a property
         // called "tags by item" that no document has (issue #10209)
         len[0] = 0L;
-        indexer.forEachIndexKey(this, doc, keys -> len[0] += documentLength(analyzeText(indexAnalyzer, keys)));
+        indexer.forEachIndexKey(this, doc, keys -> len[0] += documentLength(analyzeKeys(keys)));
         ++docs;
         sumLen += len[0];
       }
@@ -1266,7 +1357,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     // CLASSIC similarity: store one posting per token occurrence (RID-only), unchanged behavior.
     if (getPropertyCount() == 1) {
       // Single property - existing behavior
-      final List<String> keywords = analyzeText(indexAnalyzer, keys);
+      final List<String> keywords = analyzeText(singlePropertyIndexAnalyzer(), keys);
       for (final String k : keywords)
         underlyingIndex.put(new String[] { k }, rids);
     } else {
@@ -1276,7 +1367,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
         if (keys[i] == null)
           continue;
         final String fieldName = propertyNames.get(i);
-        final List<String> keywords = analyzeText(indexAnalyzer, new Object[] { keys[i] });
+        final List<String> keywords = analyzeText(getIndexAnalyzer(fieldName), new Object[] { keys[i] });
         for (final String k : keywords) {
           // Store with field prefix for field-specific queries
           underlyingIndex.put(new String[] { fieldName + ":" + k }, rids);
@@ -1296,7 +1387,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     final DatabaseInternal db = underlyingIndex.getMutableIndex().getDatabase();
 
     if (getPropertyCount() == 1) {
-      final List<String> keywords = analyzeText(indexAnalyzer, keys);
+      final List<String> keywords = analyzeText(singlePropertyIndexAnalyzer(), keys);
       final Map<String, Integer> tfs = new HashMap<>();
       boolean hasNull = false;
       for (final String k : keywords) {
@@ -1332,7 +1423,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
       for (int i = 0; i < keys.length && i < propertyNames.size(); i++) {
         if (keys[i] == null)
           continue;
-        final List<String> keywords = analyzeText(indexAnalyzer, new Object[] { keys[i] });
+        final List<String> keywords = analyzeText(getIndexAnalyzer(propertyNames.get(i)), new Object[] { keys[i] });
         docLen += documentLength(keywords);
         final Map<String, Integer> fieldTf = new HashMap<>();
         for (final String k : keywords) {
@@ -1437,7 +1528,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
   public void remove(final Object[] keys) {
     if (getPropertyCount() == 1) {
       // Single property - existing behavior
-      final List<String> keywords = analyzeText(indexAnalyzer, keys);
+      final List<String> keywords = analyzeText(singlePropertyIndexAnalyzer(), keys);
       for (final String k : keywords)
         underlyingIndex.remove(new String[] { k });
     } else {
@@ -1447,7 +1538,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
         if (keys[i] == null)
           continue;
         final String fieldName = propertyNames.get(i);
-        final List<String> keywords = analyzeText(indexAnalyzer, new Object[] { keys[i] });
+        final List<String> keywords = analyzeText(getIndexAnalyzer(fieldName), new Object[] { keys[i] });
         for (final String k : keywords) {
           underlyingIndex.remove(new String[] { fieldName + ":" + k });
           underlyingIndex.remove(new String[] { k });
@@ -1467,7 +1558,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     int docLen = 0;
     if (getPropertyCount() == 1) {
       // Single property - existing behavior
-      final List<String> keywords = analyzeText(indexAnalyzer, keys);
+      final List<String> keywords = analyzeText(singlePropertyIndexAnalyzer(), keys);
       // Not keywords.size(): the null token of a null value is not part of the length the put counted (issue #10131)
       docLen = documentLength(keywords);
       for (final String k : keywords)
@@ -1479,7 +1570,7 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
         if (keys[i] == null)
           continue;
         final String fieldName = propertyNames.get(i);
-        final List<String> keywords = analyzeText(indexAnalyzer, new Object[] { keys[i] });
+        final List<String> keywords = analyzeText(getIndexAnalyzer(fieldName), new Object[] { keys[i] });
         docLen += documentLength(keywords);
         for (final String k : keywords) {
           underlyingIndex.remove(new String[] { fieldName + ":" + k }, rid);
@@ -1547,7 +1638,23 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
 
   @Override
   public boolean compact() throws IOException, InterruptedException {
-    return underlyingIndex.compact();
+    final boolean compacted = compactExplicitly();
+    // An explicit compaction (COMPACT INDEX, the schema's) writes a sidecar that is missing or outdated before it returns, on the
+    // caller's thread, whether it compacted or there was nothing to compact: a script that compacts and then queries finds it.
+    // An automatic compaction only asks the background builder for it
+    if (isBlockMaxFormat() && !isBlockMaxCurrent())
+      refreshBlockMax();
+    return compacted;
+  }
+
+  /** Compacts the LSM-Tree with the listener's background request switched off: the caller writes the sidecar itself. */
+  private boolean compactExplicitly() throws IOException, InterruptedException {
+    explicitCompaction = Thread.currentThread();
+    try {
+      return underlyingIndex.compact();
+    } finally {
+      explicitCompaction = null;
+    }
   }
 
   @Override
@@ -1620,11 +1727,99 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
 
   @Override
   public void close() {
+    stopBlockMax();
     underlyingIndex.close();
+  }
+
+  /**
+   * The database close and DROP DATABASE call this, not {@link #close()}: without it a sidecar build in progress (one the open
+   * scheduled takes minutes at scale) kept reading pages while the close flushed and purged the page cache, then failed with a
+   * warning; a queued one ran against the closed instance; and the sidecar's channel stayed open (on Windows, a handle that makes
+   * the drop's file deletion fail).
+   */
+  @Override
+  public void releaseBackgroundResources() {
+    stopBlockMax();
+    underlyingIndex.releaseBackgroundResources();
+  }
+
+  /**
+   * Bound on how long a close waits for a build of this index to stop. The build checks for the close after every term it writes,
+   * so the wait is about one term's lookup; past the bound the close goes on and the build discards what it wrote when it ends.
+   */
+  private static final long BLOCK_MAX_STOP_TIMEOUT_MS = 30_000L;
+
+  /**
+   * Stops the sidecar maintenance of this instance: no build starts or publishes any more, a queued one is dropped, the one in
+   * progress is waited for (bounded), and the sidecar's channel closes once the queries still reading it are done. The file stays
+   * on disk for the next open.
+   */
+  private void stopBlockMax() {
+    final BlockMaxPostings sidecar;
+    synchronized (blockMaxMonitor) {
+      blockMaxClosed = true;
+      sidecar = blockMax;
+      blockMax = null;
+    }
+    BlockMaxBuildScheduler.cancel(this);
+    if (sidecar != null)
+      sidecar.close();
+    try {
+      if (blockMaxBuildLock.tryLock(BLOCK_MAX_STOP_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+        blockMaxBuildLock.unlock();
+      else
+        LogManager.instance().log(this, Level.WARNING,
+            "The block-max build of index '%s' did not stop within %d ms of its close; it discards what it wrote when it ends", null,
+            getName(), BLOCK_MAX_STOP_TIMEOUT_MS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /**
+   * A schema reload published another instance in place of this one (an HA follower reloads its schema for every compaction, rename
+   * or retired file it applies): its sidecar maintenance stops as on a close, without waiting for the build in progress, which stops
+   * at its next term, on the reload's thread (the follower's apply thread). The sidecar is released with {@link BlockMaxPostings#close()}
+   * rather than retired, because the successor opened the same file: its channel closes once the queries that resolved this
+   * instance before the swap are done with it, and the file stays. A sidecar a build of this instance finishes later is kept on disk
+   * rather than published or deleted, for the same reason. The successor asks for its own build once it is published, see
+   * {@link #afterSchemaReload}.
+   */
+  @Override
+  public void onSuperseded() {
+    final BlockMaxPostings sidecar;
+    synchronized (blockMaxMonitor) {
+      blockMaxSuperseded = true;
+      blockMaxClosed = true;
+      sidecar = blockMax;
+      blockMax = null;
+    }
+    BlockMaxBuildScheduler.cancel(this);
+    // A successor wrapping this same LSM-Tree installed its own listener, which stays
+    underlyingIndex.removeCompactionListener(compactionListener);
+    if (sidecar != null)
+      sidecar.close();
   }
 
   @Override
   public void drop() {
+    final BlockMaxPostings sidecar;
+    synchronized (blockMaxMonitor) {
+      blockMaxClosed = true;
+      sidecar = blockMax;
+      blockMax = null;
+    }
+    BlockMaxBuildScheduler.cancel(this);
+    // Deleted once the queries still reading it are done; every other file of this index's sidecar now
+    if (sidecar != null)
+      sidecar.retire();
+    final File[] files = blockMaxDirectory().listFiles();
+    if (files != null)
+      for (final File file : files)
+        if ((sidecar == null || !file.equals(sidecar.getFile())) && (
+            BlockMaxPostings.generationOf(underlyingIndex.getName(), file.getName()) >= 0 || BlockMaxPostings.isLeftoverOf(
+                underlyingIndex.getName(), file.getName())))
+          BlockMaxPostings.deleteQuietly(file);
     underlyingIndex.drop();
   }
 
@@ -1782,6 +1977,124 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
   }
 
   /**
+   * Returns the analyzer the values of {@code field} are indexed with: its own when the metadata configures one
+   * ({@code <field>_analyzer}), the index analyzer otherwise.
+   *
+   * @param field the property name, as the index carries it or as its base name
+   */
+  public Analyzer getIndexAnalyzer(final String field) {
+    if (field == null || fieldIndexAnalyzers.isEmpty())
+      return indexAnalyzer;
+    return fieldIndexAnalyzers.getOrDefault(field, indexAnalyzer);
+  }
+
+  /**
+   * Returns the analyzer a query clause on {@code field} is analyzed with, or the one an unqualified clause is analyzed with when
+   * {@code field} is null: on a single-property index that is the analyzer of its property, on a multi-property one the query
+   * analyzer of the index. A partial-match analyzer is replaced by its query-side counterpart.
+   */
+  public Analyzer getQueryAnalyzer(final String field) {
+    if (fieldQueryAnalyzers.isEmpty())
+      return queryAnalyzer;
+    if (field != null)
+      return fieldQueryAnalyzers.getOrDefault(field, queryAnalyzer);
+    final List<String> propertyNames = getPropertyNames();
+    return propertyNames != null && propertyNames.size() == 1 ?
+        fieldQueryAnalyzers.getOrDefault(propertyNames.getFirst(), queryAnalyzer) :
+        queryAnalyzer;
+  }
+
+  /**
+   * Returns the analyzer the Lucene query parser runs: the query analyzer itself when no property has its own, otherwise one that
+   * hands every clause to the analyzer of the field it names ({@link FullTextQueryExecutor#DEFAULT_FIELD} for an unqualified one).
+   */
+  public Analyzer getQueryParserAnalyzer() {
+    if (fieldQueryAnalyzers.isEmpty())
+      return queryAnalyzer;
+    Analyzer analyzer = queryParserAnalyzer;
+    if (analyzer == null) {
+      analyzer = new DelegatingAnalyzerWrapper(Analyzer.PER_FIELD_REUSE_STRATEGY) {
+        @Override
+        protected Analyzer getWrappedAnalyzer(final String fieldName) {
+          return getQueryAnalyzer(FullTextQueryExecutor.DEFAULT_FIELD.equals(fieldName) ? null : fieldName);
+        }
+      };
+      queryParserAnalyzer = analyzer;
+    }
+    return analyzer;
+  }
+
+  /**
+   * True when any analyzer of this index stores more than the words of a value (n-grams, prefixes, reversed copies, phone
+   * suffixes): a query fragment such an analyzer splits into several tokens has to match all of them.
+   */
+  public boolean isPartialMatch() {
+    return partialMatch;
+  }
+
+  /**
+   * True when the postings a clause on {@code field} reads (the unqualified ones when {@code field} is null) hold the reversed copy
+   * of every token, so a suffix can be found with a range scan. An unqualified clause on a multi-property index reads the tokens
+   * of every property, so all of them must be reversed.
+   */
+  public boolean isIndexingReversedTokens(final String field) {
+    if (!partialMatch)
+      return false;
+    if (field != null)
+      return isReversing(getIndexAnalyzer(field));
+    final List<String> propertyNames = getPropertyNames();
+    if (propertyNames == null || propertyNames.isEmpty())
+      return isReversing(indexAnalyzer);
+    for (final String property : propertyNames)
+      if (!isReversing(getIndexAnalyzer(property)))
+        return false;
+    return true;
+  }
+
+  /**
+   * True when any property of this index is analyzed with an analyzer that stores reversed copies of its tokens: a leading
+   * wildcard is then accepted by the query parser whatever {@code allowLeadingWildcard} says.
+   */
+  public boolean hasReversedTokens() {
+    if (!partialMatch)
+      return false;
+    if (isReversing(indexAnalyzer))
+      return true;
+    for (final Analyzer analyzer : fieldIndexAnalyzers.values())
+      if (isReversing(analyzer))
+        return true;
+    return false;
+  }
+
+  private static boolean isReversing(final Analyzer analyzer) {
+    return analyzer instanceof PartialMatchAnalyzer partial && partial.isIndexingReversedTokens();
+  }
+
+  /**
+   * The analyzer of the property of a single-property index.
+   */
+  private Analyzer singlePropertyIndexAnalyzer() {
+    if (fieldIndexAnalyzers.isEmpty())
+      return indexAnalyzer;
+    final List<String> propertyNames = getPropertyNames();
+    return propertyNames == null || propertyNames.isEmpty() ? indexAnalyzer : getIndexAnalyzer(propertyNames.getFirst());
+  }
+
+  /**
+   * The tokens {@link #put} stores for {@code keys} (the unqualified ones): each property analyzed with its own analyzer.
+   */
+  private List<String> analyzeKeys(final Object[] keys) {
+    if (getPropertyCount() == 1 || fieldIndexAnalyzers.isEmpty())
+      return analyzeText(getPropertyCount() == 1 ? singlePropertyIndexAnalyzer() : indexAnalyzer, keys);
+    final List<String> propertyNames = getPropertyNames();
+    final List<String> tokens = new ArrayList<>();
+    for (int i = 0; i < keys.length && i < propertyNames.size(); i++)
+      if (keys[i] != null)
+        tokens.addAll(analyzeText(getIndexAnalyzer(propertyNames.get(i)), new Object[] { keys[i] }));
+    return tokens;
+  }
+
+  /**
    * Returns the full-text index metadata.
    *
    * @return the metadata, or null if using defaults
@@ -1806,6 +2119,673 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     return underlyingIndex.iterator(ascendingOrder, fromKeys, inclusive);
   }
 
+  /**
+   * True when the index keeps a block-max sidecar (BM25, block-max format, not opted out).
+   */
+  public boolean isBlockMaxFormat() {
+    return ftMetadata != null && ftMetadata.isBlockMax();
+  }
+
+  /** The directory of the sidecars: in the database directory, under {@code fulltext-blockmax}. */
+  private File blockMaxDirectory() {
+    return blockMaxDirectory(underlyingIndex.getMutableIndex().getDatabase());
+  }
+
+  private static File blockMaxDirectory(final DatabaseInternal database) {
+    return new File(database.getDatabasePath() + File.separator + "fulltext-blockmax");
+  }
+
+  /**
+   * The block-max housekeeping of a database that has just opened in read-write mode, its WAL replayed (not at the schema load,
+   * which comes before the replay: a build started there would snapshot pages the replay still rewrites):
+   * <ul>
+   *   <li>the sidecar files of indexes that are not live full-text indexes in the block-max format are deleted. An index's own
+   *   open and drop delete only files that carry its name, so an index dropped another way (an older version's DROP or REBUILD
+   *   INDEX, after a downgrade) left its files there for good;</li>
+   *   <li>a sidecar that is missing or outdated is written in the background. A build the database closed under, or a sidecar
+   *   lost while it was closed, otherwise left the index answering every top-k query by reading its postings until its next
+   *   compaction, which a read-mostly database may never run.</li>
+   * </ul>
+   */
+  public static void afterDatabaseOpen(final DatabaseInternal database, final Index[] indexes) {
+    final List<LSMTreeFullTextIndex> live = new ArrayList<>();
+    for (final Index index : indexes)
+      if (index instanceof LSMTreeFullTextIndex fullTextIndex && fullTextIndex.isBlockMaxFormat())
+        live.add(fullTextIndex);
+
+    final File[] files = blockMaxDirectory(database).listFiles();
+    if (files != null)
+      for (final File file : files) {
+        final String fileName = file.getName();
+        if (!BlockMaxPostings.isSidecarFileName(fileName))
+          continue;
+        boolean owned = false;
+        for (final LSMTreeFullTextIndex index : live) {
+          final String indexName = index.getName();
+          if (BlockMaxPostings.generationOf(indexName, fileName) >= 0 || BlockMaxPostings.isLeftoverOf(indexName, fileName)) {
+            owned = true;
+            break;
+          }
+        }
+        if (!owned) {
+          LogManager.instance().log(LSMTreeFullTextIndex.class, Level.INFO,
+              "Deleting the block-max file '%s', which belongs to no full-text index of database '%s'", null, fileName,
+              database.getName());
+          BlockMaxPostings.deleteQuietly(file);
+        }
+      }
+
+    for (final LSMTreeFullTextIndex index : live)
+      index.scheduleBlockMaxIfOutdated();
+  }
+
+  /**
+   * Called once a schema reload has published its indexes, with the instances it replaced: each full-text index the reload created
+   * asks the background builder to check its sidecar, as the open does. Without it, an HA follower, which reloads its schema for
+   * every compaction it applies, answered top-k by reading the postings from its first replicated compaction until a restart: the
+   * compaction's listener belonged to the wrapper the reload retired. Nothing while the database is still opening, before the WAL
+   * is replayed: {@link #afterDatabaseOpen} asks then. Only scheduled, and without reading a page: the builder checks whether the
+   * sidecar is current, so the reload's thread pays nothing for it.
+   */
+  public static void afterSchemaReload(final DatabaseInternal database, final Set<IndexInternal> replaced,
+      final Collection<IndexInternal> published) {
+    if (database.getOpenedOn() == 0L || database.getMode() != ComponentFile.MODE.READ_WRITE)
+      return;
+    for (final IndexInternal index : published)
+      if (index instanceof LSMTreeFullTextIndex fullTextIndex && !replaced.contains(index) && fullTextIndex.isBlockMaxFormat()
+          && !fullTextIndex.blockMaxClosed)
+        BlockMaxBuildScheduler.schedule(fullTextIndex);
+  }
+
+  /** Asks the background builder for the sidecar when the index has a compacted part the sidecar in place does not describe. */
+  private void scheduleBlockMaxIfOutdated() {
+    if (!isBlockMaxFormat() || blockMaxClosed || underlyingIndex.getMutableIndex().getSubIndex() == null)
+      return;
+    if (!isBlockMaxCurrent())
+      BlockMaxBuildScheduler.schedule(this);
+  }
+
+  /** The LSM-Tree holding the postings. For the tests that compact it the way an automatic compaction does. */
+  LSMTreeIndex getUnderlyingIndex() {
+    return underlyingIndex;
+  }
+
+  /** The file of the sidecar this bucket index reads now, or null when it has none. */
+  File blockMaxFile() {
+    final BlockMaxPostings sidecar = blockMax;
+    return sidecar != null ? sidecar.getFile() : null;
+  }
+
+  /** The sidecar this bucket index reads now, or null when it has none. For the tests. */
+  BlockMaxPostings blockMaxPostings() {
+    return blockMax;
+  }
+
+  /** True once this instance was closed or dropped, or its database closed. For the tests. */
+  boolean isBlockMaxClosed() {
+    return blockMaxClosed;
+  }
+
+  /** True while a sidecar build of this index holds the build lock. For the tests. */
+  boolean isBlockMaxBuilding() {
+    return blockMaxBuildLock.isLocked();
+  }
+
+  /**
+   * Opens the newest generation of the sidecar that can be read and deletes every other file a build of this index left: older
+   * generations, unreadable ones, temporary files of an interrupted build, the sidecar in the naming before generations.
+   */
+  private void initBlockMax() {
+    if (!isBlockMaxFormat())
+      return;
+    underlyingIndex.setCompactionListener(compactionListener);
+    final File directory = blockMaxDirectory();
+    final File[] files = directory.listFiles();
+    if (files == null)
+      return;
+    final String indexName = underlyingIndex.getName();
+    final List<File> generations = new ArrayList<>();
+    for (final File file : files) {
+      if (BlockMaxPostings.generationOf(indexName, file.getName()) >= 0)
+        generations.add(file);
+      else if (BlockMaxPostings.isLeftoverOf(indexName, file.getName()) && !BlockMaxPostings.Writer.isInFlight(file))
+        // Not the temporary files of a build still writing: the one of the instance a schema reload is replacing with this one
+        BlockMaxPostings.deleteQuietly(file);
+    }
+    generations.sort(Comparator.comparingLong((File file) -> BlockMaxPostings.generationOf(indexName, file.getName())).reversed());
+    BlockMaxPostings opened = null;
+    for (final File file : generations) {
+      if (opened == null) {
+        opened = BlockMaxPostings.open(file);
+        if (opened != null)
+          continue;
+      }
+      BlockMaxPostings.deleteQuietly(file);
+    }
+    if (opened != null)
+      blockMax = opened;
+  }
+
+  /**
+   * Puts {@code replacement} in place of the current sidecar, which is deleted once the queries reading it are done. A sidecar a
+   * build finishes after the index was closed or dropped is deleted instead of published.
+   *
+   * @return false when the index is closed and the replacement was discarded
+   */
+  private boolean publishBlockMax(final BlockMaxPostings replacement) {
+    final BlockMaxPostings previous;
+    synchronized (blockMaxMonitor) {
+      if (blockMaxClosed) {
+        if (replacement != null) {
+          if (blockMaxSuperseded)
+            // The successor may have opened this generation: kept, the next open of the database deletes it if it is not the newest
+            replacement.close();
+          else
+            replacement.retire();
+        }
+        return false;
+      }
+      previous = blockMax;
+      blockMax = replacement;
+    }
+    if (previous != null && previous != replacement)
+      previous.retire();
+    return true;
+  }
+
+  /**
+   * Called by the top-k scorer when reading {@code sidecar} failed (a file truncated or damaged after it was opened, an I/O
+   * error): the sidecar is set aside and deleted, so the next queries read the postings, and a new one is written in the
+   * background.
+   */
+  void invalidateBlockMax(final BlockMaxPostings sidecar, final Throwable cause) {
+    final boolean current;
+    synchronized (blockMaxMonitor) {
+      current = blockMax == sidecar && !blockMaxClosed;
+      if (current)
+        blockMax = null;
+    }
+    if (!current)
+      return;
+    LogManager.instance().log(this, Level.WARNING,
+        "The block-max file '%s' of index '%s' cannot be read (%s): top-k queries read the postings until it is written again", null,
+        sidecar.getFile(), getName(), cause.toString());
+    sidecar.retire();
+    BlockMaxBuildScheduler.schedule(this);
+  }
+
+  /**
+   * True when the sidecar describes the compacted part of the LSM-Tree as it is now: same compacted file, the series it covers
+   * still there as they were (a crash recovery can lose the last series of a compaction, and later ones then reuse its pages), and
+   * the series appended since are few (a quarter of what the sidecar covers). Past that, the newer postings a query reads from
+   * the LSM-Tree outweigh what the sidecar saves, and the sidecar is rewritten.
+   */
+  boolean isBlockMaxCurrent() {
+    final BlockMaxPostings sidecar = blockMax;
+    if (sidecar == null)
+      return false;
+    try {
+      final LSMTreeIndexCompacted compacted = underlyingIndex.getMutableIndex().getSubIndex();
+      if (!describes(sidecar, compacted))
+        return false;
+      return compacted.getSeriesEnd() - sidecar.getSeriesEnd() <= Math.max(1, sidecar.getSeriesEnd() / 4);
+    } catch (final IOException e) {
+      return false;
+    }
+  }
+
+  /** True when {@code sidecar} is a snapshot of {@code compacted} as it is now, below the sidecar's mark. */
+  private static boolean describes(final BlockMaxPostings sidecar, final LSMTreeIndexCompacted compacted) throws IOException {
+    return compacted != null && compacted.getFileId() == sidecar.getCompactedFileId()
+        && compacted.getSeriesEnd() >= sidecar.getSeriesEnd()
+        && compacted.getSeriesFingerprint(sidecar.getSeriesEnd()) == sidecar.getSeriesFingerprint();
+  }
+
+  /**
+   * Called by the LSM-Tree after each compaction it completes, on the compaction thread: asks for the sidecar to be rewritten in
+   * the background when it is missing or outdated, so the compaction thread is not held for the time the rewrite takes.
+   */
+  private void onCompacted() {
+    if (explicitCompaction == Thread.currentThread())
+      return;
+    if (isBlockMaxFormat() && !blockMaxClosed && !isBlockMaxCurrent())
+      BlockMaxBuildScheduler.schedule(this);
+  }
+
+  /** The background build: brings the sidecar up to date unless the index was closed meanwhile. */
+  void refreshBlockMaxInBackground() {
+    if (blockMaxClosed || !isBlockMaxFormat())
+      return;
+    refreshBlockMax();
+  }
+
+  /** Writes the sidecar unless the one in place is current; waits for a build of this index already running. */
+  private boolean refreshBlockMax() {
+    blockMaxBuildLock.lock();
+    try {
+      // Closed while this caller waited for the lock: the database may be closing, nothing more is read
+      if (blockMaxClosed)
+        return false;
+      // The check reads the compacted part's pages too, so it needs the context as much as the build does: on the background
+      // builder, which has none, it used to throw, and a sidecar a compaction had outdated was never rewritten
+      return inDatabaseContext(() -> isBlockMaxCurrent() || writeBlockMax());
+    } finally {
+      blockMaxBuildLock.unlock();
+    }
+  }
+
+  /**
+   * Runs {@code work} on any thread: the page reads need a database context, which the background builder and a caller's own
+   * thread pool do not have. Created only when absent, and removed afterwards, so a caller's transaction is left alone.
+   */
+  private boolean inDatabaseContext(final BooleanSupplier work) {
+    final DatabaseInternal database = getDatabase();
+    final boolean contextCreated = DatabaseContext.INSTANCE.getContextIfExists(database.getDatabasePath()) == null;
+    if (contextCreated)
+      DatabaseContext.INSTANCE.init(database);
+    try {
+      return work.getAsBoolean();
+    } finally {
+      if (contextCreated)
+        DatabaseContext.INSTANCE.removeContext(database.getDatabasePath());
+    }
+  }
+
+  /**
+   * Compacts the index, so its postings are in the compacted part, then writes the sidecar from it. Called after a REBUILD INDEX,
+   * and usable whenever the sidecar should be brought up to date at once rather than at the next compaction.
+   *
+   * @return true when the index has a current sidecar afterwards
+   */
+  public boolean buildBlockMax() {
+    if (!isBlockMaxFormat())
+      return false;
+    try {
+      // A compaction already running (an automatic one) asks for the sidecar when it completes: wait for it rather than snapshot
+      // an index whose compacted part is being written. Bounded: past it, the sidecar is left to that compaction
+      final long deadline = System.currentTimeMillis() + 60_000L;
+      while (underlyingIndex.isCompacting() && System.currentTimeMillis() < deadline)
+        Thread.sleep(10L);
+      // Scheduled by the automatic trigger but not started yet: compact() runs it here
+      underlyingIndex.scheduleCompaction();
+      compactExplicitly();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return isBlockMaxCurrent();
+    } catch (final Exception e) {
+      LogManager.instance().log(this, Level.WARNING, "Cannot compact index '%s' before writing its block-max file", e, getName());
+    }
+    refreshBlockMax();
+    return isBlockMaxCurrent();
+  }
+
+  @Override
+  public void onRebuilt() {
+    buildBlockMax();
+  }
+
+  /**
+   * Writes the sidecar from the compacted part of the LSM-Tree as it is now and puts it in place of the previous one. One build
+   * per index at a time: a second caller waits for the first. Without a compacted part there is nothing to snapshot and the index
+   * keeps no sidecar until its first compaction.
+   *
+   * @return true when a sidecar was written
+   */
+  public boolean rebuildBlockMax() {
+    if (!isBlockMaxFormat())
+      return false;
+    blockMaxBuildLock.lock();
+    try {
+      if (blockMaxClosed)
+        return false;
+      return inDatabaseContext(this::writeBlockMax);
+    } finally {
+      blockMaxBuildLock.unlock();
+    }
+  }
+
+  /**
+   * Test hook: run by the build after each term it writes, outside every index lock. Null outside tests.
+   */
+  static volatile Runnable blockMaxBuildProbe;
+
+  /**
+   * The build, under {@link #blockMaxBuildLock}. It holds the LSM-Tree lock only to take its snapshot: the compacted file, the
+   * series end that marks what the sidecar covers, and a pin that keeps the file from being dropped if a full compaction replaces
+   * it meanwhile. Everything it reads lies below the mark, in pages no later compaction rewrites (a partial compaction appends
+   * series, a full one writes another file), so the walk runs without the lock and never holds up a compaction's publication, nor
+   * the readers and writers queued behind it.
+   */
+  private boolean writeBlockMax() {
+    record Snapshot(LSMTreeIndexCompacted compacted, int seriesEnd, long fingerprint, LSMTreeIndexCompacted.Pin pin,
+                    List<LSMTreeIndexUnderlyingCompactedSeriesCursor> series) {
+    }
+    final File target;
+    final Snapshot snapshot;
+    try {
+      snapshot = underlyingIndex.executeInReadLock(() -> {
+        final LSMTreeIndexCompacted compacted = underlyingIndex.getMutableIndex().getSubIndex();
+        if (compacted == null)
+          return null;
+        final int seriesEnd = compacted.getSeriesEnd();
+        final long fingerprint = compacted.getSeriesFingerprint(seriesEnd);
+        if (fingerprint < 0)
+          return null;
+        final LSMTreeIndexCompacted.Pin pin = compacted.pinForReading();
+        try {
+          return new Snapshot(compacted, seriesEnd, fingerprint, pin, compacted.newIterators(true, null, null));
+        } catch (final IOException | RuntimeException e) {
+          pin.close();
+          throw e;
+        }
+      });
+      if (snapshot == null) {
+        publishBlockMax(null);
+        return false;
+      }
+      target = BlockMaxPostings.generationFile(blockMaxDirectory(), underlyingIndex.getName(), nextBlockMaxGeneration());
+    } catch (final Exception e) {
+      if (blockMaxClosed)
+        // The database closed under the build: nothing wrong with the index
+        return false;
+      LogManager.instance().log(this, Level.WARNING, "Cannot write the block-max file of index '%s'; top-k queries read the postings",
+          e, getName());
+      return false;
+    }
+
+    BlockMaxPostings written = null;
+    try {
+      try (final BlockMaxPostings.Writer writer = new BlockMaxPostings.Writer(target, snapshot.compacted().getFileId(),
+          snapshot.seriesEnd(), snapshot.fingerprint())) {
+        if (!writeTerms(snapshot.compacted(), snapshot.seriesEnd(), snapshot.series(), writer))
+          return false;
+        writer.finish();
+      }
+      written = BlockMaxPostings.open(target);
+      if (written == null)
+        throw new IOException("the block-max file just written cannot be read back: " + target);
+      // A full compaction published meanwhile: this snapshot describes the file it replaced. The compaction asked for its own
+      if (!describes(written, underlyingIndex.getMutableIndex().getSubIndex())) {
+        written.retire();
+        return false;
+      }
+      return publishBlockMax(written);
+    } catch (final Exception e) {
+      if (written != null)
+        written.retire();
+      else
+        BlockMaxPostings.deleteQuietly(target);
+      if (blockMaxClosed)
+        // The database closed under the build: nothing wrong with the index
+        return false;
+      // The sidecar in place, if any, stays: it is still exact for as long as it describes the compacted part, which every query
+      // checks before it reads it
+      LogManager.instance().log(this, Level.WARNING,
+          "Cannot write the block-max file of index '%s'; top-k queries keep reading the previous one, or the postings", e, getName());
+      return false;
+    } finally {
+      for (final LSMTreeIndexUnderlyingCompactedSeriesCursor cursor : snapshot.series())
+        cursor.close();
+      snapshot.pin().close();
+    }
+  }
+
+  /**
+   * One past the highest generation of this index's sidecar on disk, open or written by this instance before: a name is never
+   * reused while this instance lives, so a deletion pending on an old generation can never reach a new file.
+   */
+  private long nextBlockMaxGeneration() {
+    long highest = lastBlockMaxGeneration;
+    final BlockMaxPostings current = blockMax;
+    if (current != null)
+      highest = Math.max(highest, BlockMaxPostings.generationOf(underlyingIndex.getName(), current.getFile().getName()));
+    final File directory = blockMaxDirectory();
+    final File[] files = directory.listFiles();
+    if (files != null)
+      for (final File file : files)
+        highest = Math.max(highest, BlockMaxPostings.generationOf(underlyingIndex.getName(), file.getName()));
+    // A generation another build is writing and has not moved into place yet: the one of the instance a schema reload replaced
+    highest = Math.max(highest, BlockMaxPostings.Writer.highestGenerationInFlight(directory, underlyingIndex.getName()));
+    lastBlockMaxGeneration = highest + 1;
+    return lastBlockMaxGeneration;
+  }
+
+  /**
+   * Walks every key of the series below the mark, once, in key order (a merge of the series cursors), and writes each term's
+   * postings as the compacted part resolved them when its series ended at the mark.
+   *
+   * @return false when the build was abandoned: the index closed, or a RID the sidecar cannot encode
+   */
+  private boolean writeTerms(final LSMTreeIndexCompacted compacted, final int seriesEnd,
+      final List<LSMTreeIndexUnderlyingCompactedSeriesCursor> series, final BlockMaxPostings.Writer writer) throws IOException {
+    final int count = series.size();
+    final LSMTreeIndexUnderlyingCompactedSeriesCursor[] cursors = series.toArray(new LSMTreeIndexUnderlyingCompactedSeriesCursor[0]);
+    final String[] heads = new String[count];
+    for (int i = 0; i < count; i++)
+      heads[i] = nextKey(cursors[i], null);
+
+    long[] rids = new long[1024];
+    int[] tfs = new int[1024];
+    int[] docLengths = new int[1024];
+    final Runnable probe = blockMaxBuildProbe;
+    while (true) {
+      if (blockMaxClosed)
+        return false;
+      String term = null;
+      for (final String head : heads)
+        if (head != null && (term == null || BinaryComparator.compareStrings(head, term) < 0))
+          term = head;
+      if (term == null)
+        return true;
+      for (int i = 0; i < count; i++)
+        if (term.equals(heads[i]))
+          heads[i] = nextKey(cursors[i], term);
+
+      final Set<IndexCursorEntry> entries = new HashSet<>();
+      compacted.searchSeriesBelow(new Object[] { term }, seriesEnd, entries);
+      if (entries.isEmpty())
+        continue;
+      if (entries.size() > rids.length) {
+        final int capacity = Integer.highestOneBit(entries.size()) << 1;
+        rids = new long[capacity];
+        tfs = new int[capacity];
+        docLengths = new int[capacity];
+      }
+      int postings = 0;
+      for (final IndexCursorEntry entry : entries) {
+        final RID rid = entry.record.getIdentity();
+        if (rid.getBucketId() < 0)
+          continue;
+        final long encoded = FullTextTopK.encode(rid);
+        if (encoded < 0)
+          // A RID the sidecar cannot encode: no sidecar, the queries read the postings
+          return false;
+        rids[postings] = encoded;
+        if (entry.record instanceof FullTextPostingRID posting) {
+          tfs[postings] = posting.getTf();
+          docLengths[postings] = posting.getDocLength();
+        } else {
+          tfs[postings] = -1;
+          docLengths[postings] = 0;
+        }
+        ++postings;
+      }
+      BlockMaxPostings.sortByRid(rids, tfs, docLengths, postings);
+      writer.addTerm(term, rids, tfs, docLengths, postings);
+      if (probe != null)
+        probe.run();
+    }
+  }
+
+  /** The next key of a series cursor after {@code current} (any key when null), or null at its end. */
+  private static String nextKey(final LSMTreeIndexUnderlyingCompactedSeriesCursor cursor, final String current) {
+    while (cursor.hasNext()) {
+      cursor.next();
+      final Object[] keys = cursor.getKeys();
+      if (keys != null && keys.length > 0 && keys[0] instanceof String key && !key.equals(current))
+        return key;
+    }
+    return null;
+  }
+
+  /**
+   * What a top-k query reads of this bucket for its terms, at one state of the index: one cursor per term over the sidecar and the
+   * postings written since, and each term's live document frequency here. Null when the bucket has to be read the general way:
+   * no current sidecar, or the current transaction holds changes to this index that only the LSM-Tree lookup sees. The caller
+   * releases the sidecar with {@link BlockMaxView#release()}.
+   */
+  BlockMaxView openBlockMaxView(final List<FullTextTopK.Term> terms) {
+    if (!isBlockMaxFormat())
+      return null;
+    final BlockMaxPostings sidecar = blockMax;
+    if (sidecar == null || !getDatabase().getConfiguration().getValueAsBoolean(GlobalConfiguration.FULL_TEXT_BLOCK_MAX)
+        || underlyingIndex.hasPendingChanges() || !sidecar.acquire())
+      return null;
+    boolean opened = false;
+    try {
+      final BlockMaxView view = underlyingIndex.executeInReadLock(() -> {
+        final LSMTreeIndexMutable mutable = underlyingIndex.getMutableIndex();
+        final LSMTreeIndexCompacted compacted = mutable.getSubIndex();
+        // Same file, and the series below the mark still the ones the sidecar was written from (a crash recovery can lose the last
+        // series of a compaction, whose pages later series then reuse)
+        if (!describes(sidecar, compacted))
+          return null;
+        // The sidecar pays off on long posting lists only: below a few blocks in all, reading the postings is cheaper than
+        // opening the sidecar terms and the postings written since
+        final BlockMaxPostings.Term[] sidecarTerms = new BlockMaxPostings.Term[terms.size()];
+        int sidecarBlocks = 0;
+        for (int t = 0; t < terms.size(); t++) {
+          sidecarTerms[t] = sidecar.term(terms.get(t).key());
+          if (sidecarTerms[t] != null)
+            sidecarBlocks += sidecarTerms[t].blocks();
+        }
+        if (sidecarBlocks < minBlockMaxBlocks)
+          return null;
+
+        final BlockMaxScorer.TermCursor[] cursors = new BlockMaxScorer.TermCursor[terms.size()];
+        final long[] documentFrequencies = new long[terms.size()];
+        for (int t = 0; t < terms.size(); t++) {
+          final String key = terms.get(t).key();
+          final Set<IndexCursorEntry> newer = new HashSet<>();
+          final RidHashSet deleted = new RidHashSet();
+          final boolean voided = mutable.searchNewerThan(new Object[] { key }, sidecar.getSeriesEnd(), newer, deleted);
+          final BlockMaxPostings.Term sidecarTerm = voided ? null : sidecarTerms[t];
+          if (sidecarTerm == null && !voided && sidecar.getMinDocumentFrequency() > 1) {
+            // A term too rare for the sidecar: its postings of the snapshot are read from the compacted part, less what was
+            // deleted or written again since, and travel with the newer ones
+            final Set<IndexCursorEntry> older = new HashSet<>();
+            mutable.searchCompactedOlderThan(new Object[] { key }, sidecar.getSeriesEnd(), older);
+            for (final IndexCursorEntry entry : older)
+              if (!deleted.contains(entry.record.getIdentity()) && !newer.contains(entry))
+                newer.add(entry);
+          }
+
+          final long[] tailRids = new long[newer.size()];
+          final int[] tailTfs = new int[newer.size()];
+          final int[] tailDocLengths = new int[newer.size()];
+          int tailSize = 0;
+          for (final IndexCursorEntry entry : newer) {
+            final RID rid = entry.record.getIdentity();
+            if (rid.getBucketId() < 0)
+              continue;
+            final long encoded = FullTextTopK.encode(rid);
+            if (encoded < 0)
+              return null;
+            tailRids[tailSize] = encoded;
+            if (entry.record instanceof FullTextPostingRID posting) {
+              tailTfs[tailSize] = posting.getTf();
+              tailDocLengths[tailSize] = posting.getDocLength();
+            } else
+              tailTfs[tailSize] = -1;
+            ++tailSize;
+          }
+          BlockMaxPostings.sortByRid(tailRids, tailTfs, tailDocLengths, tailSize);
+
+          // The sidecar postings no longer current: deleted since, or written again since
+          final long[] stale = new long[deleted.size() + tailSize];
+          final int[] staleCount = { 0 };
+          final boolean[] unencodable = { false };
+          deleted.forEach((bucketId, offset) -> {
+            final long encoded = FullTextTopK.encode(bucketId, offset);
+            if (encoded < 0)
+              unencodable[0] = true;
+            else
+              stale[staleCount[0]++] = encoded;
+          });
+          if (unencodable[0])
+            return null;
+          System.arraycopy(tailRids, 0, stale, staleCount[0], tailSize);
+          int staleSize = staleCount[0] + tailSize;
+          Arrays.sort(stale, 0, staleSize);
+          int unique = 0;
+          for (int i = 0; i < staleSize; i++)
+            if (unique == 0 || stale[unique - 1] != stale[i])
+              stale[unique++] = stale[i];
+          staleSize = unique;
+          BlockMaxScorer.LongSet excluded = null;
+          if (staleSize > 0) {
+            excluded = new BlockMaxScorer.LongSet(staleSize);
+            for (int i = 0; i < staleSize; i++)
+              excluded.add(stale[i]);
+          }
+
+          cursors[t] = new BlockMaxScorer.TermCursor(sidecarTerm, excluded, tailRids, tailTfs, tailDocLengths, tailSize);
+          documentFrequencies[t] = cursors[t].documentFrequency(stale, staleSize);
+        }
+        return new BlockMaxView(sidecar, cursors, documentFrequencies);
+      });
+      opened = view != null;
+      return view;
+    } catch (final RuntimeException e) {
+      final BlockMaxPostings.SidecarReadException damage = causeOf(e, BlockMaxPostings.SidecarReadException.class);
+      if (damage != null) {
+        // The sidecar cannot be read (the header checked at open does not cover a file damaged or truncated since): this bucket
+        // reads its postings, now and until a new sidecar is written
+        invalidateBlockMax(sidecar, damage);
+        return null;
+      }
+      // Anything else is not the sidecar's: this thread's interrupt, a channel that kept closing, a failure of the LSM-Tree pages
+      // read under the lock. The query fails as it would without the sidecar, which stays
+      final IOException readFailure = causeOf(e, IOException.class);
+      if (readFailure instanceof ClosedByInterruptException)
+        throw FullTextTopK.readError(readFailure);
+      throw e;
+    } finally {
+      if (!opened)
+        sidecar.release();
+    }
+  }
+
+  /** The first throwable of {@code type} in the cause chain of {@code e}, or null. */
+  private static <T extends Throwable> T causeOf(final Throwable e, final Class<T> type) {
+    for (Throwable cause = e; cause != null; cause = cause.getCause() == cause ? null : cause.getCause())
+      if (type.isInstance(cause))
+        return type.cast(cause);
+    return null;
+  }
+
+  /**
+   * The fewest sidecar blocks a query's terms must span in a bucket for the block-max scorer to answer it there. Not final only
+   * so the tests can send small corpora through the block-max scorer.
+   */
+  static int minBlockMaxBlocks = 16;
+
+  /** The term cursors of one bucket for one query, holding a reference on the sidecar they read. */
+  record BlockMaxView(BlockMaxPostings postings, BlockMaxScorer.TermCursor[] cursors, long[] documentFrequencies) {
+    void release() {
+      postings.release();
+    }
+  }
+
+  /**
+   * What reopening a cursor of {@link #iterateUnderlying} at a key costs, in page probes: one per mutable page plus one per
+   * compacted series. A term walk weighs it against reading on.
+   */
+  int getSeekCost() {
+    final LSMTreeIndexMutable mutable = underlyingIndex.getMutableIndex();
+    return mutable.getTotalPages() + (mutable.getSubIndex() != null ? 1 : 0);
+  }
+
   @Override
   public boolean isValid() {
     return underlyingIndex.isValid();
@@ -1823,14 +2803,53 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
     if (metadata == null)
       return new StandardAnalyzer();
 
-    final String analyzerClass = forIndexing ? metadata.getIndexAnalyzerClass() : metadata.getQueryAnalyzerClass();
+    final Analyzer analyzer = createAnalyzer(forIndexing ? metadata.getIndexAnalyzerClass() : metadata.getQueryAnalyzerClass());
+    // A partial-match analyzer expands on the index side only: the query side runs its counterpart
+    return forIndexing ? analyzer : FullTextAnalyzers.forQuery(analyzer);
+  }
 
+  private static Analyzer createAnalyzer(final String spec) {
     try {
-      final Class<?> clazz = Class.forName(analyzerClass);
-      return (Analyzer) clazz.getDeclaredConstructor().newInstance();
-    } catch (final Exception e) {
-      throw new IndexException("Cannot instantiate analyzer: " + analyzerClass, e);
+      return FullTextAnalyzers.create(spec);
+    } catch (final IllegalArgumentException e) {
+      throw new IndexException("Cannot instantiate analyzer: " + spec + " (" + e.getMessage() + ")", e);
     }
+  }
+
+  /**
+   * The analyzers of the properties the metadata configures one for, under the property name and its base name.
+   */
+  private static Map<String, Analyzer> createFieldAnalyzers(final FullTextIndexMetadata metadata) {
+    // An index written before per-field analyzers were applied holds postings built with the index-wide analyzer: indexing a
+    // removal or an update with the field's analyzer would delete tokens never stored and leave the real ones, so such an index
+    // keeps the index-wide analyzer on both sides until REBUILD INDEX writes it again in the current format
+    if (metadata == null || metadata.getFieldAnalyzers().isEmpty() || !metadata.isFieldAnalyzersApplied())
+      return Map.of();
+    final Map<String, Analyzer> analyzers = new HashMap<>();
+    for (final Map.Entry<String, String> field : metadata.getFieldAnalyzers().entrySet()) {
+      final Analyzer analyzer = createAnalyzer(field.getValue());
+      analyzers.put(field.getKey(), analyzer);
+      analyzers.putIfAbsent(Index.basePropertyName(field.getKey()), analyzer);
+    }
+    return Map.copyOf(analyzers);
+  }
+
+  private static Map<String, Analyzer> queryAnalyzersOf(final Map<String, Analyzer> fieldIndexAnalyzers) {
+    if (fieldIndexAnalyzers.isEmpty())
+      return Map.of();
+    final Map<String, Analyzer> analyzers = new HashMap<>();
+    for (final Map.Entry<String, Analyzer> field : fieldIndexAnalyzers.entrySet())
+      analyzers.put(field.getKey(), FullTextAnalyzers.forQuery(field.getValue()));
+    return Map.copyOf(analyzers);
+  }
+
+  private static boolean isPartialMatch(final Analyzer indexAnalyzer, final Map<String, Analyzer> fieldIndexAnalyzers) {
+    if (indexAnalyzer instanceof PartialMatchAnalyzer)
+      return true;
+    for (final Analyzer analyzer : fieldIndexAnalyzers.values())
+      if (analyzer instanceof PartialMatchAnalyzer)
+        return true;
+    return false;
   }
 
   /**
@@ -1951,8 +2970,9 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
         // The terms the index holds for the document, from the keys the writers put: a BY ITEM property is read from its list,
         // not as a property called "tags by item" that no document has (issue #10209)
         db.getIndexer().forEachIndexKey(this, (Document) identifiable, keys -> {
-          for (final String token : analyzeText(indexAnalyzer, keys))
-            if (token != null)
+          // The reversed copies a suffix analyzer stores are not words of the document
+          for (final String token : analyzeKeys(keys))
+            if (token != null && !PartialMatchAnalyzer.isInternalToken(token))
               termFreqs.merge(token, 1, Integer::sum);
         });
       }

@@ -4678,6 +4678,12 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
           schema.openDeferredTimeSeriesEngines();
         }
 
+        // THE BLOCK-MAX SIDECARS OF THE FULL-TEXT INDEXES ARE DERIVED FILES OUTSIDE THE WAL: ONLY ONCE THE REPLAY ABOVE IS DONE ARE
+        // THE INDEXES WHAT A BUILD MAY SNAPSHOT. AN OUTDATED OR MISSING ONE IS WRITTEN IN THE BACKGROUND, THE FILES OF INDEXES
+        // THAT ARE GONE ARE DELETED
+        if (mode == ComponentFile.MODE.READ_WRITE)
+          LSMTreeFullTextIndex.afterDatabaseOpen(this, schema.getIndexes());
+
         if (security != null)
           security.updateSchema(this);
 
