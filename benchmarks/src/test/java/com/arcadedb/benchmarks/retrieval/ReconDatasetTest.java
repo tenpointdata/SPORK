@@ -20,6 +20,7 @@ package com.arcadedb.benchmarks.retrieval;
 
 import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseFactory;
+import com.arcadedb.database.Document;
 import com.arcadedb.graph.Vertex;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultSet;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
@@ -152,7 +154,7 @@ class ReconDatasetTest {
       switch (q) {
       case IDENT_LOOKUP -> assertThat(rows).isEqualTo(1);
       case PIVOT_1HOP, PIVOT_2HOP -> assertThat(rows).as("%s with %s", q.id, params).isBetween(1, QueryMix.PIVOT_LIMIT);
-      case STRUCTURED -> assertThat(rows).isBetween(0, QueryMix.SEARCH_LIMIT);
+      case STRUCTURED, STRUCTURED_P4 -> assertThat(rows).isBetween(0, QueryMix.SEARCH_LIMIT);
       case FEED_24H -> assertThat(rows).isBetween(1, QueryMix.FEED_LIMIT);
       case GEO_RADIUS_14D -> assertThat(rows).isBetween(0, QueryMix.PIVOT_LIMIT);
       case FULLTEXT_TOP20 -> assertThat(rows).isBetween(1, QueryMix.TEXT_LIMIT);
@@ -210,6 +212,8 @@ class ReconDatasetTest {
       final QueryMix.ParamSampler sampler = new QueryMix.ParamSampler(new QueryMix.Tables(manifest), 1L, null);
       for (final QueryMix.Query q : QueryMix.Query.values()) {
         final Map<String, Object> params = sampler.params(q);
+        if (!q.sqlServed())
+          continue;
         final int json = client.queryJson(q.sql, params);
         final int ndjson = client.queryNdjson(q.sql, params);
         assertThat(ndjson).as("%s: ndjson vs json", q.id).isEqualTo(json);
@@ -255,5 +259,27 @@ class ReconDatasetTest {
     assertThat(first.get(0).rows()).isEqualTo(3); // identLookup: one phone per draw
     // the same seed asks the same questions: the row totals are what the OrientDB leg's totals are compared against
     assertThat(second).extracting(FixedWorkload.Result::rows).isEqualTo(first.stream().map(FixedWorkload.Result::rows).toList());
+  }
+
+  @Test
+  void theP4CoreAnswersStructuredSearchWithTheRowsSqlDoes() {
+    final QueryMix.ParamSampler sampler = new QueryMix.ParamSampler(new QueryMix.Tables(manifest), 99L, database);
+    int nonEmpty = 0;
+    for (int i = 0; i < 40; i++) {
+      final Map<String, Object> params = sampler.params(QueryMix.Query.STRUCTURED);
+      final List<Document> p4 = QueryMix.structuredP4(database, params).rows();
+      final List<Document> sql = new ArrayList<>();
+      try (final ResultSet rs = database.query("sql", QueryMix.Query.STRUCTURED.sql, params)) {
+        while (rs.hasNext())
+          sql.add(rs.next().getElement().orElseThrow());
+      }
+      // same records, same newest-first order of tsPosted (ties may be ordered differently: SQL does not order them)
+      assertThat(p4.stream().map(Document::getIdentity).toList()).as("draw %d %s", i, params)
+          .containsExactlyInAnyOrderElementsOf(sql.stream().map(Document::getIdentity).toList());
+      assertThat(p4.stream().map(d -> d.getLong("tsPosted")).toList()).isEqualTo(sql.stream().map(d -> d.getLong("tsPosted")).toList());
+      if (!p4.isEmpty())
+        nonEmpty++;
+    }
+    assertThat(nonEmpty).as("draws that found rows").isGreaterThan(5);
   }
 }

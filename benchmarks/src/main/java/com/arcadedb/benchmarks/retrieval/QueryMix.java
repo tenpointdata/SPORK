@@ -21,6 +21,9 @@ package com.arcadedb.benchmarks.retrieval;
 import com.arcadedb.database.Database;
 import com.arcadedb.database.RID;
 import com.arcadedb.query.sql.executor.ResultSet;
+import com.arcadedb.query.structured.Facet;
+import com.arcadedb.query.structured.StructuredQuery;
+import com.arcadedb.query.structured.StructuredSearch;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 
@@ -29,9 +32,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SplittableRandom;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The nine retrieval shapes Recon issues, as parametrized SQL, with a {@link ParamSampler} that draws parameters the way
+ * The nine retrieval shapes Recon issues, as parametrized SQL (plus {@link Query#STRUCTURED_P4}, the same search through the P4
+ * core), with a {@link ParamSampler} that draws parameters the way
  * the application would: identifier lookups and pivots follow the same Zipf as the data (so hubs are hit as often as they
  * are referenced), windows are relative to the newest record, geo radii are around the cities the records cluster in.
  */
@@ -66,7 +71,12 @@ public final class QueryMix {
         "SELECT FROM Record WHERE SEARCH_INDEX('Record[text]', :q) = true ORDER BY $score DESC LIMIT " + TEXT_LIMIT),
     VECTOR_KNN20("vectorKnn20", "24-d style vector kNN, k=20",
         "SELECT expand(`vector.neighbors`('Record[styleVec]', :vector, " + KNN_K + "))"),
-    HYDRATE_200("hydrate200", "200 records by RID", "SELECT FROM Record WHERE @rid IN :rids");
+    HYDRATE_200("hydrate200", "200 records by RID", "SELECT FROM Record WHERE @rid IN :rids"),
+    /**
+     * {@link #STRUCTURED}'s parameters and answer through the P4 core ({@link StructuredSearch}) instead of SQL: the newest-first
+     * walk of the most selective {@code (facet, tsPosted)} composite. Exact (no over-read cap), so its rows equal SQL's.
+     */
+    STRUCTURED_P4("structuredP4", "structured's filters through the P4 core (StructuredSearch), exact", null);
 
     public final String id;
     public final String description;
@@ -76,6 +86,11 @@ public final class QueryMix {
       this.id = id;
       this.description = description;
       this.sql = sql;
+    }
+
+    /** False for a query answered through a Java API rather than SQL: the HTTP leg and EXPLAIN skip it. */
+    public boolean sqlServed() {
+      return sql != null;
     }
 
     public static Query byId(final String id) {
@@ -91,6 +106,8 @@ public final class QueryMix {
 
   /** Executes one query embedded and returns the number of rows it produced (every row is consumed). */
   public static int execute(final Database database, final Query query, final Map<String, Object> params) {
+    if (query == Query.STRUCTURED_P4)
+      return structuredP4(database, params).rows().size();
     int rows = 0;
     try (final ResultSet rs = database.query("sql", query.sql, params)) {
       while (rs.hasNext()) {
@@ -99,6 +116,27 @@ public final class QueryMix {
       }
     }
     return rows;
+  }
+
+  /**
+   * One {@link StructuredSearch} per open database instance: it holds the cardinality tables the walk chooses its index from.
+   * Keyed by path but checked by identity, because a database closed and reopened at the same path is equal to the old one.
+   */
+  private record P4Search(Database database, StructuredSearch search) {
+  }
+
+  private static final Map<String, P4Search> P4 = new ConcurrentHashMap<>();
+
+  /** {@link Query#STRUCTURED}'s filters, newest {@link #SEARCH_LIMIT} first, through the P4 core. */
+  public static StructuredSearch.Result structuredP4(final Database database, final Map<String, Object> params) {
+    final StructuredSearch search = P4.compute(database.getDatabasePath(), (path, cached) -> cached != null && cached.database() == database ?
+        cached :
+        new P4Search(database, new StructuredSearch(database, ReconSchema.RECORD, "tsPosted"))).search();
+    return search.search(StructuredQuery.newestFirst(SEARCH_LIMIT)
+        .where(Facet.eq("state", params.get("state")))
+        .where(Facet.intRange("age", (Integer) params.get("ageMin"), (Integer) params.get("ageMax")))
+        .where(Facet.eq("services", params.get("service")))
+        .overRead(Integer.MAX_VALUE));
   }
 
   /** Parameters as the HTTP body wants them: vectors as JSON arrays, RIDs as their string form. */
@@ -149,7 +187,7 @@ public final class QueryMix {
       // HUB_DEGREE records two hops out, so the sampler starts below the hubs (they stay in the 1-hop pivot)
       case PIVOT_2HOP -> p.put("key", ReconDomain.phoneKey(tables.phoneZipf.sample(
           tables.hubPhoneMass + rnd.nextDouble() * (tables.referencedPhoneMass - tables.hubPhoneMass))));
-      case STRUCTURED -> {
+      case STRUCTURED, STRUCTURED_P4 -> {
         final ReconDomain.City city = ReconDomain.city(tables.cityZipf.sample(rnd.nextDouble()));
         final int ageMin = 18 + rnd.nextInt(25);
         p.put("state", city.state());
