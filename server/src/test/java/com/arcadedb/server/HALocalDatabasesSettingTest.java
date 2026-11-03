@@ -82,13 +82,13 @@ class HALocalDatabasesSettingTest extends StaticBaseServerTest {
   @Test
   void listedDatabasesOpenReadOnlyAndTheOthersReadWrite() {
     for (final String name : new String[] { "warm", "w_rec_1" }) {
-      final ServerDatabase db = server.getDatabase(name);
+      final ServerDatabase db = server.getDatabaseForOperator(name);
       assertThat(db.getMode()).as(name).isEqualTo(ComponentFile.MODE.READ_ONLY);
       assertThatThrownBy(() -> db.transaction(() -> db.newDocument("Ad").set("x", 1).save()))
           .isInstanceOf(DatabaseIsReadOnlyException.class);
     }
 
-    final ServerDatabase hot = server.getDatabase("hot");
+    final ServerDatabase hot = server.getDatabaseForOperator("hot");
     assertThat(hot.getMode()).isEqualTo(ComponentFile.MODE.READ_WRITE);
     hot.transaction(() -> hot.newDocument("Ad").set("x", 1).save());
     assertThat(hot.countType("Ad", true)).isEqualTo(1);
@@ -108,7 +108,7 @@ class HALocalDatabasesSettingTest extends StaticBaseServerTest {
   /** The old copy is dropped once the rewritten one is serving: a READ_ONLY database refuses drop(), the server closes and deletes it. */
   @Test
   void aListedDatabaseIsDroppedDespiteBeingReadOnly() {
-    assertThat(server.getDatabase("warm").getMode()).isEqualTo(ComponentFile.MODE.READ_ONLY);
+    assertThat(server.getDatabaseForOperator("warm").getMode()).isEqualTo(ComponentFile.MODE.READ_ONLY);
     new ServerControlPlane(server).dropDatabase("warm");
     assertThat(server.existsDatabase("warm")).isFalse();
     assertThat(new File(DATABASES, "warm")).doesNotExist();

@@ -126,7 +126,7 @@ class NodeLocalDatabaseBesideRaftGroupIT extends BaseRaftHATest {
         if (server != null && server.isStarted())
           for (final String name : new String[] { LOCAL_DB, REWRITTEN_DB })
             if (server.existsDatabase(name)) {
-              ((DatabaseInternal) server.getDatabase(name)).getEmbedded().close();
+              ((DatabaseInternal) server.getDatabaseForOperator(name)).getEmbedded().close();
               server.removeDatabase(name);
             }
       }
@@ -148,7 +148,7 @@ class NodeLocalDatabaseBesideRaftGroupIT extends BaseRaftHATest {
 
     // Writes and schema changes are refused on the leader's copy and on a follower's copy, through Java and HTTP
     for (int holder = 0; holder < 2; holder++) {
-      final Database local = getServer(holder).getDatabase(LOCAL_DB);
+      final Database local = getServer(holder).getDatabaseForOperator(LOCAL_DB);
       assertThatThrownBy(() -> local.transaction(() -> local.newDocument("Ad").set("seq", -1).save()))
           .as("insert on node %d", holder).isNotNull();
       assertThatThrownBy(() -> local.getSchema().createDocumentType("Sneaky"))
@@ -231,7 +231,7 @@ class NodeLocalDatabaseBesideRaftGroupIT extends BaseRaftHATest {
 
     // The idle closer closes a node-local database like any unreplicated one. A reconcile and a resync against a leader
     // that does not hold it must neither report nor mark the closed copy (a marked copy is never reopened on a follower)
-    ((DatabaseInternal) getServer(1).getDatabase(LOCAL_DB)).getEmbedded().close();
+    ((DatabaseInternal) getServer(1).getDatabaseForOperator(LOCAL_DB)).getEmbedded().close();
     getServer(1).removeDatabase(LOCAL_DB);
     final DatabaseReconciler.ReconcileFromLeaderResult result = reconcileFromLeaderAsAnInstallDoes(1, NON_HOLDER);
     assertThat(result.notInstalled()).isEmpty();
@@ -275,7 +275,7 @@ class NodeLocalDatabaseBesideRaftGroupIT extends BaseRaftHATest {
           .as("admission on node %d (%s)", holder, holder == 0 ? "leader" : "follower").isEqualTo(200);
 
     for (int holder = 0; holder < 2; holder++) {
-      final ServerDatabase admitted = getServer(holder).getDatabase(REWRITTEN_DB);
+      final ServerDatabase admitted = getServer(holder).getDatabaseForOperator(REWRITTEN_DB);
       assertThat(admitted.getWrappedDatabaseInstance()).as("admitted copy on node %d is not Raft-wrapped", holder)
           .isInstanceOf(LocalDatabase.class);
       assertThat(admitted.getMode()).isEqualTo(ComponentFile.MODE.READ_ONLY);
@@ -298,7 +298,7 @@ class NodeLocalDatabaseBesideRaftGroupIT extends BaseRaftHATest {
 
   /** Each holder answers from its own copy, opened read-only and outside the Raft wrapper. */
   private void assertServedLocally(final int holder) {
-    final ServerDatabase serverDb = getServer(holder).getDatabase(LOCAL_DB);
+    final ServerDatabase serverDb = getServer(holder).getDatabaseForOperator(LOCAL_DB);
     assertThat(serverDb.isReplicated()).as("local database on node %d is not replicated", holder).isFalse();
     assertThat(serverDb.getWrappedDatabaseInstance()).as("local database on node %d is not Raft-wrapped", holder)
         .isInstanceOf(LocalDatabase.class);
