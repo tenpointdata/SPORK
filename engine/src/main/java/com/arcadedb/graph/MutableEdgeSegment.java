@@ -23,6 +23,7 @@ import com.arcadedb.serializer.BinaryTypes;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 
+import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.arcadedb.schema.Property.RID_PROPERTY;
@@ -31,20 +32,29 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
   public static final byte RECORD_TYPE = 3;
   public static final int CONTENT_START_POSITION =
           Binary.BYTE_SERIALIZED_SIZE + Binary.INT_SERIALIZED_SIZE + BinaryTypes.getTypeSize(BinaryTypes.TYPE_RID);
+  private static final int PREVIOUS_OFFSET = Binary.BYTE_SERIALIZED_SIZE + Binary.INT_SERIALIZED_SIZE;
   private final RID NULL_RID;
 
   private int bufferSize;
+  // A VIEW ON A CACHED PAGE READ FOR A WALK (see view()): WRITING THROUGH IT WOULD WRITE THE PAGE CACHE
+  private final boolean readOnly;
 
   public MutableEdgeSegment(final Database database, final RID rid) {
     super(database, rid, null);
     NULL_RID = new RID(-1, -1);
     this.buffer = null;
+    this.readOnly = false;
   }
 
   public MutableEdgeSegment(final Database database, final RID rid, final Binary buffer) {
+    this(database, rid, buffer, false);
+  }
+
+  private MutableEdgeSegment(final Database database, final RID rid, final Binary buffer, final boolean readOnly) {
     super(database, rid, buffer);
     NULL_RID = new RID(-1, -1);
     this.buffer = buffer;
+    this.readOnly = readOnly;
     if (buffer != null) {
       this.buffer.setAutoResizable(false);
       this.bufferSize = buffer.size();
@@ -54,12 +64,31 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
   public MutableEdgeSegment(final DatabaseInternal database, final int bufferSize) {
     super(database, null, new Binary(bufferSize));
     NULL_RID = new RID(-1, -1);
+    this.readOnly = false;
     this.buffer.setAutoResizable(false);
     this.bufferSize = bufferSize;
     buffer.putByte(0, RECORD_TYPE);
     buffer.putInt(Binary.BYTE_SERIALIZED_SIZE, CONTENT_START_POSITION);
     buffer.position(Binary.BYTE_SERIALIZED_SIZE + Binary.INT_SERIALIZED_SIZE);
     database.getSerializer().serializeValue(database, buffer, BinaryTypes.TYPE_RID, NULL_RID); // NEXT
+  }
+
+  /**
+   * A read-only segment over {@code content}, a view of the page the chunk is stored in rather than a copy of it: for the walks,
+   * which read and never write (retrieval speed, S7). Every mutator refuses on it.
+   */
+  public static MutableEdgeSegment view(final Database database, final RID rid, final Binary content) {
+    return new MutableEdgeSegment(database, rid, content, true);
+  }
+
+  /** True for a {@link #view} of a page, which nothing ever writes. */
+  boolean isReadOnlyView() {
+    return readOnly;
+  }
+
+  private void checkWritable() {
+    if (readOnly)
+      throw new IllegalStateException("Edge segment " + rid + " is a read-only view of its page");
   }
 
   @Override
@@ -77,6 +106,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
    * transaction queued for its commit, and was taken back, leaves it holding edges that exist no more.
    */
   public void restoreContent(final Binary snapshot) {
+    checkWritable();
     final Binary restored = snapshot.copyOfContent();
     restored.setAutoResizable(false);
     this.buffer = restored;
@@ -97,6 +127,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
    */
   @Override
   public boolean add(final RID edgeRID, final RID vertexRID) {
+    checkWritable();
     final Binary ridSerialized = database.getContext().getTemporaryBuffer1();
     database.getSerializer().serializeValue(database, ridSerialized, BinaryTypes.TYPE_COMPRESSED_RID, edgeRID);
     database.getSerializer().serializeValue(database, ridSerialized, BinaryTypes.TYPE_COMPRESSED_RID, vertexRID);
@@ -128,6 +159,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
    */
   @Override
   public boolean addAtEnd(final RID edgeRID, final RID vertexRID) {
+    checkWritable();
     final Binary ridSerialized = database.getContext().getTemporaryBuffer1();
     database.getSerializer().serializeValue(database, ridSerialized, BinaryTypes.TYPE_COMPRESSED_RID, edgeRID);
     database.getSerializer().serializeValue(database, ridSerialized, BinaryTypes.TYPE_COMPRESSED_RID, vertexRID);
@@ -154,6 +186,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
   @Override
   public boolean addAtEndDirect(final int edgeBucketId, final long edgePosition,
       final int vertexBucketId, final long vertexPosition) {
+    checkWritable();
     // Pre-calculate total bytes needed (avoids writing then rolling back if no room)
     final int bytesNeeded = Binary.getNumberSpace(edgeBucketId)
         + Binary.getNumberSpace(edgePosition)
@@ -178,6 +211,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
   @Override
   public int addManyAtEndDirect(final int[] edgeBucketIds, final long[] edgePositions,
       final int[] vertexBucketIds, final long[] vertexPositions, final int from, final int to) {
+    checkWritable();
     int used = getUsed();
     final int limit = bufferSize;
     int written = 0;
@@ -215,17 +249,19 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final int bucketId = rid.getBucketId();
     final long position = rid.getPosition();
 
-    buffer.position(CONTENT_START_POSITION);
-
-    while (buffer.position() < used) {
-      final int currEdgeBucketId = (int) buffer.getNumber();
-      final long currEdgePosition = buffer.getNumber();
+    // ABSOLUTE READS: A PAGE VIEW SHARED BY SEVERAL READERS IS NEVER MOVED UNDER THEM (S7)
+    int cursor = CONTENT_START_POSITION;
+    while (cursor < used) {
+      final int currEdgeBucketId = (int) buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      final long currEdgePosition = buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
       if (currEdgeBucketId == bucketId && currEdgePosition == position)
         return true;
 
       // SKIP VERTEX RID
-      buffer.getNumber();
-      buffer.getNumber();
+      cursor += buffer.getNumberSizeAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
     }
 
     return false;
@@ -240,14 +276,17 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final int bucketId = rid.getBucketId();
     final long position = rid.getPosition();
 
-    buffer.position(CONTENT_START_POSITION);
+    int cursor = CONTENT_START_POSITION;
+    while (cursor < used) {
+      final int currEdgeBucketId = (int) buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      final long currEdgePositionInBucket = buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
 
-    while (buffer.position() < used) {
-      final int currEdgeBucketId = (int) buffer.getNumber();
-      final long currEdgePositionInBucket = buffer.getNumber();
-
-      final int currVertexBucketId = (int) buffer.getNumber();
-      final long currVertexPosition = buffer.getNumber();
+      final int currVertexBucketId = (int) buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      final long currVertexPosition = buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
       if (currVertexBucketId == bucketId && currVertexPosition == position) {
         if (edgeBucketFilter != null) {
           // FILTER BY EDGE BUCKETS
@@ -273,11 +312,12 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     if (used > 0) {
       final JSONArray entries = new JSONArray();
 
-      buffer.position(CONTENT_START_POSITION);
-      while (buffer.position() < used) {
-        // The operands of + are evaluated left to right, which is the order the four numbers were written in
-        final String edge = "#" + buffer.getNumber() + ":" + buffer.getNumber();
-        final String vertex = "#" + buffer.getNumber() + ":" + buffer.getNumber();
+      final long[] entry = new long[4];
+      int cursor = CONTENT_START_POSITION;
+      while (cursor < used) {
+        cursor = nextEntry(cursor, entry);
+        final String edge = "#" + entry[0] + ":" + entry[1];
+        final String vertex = "#" + entry[2] + ":" + entry[3];
         entries.put(new JSONObject().put("edge", edge).put("vertex", vertex));
       }
 
@@ -289,6 +329,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public boolean removeEntry(final int currentPosition, final int nextItemPosition) {
+    checkWritable();
     int used = getUsed();
     if (used <= CONTENT_START_POSITION)
       return false;
@@ -317,6 +358,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public int removeEdge(final RID rid) {
+    checkWritable();
     int used = getUsed();
     if (used <= CONTENT_START_POSITION)
       return 0;
@@ -354,6 +396,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public int removeVertex(final RID rid) {
+    checkWritable();
     int used = getUsed();
     if (used <= CONTENT_START_POSITION)
       return 0;
@@ -398,16 +441,11 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final int vertexBucketId = vertexRID.getBucketId();
     final long vertexPosition = vertexRID.getPosition();
 
-    buffer.position(CONTENT_START_POSITION);
-
-    while (buffer.position() < used) {
-      final int currEdgeBucketId = (int) buffer.getNumber();
-      final long currEdgePosition = buffer.getNumber();
-      final int currVertexBucketId = (int) buffer.getNumber();
-      final long currVertexPosition = buffer.getNumber();
-
-      if (currEdgeBucketId == edgeTypeBucketId && currEdgePosition < 0 && currVertexBucketId == vertexBucketId
-          && currVertexPosition == vertexPosition)
+    final long[] entry = new long[4];
+    int cursor = CONTENT_START_POSITION;
+    while (cursor < used) {
+      cursor = nextEntry(cursor, entry);
+      if (entry[0] == edgeTypeBucketId && entry[1] < 0 && entry[2] == vertexBucketId && entry[3] == vertexPosition)
         return true;
     }
 
@@ -424,15 +462,11 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final long vertexPosition = vertexRID.getPosition();
 
     int count = 0;
-    buffer.position(CONTENT_START_POSITION);
-    while (buffer.position() < used) {
-      final int currEdgeBucketId = (int) buffer.getNumber();
-      final long currEdgePosition = buffer.getNumber();
-      final int currVertexBucketId = (int) buffer.getNumber();
-      final long currVertexPosition = buffer.getNumber();
-
-      if (currEdgeBucketId == edgeTypeBucketId && currEdgePosition < 0 && currVertexBucketId == vertexBucketId
-          && currVertexPosition == vertexPosition)
+    final long[] entry = new long[4];
+    int cursor = CONTENT_START_POSITION;
+    while (cursor < used) {
+      cursor = nextEntry(cursor, entry);
+      if (entry[0] == edgeTypeBucketId && entry[1] < 0 && entry[2] == vertexBucketId && entry[3] == vertexPosition)
         ++count;
     }
     return count;
@@ -440,6 +474,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public int removeLightEdge(final int edgeTypeBucketId, final RID vertexRID) {
+    checkWritable();
     int used = getUsed();
     if (used <= CONTENT_START_POSITION)
       return 0;
@@ -479,14 +514,14 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
     final int used = getUsed();
     if (used > 0) {
-      buffer.position(CONTENT_START_POSITION);
-
-      while (buffer.position() < used) {
-        final long edgeBucketId = buffer.getNumber();
+      int cursor = CONTENT_START_POSITION;
+      while (cursor < used) {
+        final long edgeBucketId = buffer.getNumberAt(cursor);
+        cursor += buffer.getNumberSizeAt(cursor);
         // SKIP EDGE RID POSITION AND VERTEX RID
-        buffer.skipNumber();
-        buffer.skipNumber();
-        buffer.skipNumber();
+        cursor += buffer.getNumberSizeAt(cursor);
+        cursor += buffer.getNumberSizeAt(cursor);
+        cursor += buffer.getNumberSizeAt(cursor);
 
         if (edgeMask == null || edgeMask.matches(edgeBucketId))
           ++total;
@@ -513,18 +548,15 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final long ownerBucketId = checkSelfLoops ? owner.getBucketId() : -1;
     final long ownerPosition = checkSelfLoops ? owner.getPosition() : -1;
     // AN ENTRY IS FOUR NUMBERS, IN THE ORDER add() WRITES THEM: EDGE BUCKET, EDGE POSITION, VERTEX BUCKET, VERTEX POSITION
-    buffer.position(CONTENT_START_POSITION);
-    while (buffer.position() < used) {
-      final long edgeBucketId = buffer.getNumber();
-      buffer.skipNumber(); // EDGE POSITION: NEGATIVE FOR A LIGHT EDGE, IRRELEVANT TO THE COUNT
-      final long vertexBucketId = buffer.getNumber();
-      final boolean selfLoop;
-      if (checkSelfLoops)
-        selfLoop = buffer.getNumber() == ownerPosition && vertexBucketId == ownerBucketId;
-      else {
-        buffer.skipNumber(); // VERTEX POSITION
-        selfLoop = false;
-      }
+    int cursor = CONTENT_START_POSITION;
+    while (cursor < used) {
+      final long edgeBucketId = buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor); // EDGE POSITION: NEGATIVE FOR A LIGHT EDGE, IRRELEVANT TO THE COUNT
+      final long vertexBucketId = buffer.getNumberAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      final boolean selfLoop = checkSelfLoops && buffer.getNumberAt(cursor) == ownerPosition && vertexBucketId == ownerBucketId;
+      cursor += buffer.getNumberSizeAt(cursor); // VERTEX POSITION
 
       for (int i = 0; i < filters; i++)
         if ((edgeMasks[i] == null || edgeMasks[i].matches(edgeBucketId))
@@ -539,38 +571,41 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
    */
   public void forEachEntry(final EdgeListScanner.EntryVisitor visitor) {
     final int used = getUsed();
+    final long[] entry = new long[4];
     int position = CONTENT_START_POSITION;
     while (position < used) {
-      final long edgeBucketId = buffer.getNumberAt(position);
-      position += buffer.getNumberSizeAt(position);
-      final long edgePosition = buffer.getNumberAt(position);
-      position += buffer.getNumberSizeAt(position);
-      final long vertexBucketId = buffer.getNumberAt(position);
-      position += buffer.getNumberSizeAt(position);
-      final long vertexPosition = buffer.getNumberAt(position);
-      position += buffer.getNumberSizeAt(position);
-      visitor.visit((int) edgeBucketId, edgePosition, (int) vertexBucketId, vertexPosition);
+      position = nextEntry(position, entry);
+      visitor.visit((int) entry[0], entry[1], (int) entry[2], entry[3]);
     }
   }
 
   @Override
   public EdgeSegment getPrevious() {
-    final RID nextRID = getPreviousRID();
-    return nextRID == null ? null : (EdgeSegment) database.lookupByRID(nextRID, true);
+    final RID previousRID = getPreviousRID();
+    return previousRID == null ? null : (EdgeSegment) database.lookupByRID(previousRID, true);
+  }
+
+  @Override
+  public EdgeSegment previousForWalk() {
+    final RID previousRID = getPreviousRID();
+    return previousRID == null ? null : EdgeLinkedList.readChunkForWalk((DatabaseInternal) database, previousRID);
   }
 
   @Override
   public RID getPreviousRID() {
     // NOTE: the on-disk pointer is historically labelled "NEXT" but it links to the PREVIOUS chunk in list
-    // order (the list is stored head-first, newest chunk first). Side-effect: moves the buffer position.
-    buffer.position(Binary.BYTE_SERIALIZED_SIZE + Binary.INT_SERIALIZED_SIZE);
-
-    final RID previousRID = (RID) database.getSerializer().deserializeValue(database, buffer, BinaryTypes.TYPE_RID, null);
-
-    if (previousRID.getBucketId() == -1 && previousRID.getPosition() == -1)
+    // order (the list is stored head-first, newest chunk first). Read as the two fixed-width numbers it is, at their
+    // offsets, without the serializer and without moving the position (S7).
+    final int bucketId = buffer.getInt(PREVIOUS_OFFSET);
+    final long position = buffer.getLong(PREVIOUS_OFFSET + Binary.INT_SERIALIZED_SIZE);
+    if (bucketId == -1 && position == -1)
       return null;
+    return RID.create(database, bucketId, position);
+  }
 
-    return previousRID;
+  @Override
+  public boolean hasPrevious() {
+    return buffer.getInt(PREVIOUS_OFFSET) != -1 || buffer.getLong(PREVIOUS_OFFSET + Binary.INT_SERIALIZED_SIZE) != -1;
   }
 
   @Override
@@ -582,6 +617,7 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
    * Links to the previous chunk by its RID alone, for a caller that knows it without having the chunk loaded (GraphBatch, #9575).
    */
   public void setPrevious(final RID previous) {
+    checkWritable();
     if (previous == null)
       throw new IllegalArgumentException("Previous chunk is not persistent");
     buffer.position(Binary.BYTE_SERIALIZED_SIZE + Binary.INT_SERIALIZED_SIZE);
@@ -606,11 +642,47 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public RID getRID(final AtomicInteger currentPosition) {
-    buffer.position(currentPosition.get());
-    final RID next = (RID) database.getSerializer()
-            .deserializeValue(database, buffer, BinaryTypes.TYPE_COMPRESSED_RID, null); // NEXT
-    currentPosition.set(buffer.position());
-    return next;
+    int cursor = currentPosition.get();
+    final int bucketId = (int) buffer.getNumberAt(cursor);
+    cursor += buffer.getNumberSizeAt(cursor);
+    final long position = buffer.getNumberAt(cursor);
+    cursor += buffer.getNumberSizeAt(cursor);
+    currentPosition.set(cursor);
+    return RID.create(database, bucketId, position);
+  }
+
+  @Override
+  public int nextEntry(final int position, final long[] entry) {
+    final ByteBuffer bytes = buffer.getByteBuffer();
+    int cursor = position;
+    try {
+      for (int number = 0; number < 4; number++) {
+        final long b0 = bytes.get(cursor++);
+        long raw;
+        if ((b0 & 0x80L) == 0L)
+          // SINGLE-BYTE QUANTITY: THE COMMON CASE OF A BUCKET ID AND OF A SMALL POSITION
+          raw = b0;
+        else {
+          raw = b0 & 0x7FL;
+          int shift = 7;
+          long b;
+          while (((b = bytes.get(cursor++)) & 0x80L) != 0L) {
+            raw |= (b & 0x7FL) << shift;
+            shift += 7;
+            if (shift > 63)
+              throw new IllegalArgumentException(
+                  "Variable length quantity is too long (must be <= 63) at position " + position + " in buffer of size " + bufferSize);
+          }
+          raw |= b << shift;
+        }
+        // ZIGZAG DECODE, AS Binary.getNumber() DOES
+        final long temp = (((raw << 63) >> 63) ^ raw) >> 1;
+        entry[number] = temp ^ (raw & (1L << 63));
+      }
+    } catch (final IndexOutOfBoundsException e) {
+      throw new IllegalArgumentException("Invalid position " + position + " (size=" + bytes.limit() + ")", e);
+    }
+    return cursor;
   }
 
   @Override
@@ -618,16 +690,16 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
     final int used = getUsed();
     int entryStart = position;
 
-    buffer.position(entryStart);
     while (entryStart < used) {
-      if (bucketMask.matches(buffer.getNumber()))
+      if (bucketMask.matches(buffer.getNumberAt(entryStart)))
         return entryStart;
 
-      // SKIP EDGE POSITION AND VERTEX RID
-      buffer.getNumber();
-      buffer.getNumber();
-      buffer.getNumber();
-      entryStart = buffer.position();
+      // SKIP EDGE BUCKET, EDGE POSITION AND VERTEX RID
+      int cursor = entryStart + buffer.getNumberSizeAt(entryStart);
+      cursor += buffer.getNumberSizeAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      cursor += buffer.getNumberSizeAt(cursor);
+      entryStart = cursor;
     }
 
     return used;
@@ -635,10 +707,10 @@ public class MutableEdgeSegment extends BaseRecord implements EdgeSegment, Recor
 
   @Override
   public void skipRID(final AtomicInteger currentPosition) {
-    buffer.position(currentPosition.get());
-    buffer.getNumber();
-    buffer.getNumber();
-    currentPosition.set(buffer.position());
+    int cursor = currentPosition.get();
+    cursor += buffer.getNumberSizeAt(cursor);
+    cursor += buffer.getNumberSizeAt(cursor);
+    currentPosition.set(cursor);
   }
 
   @Override

@@ -3376,7 +3376,8 @@ public class GraphEngine {
 
   /** Wraps the head record of an edge list in the view matching its layout: striped (#5156) or classic. */
   private EdgeLinkedList buildEdgeList(final VertexInternal vertex, final Vertex.DIRECTION direction, final RID headRID) {
-    final Record head = vertex.getDatabase().lookupByRID(headRID, true);
+    // A READ-ONLY VIEW OF THE HEAD CHUNK'S PAGE, NOT A COPY OF IT: THE LIST IS READ, NEVER WRITTEN, THROUGH HERE (S7)
+    final Record head = EdgeLinkedList.readRecordForWalk((DatabaseInternal) vertex.getDatabase(), headRID);
     if (head instanceof StripeDirectory directory)
       // SUPER-NODE PROMOTED VERTEX (#5156): THE EDGE LIST IS STRIPED OVER MULTIPLE CHAINS
       return new StripedEdgeList(vertex, direction, directory);

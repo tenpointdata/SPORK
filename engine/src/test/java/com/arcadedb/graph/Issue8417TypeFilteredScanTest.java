@@ -44,9 +44,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * type, a handful of another") must reject the foreign entries on the raw bucket number stored in the segment, without
  * decoding each one into a pair of {@link RID} objects first.
  * <p>
- * The counting tests drive the filtered iterators over a segment proxy that counts {@link EdgeSegment#getRID} calls:
- * before the fix every entry of the list cost two decodes whatever its type, so a list of {@code HUB} foreign entries
- * plus one match cost {@code 2 * (HUB + 1)}; after it only the match is decoded.
+ * The counting tests drive the filtered iterators over a segment proxy that counts the entry decodes - {@link EdgeSegment#getRID}
+ * calls, and since the walks step on {@link EdgeSegment#nextEntry} (retrieval speed, S6) those too, one per entry whatever the
+ * caller builds out of it: before the fix every entry of the list cost two decodes whatever its type, so a list of {@code HUB}
+ * foreign entries plus one match cost {@code 2 * (HUB + 1)}; after it only the match is decoded, once.
  */
 class Issue8417TypeFilteredScanTest {
   private static final String DB_PATH = "./target/databases/issue8417TypeFilteredScan";
@@ -86,7 +87,7 @@ class Issue8417TypeFilteredScanTest {
       new RIDIteratorFilter((DatabaseInternal) database, head, new String[] { "Parent" }).forEachRemaining(found::add);
 
       assertThat(found).containsExactly(ids[1]);
-      // ONLY THE VERTEX OF THE ONE MATCH: THE EDGE IS STEPPED OVER WITH skipRID. BEFORE #8417 THIS WAS 2 * (HUB + 1)
+      // ONLY THE ONE MATCH, DECODED ONCE (nextEntry). BEFORE #8417 THIS WAS 2 * (HUB + 1)
       assertThat(decodes.get()).isEqualTo(1);
     });
   }
@@ -102,7 +103,7 @@ class Issue8417TypeFilteredScanTest {
           Vertex.DIRECTION.IN)
           .forEachRemaining(v -> vertices.add(v.getIdentity()));
       assertThat(vertices).containsExactly(ids[1]);
-      assertThat(decodes.get()).isEqualTo(2);
+      assertThat(decodes.get()).isEqualTo(1);
 
       decodes.set(0);
       final Vertex unit = ids[0].asVertex();
@@ -110,7 +111,7 @@ class Issue8417TypeFilteredScanTest {
       new EdgeIteratorFilter((DatabaseInternal) database, unit, Vertex.DIRECTION.IN, countingHead(ids[0], decodes),
           new String[] { "Parent" }).forEachRemaining(e -> edges.add(e.getIdentity()));
       assertThat(edges).containsExactly(ids[2]);
-      assertThat(decodes.get()).isEqualTo(2);
+      assertThat(decodes.get()).isEqualTo(1);
 
       decodes.set(0);
       final List<Pair<RID, RID>> entries = new ArrayList<>();
@@ -120,7 +121,7 @@ class Issue8417TypeFilteredScanTest {
       assertThat(entries).hasSize(1);
       assertThat(entries.getFirst().getFirst()).isEqualTo(ids[2]);
       assertThat(entries.getFirst().getSecond()).isEqualTo(ids[1]);
-      assertThat(decodes.get()).isEqualTo(2);
+      assertThat(decodes.get()).isEqualTo(1);
     });
   }
 
@@ -329,7 +330,7 @@ class Issue8417TypeFilteredScanTest {
     return ids;
   }
 
-  /** The head chunk of the vertex's IN list, wrapped so every {@link EdgeSegment#getRID} call (on any chunk) is counted. */
+  /** The head chunk of the vertex's IN list, wrapped so every entry decode ({@code nextEntry}, {@code getRID}) on any chunk is counted. */
   private EdgeSegment countingHead(final RID vertex, final AtomicInteger decodes) {
     final RID headRID = ((VertexInternal) vertex.asVertex()).getInEdgesHeadChunk();
     return counting((EdgeSegment) database.lookupByRID(headRID, true), decodes);
@@ -338,11 +339,12 @@ class Issue8417TypeFilteredScanTest {
   private static EdgeSegment counting(final EdgeSegment delegate, final AtomicInteger decodes) {
     return (EdgeSegment) Proxy.newProxyInstance(EdgeSegment.class.getClassLoader(), new Class<?>[] { EdgeSegment.class },
         (proxy, method, args) -> {
-          if (method.getName().equals("getRID"))
+          if (method.getName().equals("getRID") || method.getName().equals("nextEntry"))
             decodes.incrementAndGet();
           try {
             final Object result = method.invoke(delegate, args);
-            if (method.getName().equals("getPrevious") && result != null)
+            // THE WALKS HOP THROUGH previousForWalk(), THE READERS THROUGH getPrevious(): COUNT ON THE NEXT CHUNK EITHER WAY
+            if ((method.getName().equals("getPrevious") || method.getName().equals("previousForWalk")) && result != null)
               return counting((EdgeSegment) result, decodes);
             return result;
           } catch (final InvocationTargetException e) {

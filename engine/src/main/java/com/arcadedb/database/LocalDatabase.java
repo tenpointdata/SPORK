@@ -205,8 +205,13 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
   private record WriteRefusal(String reason, boolean unavailable) {
   }
   public static final int MAX_RECOMMENDED_EDGE_LIST_CHUNK_SIZE = 8192;
-  /** Header ({@code MutableEdgeSegment.CONTENT_START_POSITION}) plus room for a couple of maximum-width entries. */
-  public static final int MIN_EDGE_LIST_CHUNK_SIZE             = 32;
+  /**
+   * The smallest first chunk of an edge list: the 17-byte header ({@code MutableEdgeSegment.CONTENT_START_POSITION}) plus 47
+   * bytes, more than the widest entry (two RIDs of a 5-byte bucket and a 10-byte position, 30 bytes). At 32 a first chunk had 15
+   * bytes of entry room, so an entry with wide bucket ids or large positions did not fit in the chunk created to hold it and
+   * was dropped silently (review finding F4; such a refusal now throws, see {@code EdgeLinkedList.addToNewChunk}).
+   */
+  public static final int MIN_EDGE_LIST_CHUNK_SIZE             = 64;
 
   /**
    * The per-database settings file, next to {@code schema.json} in the database directory. Named here rather than

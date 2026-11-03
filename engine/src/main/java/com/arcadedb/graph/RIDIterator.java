@@ -38,13 +38,11 @@ public class RIDIterator extends ResettableIteratorBase<RID> implements EdgeEntr
       return false;
 
     while (true) {
-      if (currentPosition.get() < currentContainer.getUsed())
+      if (currentPosition < currentContainer.getUsed())
         return true;
 
       if (moveToPreviousChunk() == null)
         break;
-
-      currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
     }
 
     return false;
@@ -55,9 +53,10 @@ public class RIDIterator extends ResettableIteratorBase<RID> implements EdgeEntr
     if (!hasNext())
       throw new NoSuchElementException();
 
-    lastEntryAt(currentContainer, currentPosition.get());
-    currentContainer.skipRID(currentPosition); // the edge RID, decoded only if getEdgeRID() is asked
-    final RID rid = currentContainer.getRID(currentPosition);
+    lastEntryAt(currentContainer, currentPosition);
+    // THE FOUR NUMBERS ARE READ ONCE AND ONLY THE VERTEX GETS A RID; THE EDGE IS DECODED ONLY IF getEdgeRID() IS ASKED (S6)
+    currentPosition = currentContainer.nextEntry(currentPosition, entry);
+    final RID rid = RID.create(currentContainer.getDatabase(), (int) entry[2], entry[3]);
 
     ++browsed;
     return rid;

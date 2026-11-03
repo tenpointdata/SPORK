@@ -338,7 +338,7 @@ public class StripedEdgeList extends EdgeLinkedList {
     if (freshHeadRID == null) {
       // FIRST EDGE OF THIS STRIPE: ALLOCATE ITS CHAIN LAZILY IN THE POOL BUCKET
       final MutableEdgeSegment firstChunk = new MutableEdgeSegment(database, LocalDatabase.getNewEdgeListSize(0));
-      firstChunk.add(edgeRID, vertexRID);
+      EdgeLinkedList.addToNewChunk(firstChunk, edgeRID, vertexRID);
       database.createRecord(firstChunk, stripeBucketName(vertex.getTypeName(), slot));
       updateSlot(fresh, generation, slot, firstChunk.getIdentity());
       return;
@@ -355,7 +355,7 @@ public class StripedEdgeList extends EdgeLinkedList {
     // record is not touched - only promotion rewrites it).
     final MutableEdgeSegment newChunk = new MutableEdgeSegment(database,
         LocalDatabase.getNewEdgeListSize(head.getRecordSize()));
-    newChunk.add(edgeRID, vertexRID);
+    EdgeLinkedList.addToNewChunk(newChunk, edgeRID, vertexRID);
     newChunk.setPrevious(head);
     database.createRecord(newChunk, database.getSchema().getBucketById(head.getIdentity().getBucketId()).getName());
     updateSlot(fresh, generation, slot, newChunk.getIdentity());

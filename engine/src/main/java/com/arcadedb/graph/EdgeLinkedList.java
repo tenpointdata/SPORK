@@ -19,8 +19,10 @@
 package com.arcadedb.graph;
 
 import com.arcadedb.GlobalConfiguration;
+import com.arcadedb.database.Binary;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.Identifiable;
+import com.arcadedb.database.ImmutableDocument;
 import com.arcadedb.database.LocalDatabase;
 import com.arcadedb.database.RID;
 import com.arcadedb.database.Record;
@@ -33,6 +35,7 @@ import com.arcadedb.exception.RecordNotFoundException;
 import com.arcadedb.exception.SchemaException;
 import com.arcadedb.exception.SerializationException;
 import com.arcadedb.log.LogManager;
+import com.arcadedb.schema.DocumentType;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.utility.Pair;
@@ -391,6 +394,89 @@ public class EdgeLinkedList {
   }
 
   /**
+   * {@link #previousOf(EdgeSegment, ChainCycleGuard)} for the walks that only READ the chain (a count): the chunk comes back as a
+   * view of its page, see {@link #readChunkForWalk}.
+   */
+  private EdgeSegment previousViewOf(final EdgeSegment current, final ChainCycleGuard guard) {
+    final RID previousRID = previousRIDOf(current, guard);
+    return previousRID == null ? null : readChunkForWalk((DatabaseInternal) vertex.getDatabase(), previousRID);
+  }
+
+  /**
+   * Reads the chunk {@code chunkRID} for a walk that will not write to it: the transaction's own written copy when it has one
+   * (its pending appends live only there until commit), otherwise a READ-ONLY VIEW of the chunk's bytes on its cached page
+   * ({@link MutableEdgeSegment#view}) instead of the copy {@code lookupByRID} makes of them (retrieval speed, S7). A chunk of
+   * up to 8 KB is thus hopped to without copying it, and without the after-read event dispatch and the record statistics a
+   * record lookup carries: the permission check on the bucket and the before-read events still run, in the bucket. A record
+   * that is not an edge segment (a stripe directory, a damaged slot) is built as {@code lookupByRID} builds it, from the same read,
+   * so it raises what it always raised.
+   *
+   * @throws RecordNotFoundException when the chunk does not exist
+   */
+  static EdgeSegment readChunkForWalk(final DatabaseInternal database, final RID chunkRID) {
+    return (EdgeSegment) readRecordForWalk(database, chunkRID);
+  }
+
+  /**
+   * {@link #readChunkForWalk} for a record that may not be an edge segment: the head of a list, which is a stripe directory on a
+   * promoted super-node. An edge segment comes back as a read-only view, anything else as {@code lookupByRID} answers it.
+   */
+  static Record readRecordForWalk(final DatabaseInternal database, final RID rid) {
+    final TransactionContext tx = database.getTransactionIfExists();
+    if (tx != null && tx.hasWrittenRecords()) {
+      final Record written = tx.getWrittenRecord(rid);
+      if (written != null)
+        return written;
+    }
+    return database.executeInReadLock(() -> {
+      final LocalBucket bucket = database.getSchema().getEmbedded().getBucketById(rid.getBucketId(), false);
+      if (bucket == null)
+        throw new RecordNotFoundException("Record " + rid + " not found", rid);
+      final Binary content = bucket.getRecord(rid);
+      if (content.getByte(0) != EdgeSegment.RECORD_TYPE)
+        return recordReadForWalk(database, tx, rid, content);
+      return MutableEdgeSegment.view(database.getWrappedDatabaseInstance(), rid, content);
+    });
+  }
+
+  /**
+   * What {@code lookupByRID} answers for a record that is not an edge segment (a stripe directory, a damaged slot), built from the
+   * {@code content} the bucket already gave {@link #readRecordForWalk}: reading the bucket again doubled the read, the permission
+   * check and the before-read events of every list open on a promoted super-node. The transaction's cached instance wins, as in
+   * {@code lookupByRID}; otherwise the record is built over a copy of the content (the page is shared), the after-read events run
+   * on it and it counts as one record read.
+   */
+  private static Record recordReadForWalk(final DatabaseInternal database, final TransactionContext tx, final RID rid,
+      final Binary content) {
+    database.countRecordsRead(1);
+    if (tx != null) {
+      final Record cached = tx.getRecordFromCache(rid);
+      if (cached != null)
+        return cached;
+    }
+    final DocumentType type = database.getSchema().getTypeByBucketId(rid.getBucketId());
+    Record record = database.getRecordFactory()
+        .newImmutableRecord(database.getWrappedDatabaseInstance(), type, rid, content.copyOfContent(), null);
+    if (record instanceof ImmutableDocument document && tx != null)
+      document.setReadInTransaction(tx.getBeginSequence());
+    record = database.invokeAfterReadEvents(record);
+    if (record == null)
+      throw new RecordNotFoundException("Record " + rid + " not found", rid);
+    return record;
+  }
+
+  /**
+   * Appends to a chunk this transaction has just created, which must take the entry: a refusal there is not "the chunk is full",
+   * it is a chunk too small for one entry, and ignoring it lost the edge silently (review finding F4).
+   */
+  static void addToNewChunk(final EdgeSegment newChunk, final RID edgeRID, final RID vertexRID) {
+    if (!newChunk.add(edgeRID, vertexRID))
+      throw new IllegalStateException(
+          "A new edge list chunk of " + newChunk.getRecordSize() + " bytes cannot hold the entry (" + edgeRID + ", " + vertexRID
+              + "): raise " + GlobalConfiguration.GRAPH_EDGE_LIST_INITIAL_CHUNK_SIZE.getKey());
+  }
+
+  /**
    * {@link #previousOf} for the walks that hop by RID; null on a self-referencing chunk.
    */
   private static RID previousRIDOf(final EdgeSegment current, final ChainCycleGuard guard) {
@@ -428,7 +514,7 @@ public class EdgeLinkedList {
     final ChainCycleGuard guard = newCycleGuard();
     while (current != null) {
       total += current.count(mask);
-      current = previousOf(current, guard);
+      current = previousViewOf(current, guard);
     }
 
     return total;
@@ -449,7 +535,7 @@ public class EdgeLinkedList {
     final ChainCycleGuard guard = newCycleGuard();
     while (current != null) {
       current.countInto(edgeMasks, neighborMasks, skipSelfLoops, owner, counts);
-      current = previousOf(current, guard);
+      current = previousViewOf(current, guard);
     }
   }
 
@@ -483,7 +569,7 @@ public class EdgeLinkedList {
       // ALLOCATE A NEW, BIGGER CHUNK
       final MutableEdgeSegment newChunk = new MutableEdgeSegment(database, computeBestSize());
 
-      newChunk.add(edgeRID, vertexRID);
+      addToNewChunk(newChunk, edgeRID, vertexRID);
       newChunk.setPrevious(lastSegment);
 
       // createRecord poisons the new chunk's page for the append-merge (a new chunk cannot be rebased).
@@ -514,7 +600,7 @@ public class EdgeLinkedList {
         // CHUNK FULL, ALLOCATE A NEW ONE
         final MutableEdgeSegment newChunk = new MutableEdgeSegment(database, computeBestSize());
 
-        newChunk.add(edgeRID, vertexRID);
+        addToNewChunk(newChunk, edgeRID, vertexRID);
         newChunk.setPrevious(lastSegment);
 
         database.createRecord(newChunk, database.getSchema().getBucketById(lastSegment.getIdentity().getBucketId()).getName());

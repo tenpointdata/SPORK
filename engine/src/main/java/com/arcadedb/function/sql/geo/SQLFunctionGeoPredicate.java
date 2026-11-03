@@ -40,6 +40,7 @@ import org.locationtech.spatial4j.shape.Shape;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
@@ -67,16 +68,71 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
     return 2;
   }
 
+  /**
+   * A search value and the shape parsed from it, see {@link #parseShape}. Immutable, so a reference to it is a consistent pair:
+   * {@code source} is a String (immutable) or an immutable copy of a point map, never the caller's own object.
+   */
+  private record ParsedShape(Object source, Shape shape) {
+  }
+
+  // THE LAST SEARCH SHAPE PARSED (THE SECOND ARGUMENT), WITH THE VALUE IT CAME FROM. The search shape of a predicate is a constant
+  // of the statement (a WKT literal, a point() map), and it was parsed again for every row the predicate was asked about (S12).
+  // One function instance serves every execution of a cached statement, from several threads at once: the slot is a volatile
+  // reference to an immutable pair, so a reader sees the old pair or the new one and never a half-written one, and two threads
+  // racing on the same value compute the same shape twice at worst. The FIRST argument, the record's own geometry, changes on
+  // every row: it is parsed without the cache, which would only cost it a volatile store and a pair per row on a shared slot.
+  private volatile ParsedShape lastSearchShape;
+
   @Override
   public Object execute(final Object iThis, final Identifiable iCurrentRecord, final Object iCurrentResult,
       final Object[] iParams, final CommandContext iContext) {
     if (iParams == null || iParams.length < 2 || iParams[0] == null || iParams[1] == null)
       return null;
     final Shape geom1 = GeoUtils.parseGeometry(iParams[0]);
-    final Shape geom2 = GeoUtils.parseGeometry(iParams[1]);
+    final Shape geom2 = parseShape(iParams[1]);
     if (geom1 == null || geom2 == null)
       return null;
     return evaluate(geom1, geom2, iParams);
+  }
+
+  /**
+   * {@link GeoUtils#parseGeometry} for the SEARCH shape, answering the shape parsed last time for an equal value: the argument of
+   * a predicate that does not change from one row to the next is parsed once per statement instead of once per row. A value
+   * that already is a {@link Shape} is answered as is.
+   * <p>
+   * The value is remembered by an immutable key (review finding F7): a WKT string as it is, a point map as an immutable copy of
+   * its entries. Keyed on the caller's map by reference, a map changed in place after the first parse would have been answered
+   * with the shape of what it held before. Any other kind of value (parsed through its {@code toString()}) is not cached.
+   */
+  Shape parseShape(final Object value) {
+    if (value == null)
+      return null;
+    if (value instanceof Shape shape)
+      return shape;
+    final ParsedShape cached = lastSearchShape;
+    if (cached != null && (cached.source == value || cached.source.equals(value)))
+      return cached.shape;
+    final Shape shape = GeoUtils.parseGeometry(value);
+    if (shape != null) {
+      final Object key = cacheKeyOf(value);
+      if (key != null)
+        lastSearchShape = new ParsedShape(key, shape);
+    }
+    return shape;
+  }
+
+  /** The immutable key {@link #parseShape} remembers {@code value} by, or null when it is not to be remembered. */
+  private static Object cacheKeyOf(final Object value) {
+    if (value instanceof String)
+      return value;
+    if (value instanceof Map<?, ?> map)
+      try {
+        return Map.copyOf(map);
+      } catch (final NullPointerException e) {
+        // A NULL KEY OR VALUE: NOT A POINT MAP WORTH REMEMBERING
+        return null;
+      }
+    return null;
   }
 
   /**
@@ -364,13 +420,14 @@ public abstract class SQLFunctionGeoPredicate extends SQLFunctionAbstract implem
    * Resolves the search shape from the function expressions. The second argument (index 1)
    * is the shape to search against. It may be a literal WKT string or a nested geo.* function call.
    */
-  private static Shape resolveSearchShape(final Expression[] oExpressions, final CommandContext context) {
+  private Shape resolveSearchShape(final Expression[] oExpressions, final CommandContext context) {
     if (oExpressions.length < 2 || oExpressions[1] == null)
       return null;
     // Evaluate the second expression in the context of a null record to get the shape value
     final Object value = oExpressions[1].execute((Identifiable) null, context);
     if (value == null)
       return null;
-    return GeoUtils.parseGeometry(value);
+    // THE SAME SLOT THE PER-ROW RE-CHECK READS, SO THE SEARCH SHAPE IS PARSED ONCE FOR THE INDEX SEEK AND THE ROWS ALIKE
+    return parseShape(value);
   }
 }
