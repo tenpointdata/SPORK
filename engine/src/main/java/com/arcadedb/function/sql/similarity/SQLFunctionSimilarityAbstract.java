@@ -89,10 +89,16 @@ abstract class SQLFunctionSimilarityAbstract extends SQLFunctionAbstract {
   }
 
   int intArg(final Object value, final String argument, final int min, final int max) {
-    if (!(value instanceof Number n) || n.doubleValue() != Math.rint(n.doubleValue()) || n.longValue() < min || n.longValue() > max)
-      throw new CommandSQLParsingException(
-          getName() + "(): " + argument + " must be an integer between " + min + " and " + max + ", got " + value);
-    return NumberUtils.toIntWhole(n);
+    if (value instanceof Number n)
+      try {
+        final int v = NumberUtils.toIntWhole(n);
+        if (v >= min && v <= max)
+          return v;
+      } catch (final ArithmeticException e) {
+        // NOT A WHOLE NUMBER IN THE INT RANGE: FALL THROUGH TO THE ERROR BELOW
+      }
+    throw new CommandSQLParsingException(
+        getName() + "(): " + argument + " must be an integer between " + min + " and " + max + ", got " + value);
   }
 
   static List<Long> toList(final long[] values) {

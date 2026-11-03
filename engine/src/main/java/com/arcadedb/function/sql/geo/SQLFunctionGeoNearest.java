@@ -205,10 +205,15 @@ public class SQLFunctionGeoNearest extends SQLFunctionAbstract {
   }
 
   public static int parseK(final Object value, final String caller) {
-    if (!(value instanceof Number number) || number.doubleValue() != Math.floor(number.doubleValue()) || number.longValue() < 0
-        || number.longValue() > Integer.MAX_VALUE)
-      throw new CommandExecutionException(caller + "(): k must be a non-negative integer, got " + value);
-    return NumberUtils.toIntWhole(number);
+    if (value instanceof Number number)
+      try {
+        final int k = NumberUtils.toIntWhole(number);
+        if (k >= 0)
+          return k;
+      } catch (final ArithmeticException e) {
+        // NOT A WHOLE NUMBER IN THE INT RANGE: FALL THROUGH TO THE ERROR BELOW
+      }
+    throw new CommandExecutionException(caller + "(): k must be a non-negative integer, got " + value);
   }
 
   public static double parseMaxDistance(final Object value, final String caller) {
