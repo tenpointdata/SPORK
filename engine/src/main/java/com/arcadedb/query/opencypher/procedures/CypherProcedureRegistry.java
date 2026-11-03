@@ -98,6 +98,10 @@ import com.arcadedb.query.opencypher.procedures.algo.AlgoTriangleCount;
 import com.arcadedb.query.opencypher.procedures.algo.AlgoVoteRank;
 import com.arcadedb.query.opencypher.procedures.algo.AlgoWCC;
 import com.arcadedb.query.opencypher.procedures.control.DoWhen;
+import com.arcadedb.query.opencypher.procedures.identity.IdentityCandidates;
+import com.arcadedb.query.opencypher.procedures.identity.IdentityCohesion;
+import com.arcadedb.query.opencypher.procedures.identity.IdentityCompare;
+import com.arcadedb.query.opencypher.procedures.identity.IdentityFeatures;
 import com.arcadedb.query.opencypher.procedures.merge.MergeNode;
 import com.arcadedb.query.opencypher.procedures.merge.MergeRelationship;
 import com.arcadedb.query.opencypher.procedures.meta.MetaGraph;
@@ -318,6 +322,15 @@ public final class CypherProcedureRegistry {
     registerRefactorProcedures();
     // Selection procedures (set algebra and compare over 2 to 8 selections)
     registerSelectionProcedures();
+    // Identity resolution procedures (cluster compare and cohesion)
+    registerIdentityProcedures();
+  }
+
+  private static void registerIdentityProcedures() {
+    register(new IdentityCompare());
+    register(new IdentityCohesion());
+    register(new IdentityCandidates());
+    register(new IdentityFeatures());
   }
 
   private static void registerMergeProcedures() {
