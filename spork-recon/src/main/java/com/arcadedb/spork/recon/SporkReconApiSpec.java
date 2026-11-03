@@ -127,12 +127,16 @@ public final class SporkReconApiSpec {
     if (route == SporkRoutes.SEARCH)
       return """
           Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by \
-          default) in posted_desc, posted_asc or views_desc order, and total counts the matches up to 10,000 (totalCapped \
-          when more match). Served on direct cursors over the (facet, tsPosted, views) composites, the smallest filter \
-          driving. partial is true when a read budget ran out: the page may be short and total is a lower bound, with \
-          totalEstimate scaled from the driving filter's size. Records the person may not see are neither returned nor \
-          counted. phone, email, business and q (substring and full text) are refused with filterUnsupported for now. \
-          A title in the projection is read from the record's text partition through its textHash, and needs a grant on it.""";
+          default) in posted_desc, posted_asc or views_desc order. Served on direct cursors over the (facet, tsPosted, views) \
+          composites, the smallest filter driving; partial is true when a read cap stopped the page itself. \
+          The total is an ESTIMATE by default: the count reads a bounded number of index entries (so the request stays inside \
+          its latency budget) and totalExact says whether it reached the end. When totalExact is false, total is a lower \
+          bound (show it as "N+") and totalEstimate, when present, the count scaled from the driving filter's size (show it \
+          as "about N"); totalEstimate is left out when a posted window makes that scaling unreliable. exactTotal: true asks \
+          for the exact count up to 10,000 (totalCapped when more match), at the cost of reading up to every match. \
+          Records the person may not see are neither returned nor counted. phone, email, business and q (substring and full \
+          text) are refused with filterUnsupported for now. A title in the projection is read from the record's text \
+          partition through its textHash, and needs a grant on it.""";
     if (route == SporkRoutes.HYDRATE)
       return """
           Hydrates up to 5,000 records. ids are upstream RIDs ("168:8"), SPORK record_ids (unsigned decimal strings) or \
@@ -223,7 +227,9 @@ public final class SporkReconApiSpec {
             .description("posted_desc by default"))//
         .addProperty("limit", SpecBuilders.integer("Rows on the page, 1 to 500, 50 by default").minimum(BigDecimal.ONE)
             .maximum(BigDecimal.valueOf(SearchService.MAX_LIMIT)))//
-        .addProperty("projection", searchProjection));
+        .addProperty("projection", searchProjection)//
+        .addProperty("exactTotal", SpecBuilders.bool("Count every match up to 10,000 instead of estimating the total; false by "
+            + "default")));
 
     final Schema<Object> searched = SpecBuilders.object("One record of the page; a field the record lacks is absent")//
         .addProperty("recordId", SpecBuilders.string("The SPORK record_id, unsigned decimal"))//
@@ -234,13 +240,17 @@ public final class SporkReconApiSpec {
     searched.required(List.of("recordId"));
     components.addSchemas("SearchedRecord", searched);
 
-    components.addSchemas("SearchAnswer", envelope(SpecBuilders.object("A page and its count")//
+    components.addSchemas("SearchAnswer", envelope(SpecBuilders.object("A page and its total")//
         .addProperty("records", SpecBuilders.arrayOf(SpecBuilders.ref("SearchedRecord"), "In the requested order"))//
-        .addProperty("total", SpecBuilders.integer("Matches, at most 10,000; a lower bound when partial").format("int64"))//
+        .addProperty("total", SpecBuilders.integer("Matches counted, at most 10,000. Exact only when totalExact; otherwise an "
+            + "ESTIMATE's lower bound (\"N+\")").format("int64"))//
+        .addProperty("totalExact", SpecBuilders.bool("total counts every match (up to the cap). False by default once the count's "
+            + "read budget runs out: total is then a lower bound"))//
         .addProperty("totalCapped", SpecBuilders.bool("More than 10,000 match"))//
-        .addProperty("totalEstimate", SpecBuilders.integer("Only when partial: the count scaled from the driving filter").format(
-            "int64")))//
-        .required(List.of("records", "total", "totalCapped", "requestId", "auditSeq", "servedBy", "partial", "consistencyBookmark")));
+        .addProperty("totalEstimate", SpecBuilders.integer("ESTIMATE, only when totalExact is false and no posted window applies: "
+            + "the count scaled from the driving filter's size (\"about N\"), at most 10,000").format("int64")))//
+        .required(List.of("records", "total", "totalExact", "totalCapped", "requestId", "auditSeq", "servedBy", "partial",
+            "consistencyBookmark")));
 
     components.addSchemas("HydrateAnswer", envelope(SpecBuilders.object("The released records")//
         .addProperty("records", SpecBuilders.arrayOf(SpecBuilders.ref("HydratedRecord"), "In request order"))//

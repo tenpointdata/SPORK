@@ -42,6 +42,8 @@ class SporkReconConfigurationTest {
     assertThat(config.directoryDatabase()).isEqualTo("recdir");
     assertThat(config.partitionPrefix()).isEqualTo("rec_");
     assertThat(config.hydrateThreads()).isEqualTo(32);
+    assertThat(config.searchEstimateBudget()).as("sized for P4's 5 ms p50 with the default estimated total").isEqualTo(2_000);
+    assertThat(config.textPrefix()).isEqualTo("txt_");
     assertThat(config.heldMarkings(new String[] { "spork.console" })).isZero();
     assertThat(config.localMarkings()).isZero();
   }
@@ -66,6 +68,7 @@ class SporkReconConfigurationTest {
         new JSONObject().put("tenants", new JSONArray().put("Bad Tenant")),                  // grammar
         minimal().put("markings", new JSONObject().put("spork.marking.x", 64)),             // bit out of range
         minimal().put("hydrateThreads", 0),
+        minimal().put("searchEstimateBudget", 0),
         minimal().put("auditDatabase", "") };
     for (final JSONObject config : invalid)
       assertThatThrownBy(() -> SporkReconConfiguration.parse(config)).as(config.toString())

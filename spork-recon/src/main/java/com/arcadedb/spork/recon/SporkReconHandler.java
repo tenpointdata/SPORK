@@ -146,6 +146,7 @@ final class SporkReconHandler extends AbstractServerHttpHandler {
         .put("requestId", requestId)//
         .put("records", result.records().length())//
         .put("total", result.total())//
+        .put("totalExact", result.totalExact())//
         .put("totalCapped", result.totalCapped())//
         .put("partial", result.partial())//
         .put("sort", request.sort())//
@@ -156,10 +157,11 @@ final class SporkReconHandler extends AbstractServerHttpHandler {
     final JSONObject answer = new JSONObject()//
         .put("records", result.records())//
         .put("total", result.total())//
+        .put("totalExact", result.totalExact())//
         .put("totalCapped", result.totalCapped())//
         .put("partial", result.partial())//
         .put("auditSeq", entry.getLong("seq"));
-    if (result.partial())
+    if (!result.totalExact() && result.totalEstimate() >= 0)
       answer.put("totalEstimate", result.totalEstimate());
     return answer;
   }

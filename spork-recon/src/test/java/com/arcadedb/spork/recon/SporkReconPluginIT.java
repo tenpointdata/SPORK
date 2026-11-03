@@ -79,7 +79,8 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
         .put("auditDatabase", getDatabaseName())//
         .put("directoryDatabase", DIRECTORY)//
         .put("partitionPrefix", "rec_")//
-        .put("markings", new JSONObject().put("spork.marking.minor", 0));
+        .put("markings", new JSONObject().put("spork.marking.minor", 0))//
+        .put("searchEstimateBudget", 500);
   }
 
   @Override
@@ -408,7 +409,8 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
   @Test
   void searchServesThePageAndTheCountOfWhatThePersonMaySee() throws Exception {
     final Answer answer = post("search", CONSOLE, context("CASE-7", NETWORK),
-        new JSONObject().put("state", "tx").put("limit", 5).put("projection", new JSONArray().put("phones").put("postedAt")));
+        new JSONObject().put("state", "tx").put("limit", 5).put("exactTotal", true).put("projection",
+            new JSONArray().put("phones").put("postedAt")));
 
     assertThat(answer.status()).as(answer.body()).isEqualTo(200);
     final JSONObject body = answer.json();
@@ -419,6 +421,8 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
     assertThat(body.getJSONArray("records").getJSONObject(2).keySet()).containsExactlyInAnyOrder("recordId", "upstreamRid", "phones",
         "postedAt");
     assertThat(body.getLong("total")).isEqualTo(RECORDS + 2L);
+    assertThat(body.getBoolean("totalExact")).isTrue();
+    assertThat(body.has("totalEstimate")).isFalse();
     assertThat(body.getBoolean("totalCapped")).isFalse();
     assertThat(body.getBoolean("partial")).isFalse();
 
@@ -434,7 +438,8 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
 
   @Test
   void searchCountsLeaveOutUnheldMarkings() throws Exception {
-    final JSONObject body = post("search", UNMARKED, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 3)).json();
+    final JSONObject body = post("search", UNMARKED, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 3)
+        .put("exactTotal", true)).json();
 
     assertThat(recordIds(body.getJSONArray("records"))).containsExactly(Long.toString(recordId(IMPORTED)),
         Long.toString(recordId(RECORDS)), Long.toString(recordId(RECORDS - 1)));
@@ -442,10 +447,29 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
 
     // oldest first, the two hidden records (the newest) are met by the count, not by the page: counted from the hidden set
     final JSONObject oldest = post("search", UNMARKED, context(null, NETWORK), new JSONObject().put("state", "TX").put("sort", "posted_asc")
-        .put("limit", 3)).json();
+        .put("limit", 3).put("exactTotal", true)).json();
     assertThat(recordIds(oldest.getJSONArray("records"))).containsExactly(Long.toString(recordId(1)), Long.toString(recordId(2)),
         Long.toString(recordId(3)));
     assertThat(oldest.getLong("total")).isEqualTo(RECORDS + 1L);
+  }
+
+  @Test
+  void byDefaultTheTotalIsAnEstimateWithinTheReadBudget() throws Exception {
+    // 2,002 visible TX records against this fixture's budget of 500 entries: the count stops short and says so
+    final JSONObject body = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 5)).json();
+
+    assertThat(body.getJSONArray("records").length()).isEqualTo(5);
+    assertThat(body.getBoolean("partial")).as("the page is complete").isFalse();
+    assertThat(body.getBoolean("totalExact")).isFalse();
+    assertThat(body.getLong("total")).as("a lower bound").isLessThan(RECORDS + 2L).isGreaterThanOrEqualTo(500L);
+    assertThat(body.getLong("totalEstimate")).as("scaled from the facet's size").isBetween(RECORDS - 10L, RECORDS + 10L);
+    assertThat(lastAuditBody().getJSONObject("detail").getBoolean("totalExact")).isFalse();
+
+    // a small result is counted to its end within the budget, so the default total is exact
+    final JSONObject small = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("state", "TX")
+        .put("postedFrom", POSTED + 10).put("postedTo", POSTED + 19)).json();
+    assertThat(small.getBoolean("totalExact")).isTrue();
+    assertThat(small.getLong("total")).isEqualTo(10L);
   }
 
   @Test

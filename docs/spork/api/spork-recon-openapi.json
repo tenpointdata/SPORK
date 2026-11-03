@@ -243,7 +243,7 @@
       "post" : {
         "tags" : [ "Recon" ],
         "summary" : "Structured search: a page of up to 500 and a capped count",
-        "description" : "Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by default) in posted_desc, posted_asc or views_desc order, and total counts the matches up to 10,000 (totalCapped when more match). Served on direct cursors over the (facet, tsPosted, views) composites, the smallest filter driving. partial is true when a read budget ran out: the page may be short and total is a lower bound, with totalEstimate scaled from the driving filter's size. Records the person may not see are neither returned nor counted. phone, email, business and q (substring and full text) are refused with filterUnsupported for now. A title in the projection is read from the record's text partition through its textHash, and needs a grant on it.\n\nPurposes allowed: victim_identification, investigative_lead, network_disruption. Audit: one 'records.search' entry on the chain, committed before the response is released.",
+        "description" : "Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by default) in posted_desc, posted_asc or views_desc order. Served on direct cursors over the (facet, tsPosted, views) composites, the smallest filter driving; partial is true when a read cap stopped the page itself. The total is an ESTIMATE by default: the count reads a bounded number of index entries (so the request stays inside its latency budget) and totalExact says whether it reached the end. When totalExact is false, total is a lower bound (show it as \"N+\") and totalEstimate, when present, the count scaled from the driving filter's size (show it as \"about N\"); totalEstimate is left out when a posted window makes that scaling unreliable. exactTotal: true asks for the exact count up to 10,000 (totalCapped when more match), at the cost of reading up to every match. Records the person may not see are neither returned nor counted. phone, email, business and q (substring and full text) are refused with filterUnsupported for now. A title in the projection is read from the record's text partition through its textHash, and needs a grant on it.\n\nPurposes allowed: victim_identification, investigative_lead, network_disruption. Audit: one 'records.search' entry on the chain, committed before the response is released.",
         "operationId" : "searchRecords",
         "parameters" : [ {
           "name" : "tenant",
@@ -683,6 +683,10 @@
               "type" : "string",
               "enum" : [ "phones", "emails", "socials", "businessNames", "imageHashes", "lat", "lon", "city", "state", "country", "postedAt", "collectedAt", "age", "services", "paymentTypes", "clientele", "source", "viewCount", "hasImages", "style", "styleVec", "textHash", "priorityScore", "markings", "title" ]
             }
+          },
+          "exactTotal" : {
+            "type" : "boolean",
+            "description" : "Count every match up to 10,000 instead of estimating the total; false by default"
           }
         },
         "description" : "POST search: every filter is optional and they are ANDed"
@@ -835,7 +839,7 @@
         "description" : "One record of the page; a field the record lacks is absent"
       },
       "SearchAnswer" : {
-        "required" : [ "auditSeq", "consistencyBookmark", "partial", "records", "requestId", "servedBy", "total", "totalCapped" ],
+        "required" : [ "auditSeq", "consistencyBookmark", "partial", "records", "requestId", "servedBy", "total", "totalCapped", "totalExact" ],
         "type" : "object",
         "properties" : {
           "records" : {
@@ -847,8 +851,12 @@
           },
           "total" : {
             "type" : "integer",
-            "description" : "Matches, at most 10,000; a lower bound when partial",
+            "description" : "Matches counted, at most 10,000. Exact only when totalExact; otherwise an ESTIMATE's lower bound (\"N+\")",
             "format" : "int64"
+          },
+          "totalExact" : {
+            "type" : "boolean",
+            "description" : "total counts every match (up to the cap). False by default once the count's read budget runs out: total is then a lower bound"
           },
           "totalCapped" : {
             "type" : "boolean",
@@ -856,7 +864,7 @@
           },
           "totalEstimate" : {
             "type" : "integer",
-            "description" : "Only when partial: the count scaled from the driving filter",
+            "description" : "ESTIMATE, only when totalExact is false and no posted window applies: the count scaled from the driving filter's size (\"about N\"), at most 10,000",
             "format" : "int64"
           },
           "requestId" : {
@@ -882,7 +890,7 @@
             "nullable" : true
           }
         },
-        "description" : "A page and its count"
+        "description" : "A page and its total"
       },
       "HydrateAnswer" : {
         "required" : [ "auditSeq", "consistencyBookmark", "invalid", "missing", "partial", "records", "requestId", "servedBy" ],

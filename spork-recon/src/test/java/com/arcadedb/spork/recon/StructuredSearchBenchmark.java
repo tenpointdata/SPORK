@@ -132,28 +132,37 @@ class StructuredSearchBenchmark {
       final RecordFilter visibility = new RecordVisibility("deliverfund", 0L).forPartition(database);
       final Function<StructuredQuery, StructuredSearch.Result> run = q -> search.search(q.filter(visibility));
 
-      report.append("| shape | n | p50 ms | p95 ms | p99 ms | mean ms | partial | capped | mean entries | mean records |\n");
+      report.append("| shape | n | p50 ms | p95 ms | p99 ms | mean ms | inexact or partial | capped | mean entries | mean records |\n");
       report.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
       final SplittableRandom rnd = new SplittableRandom(12_345L);
-      measure(report, "P4 state, newest 50 + count", QUERIES,
+      // the route's default: the page plus a total within the estimate budget (exactTotal: false)
+      measure(report, "P4: state, newest 50, default total", QUERIES,
+          () -> estimated(StructuredQuery.newestFirst(50).where(Facet.eq("stateCode", state(rnd)))), run);
+      measure(report, "P4: state + 7 d window, newest 50, default total", QUERIES,
+          () -> estimated(StructuredQuery.newestFirst(50).where(Facet.eq("stateCode", state(rnd))).window(NOW - 7 * DAY, NOW)), run);
+      measure(report, "P4b: state, newest 500, default total", QUERIES,
+          () -> estimated(StructuredQuery.newestFirst(500).where(Facet.eq("stateCode", state(rnd)))), run);
+      measure(report, "P4v: state + 30 d, views_desc 50, default total", QUERIES,
+          () -> estimated(StructuredQuery.newestFirst(50).rankBy("views").where(Facet.eq("stateCode", state(rnd)))
+              .window(NOW - 30 * DAY, NOW)), run);
+      measure(report, "STRUCTURED (state + age + service), newest 100, default total", QUERIES, () -> estimated(structured(rnd, 100)),
+          run);
+      // exactTotal: true, for reference
+      measure(report, "P4: state, newest 50, exact total", QUERIES,
           () -> StructuredQuery.newestFirst(50).where(Facet.eq("stateCode", state(rnd))).count(COUNT_CAP), run);
-      measure(report, "P4 state + 7 d window, newest 50 + count", QUERIES,
-          () -> StructuredQuery.newestFirst(50).where(Facet.eq("stateCode", state(rnd))).window(NOW - 7 * DAY, NOW).count(COUNT_CAP), run);
-      measure(report, "P4b state, newest 500 + count", QUERIES,
-          () -> StructuredQuery.newestFirst(500).where(Facet.eq("stateCode", state(rnd))).count(COUNT_CAP), run);
-      measure(report, "P4v state + 30 d, views_desc 50 + count", QUERIES,
+      measure(report, "P4v: state + 30 d, views_desc 50, exact total", QUERIES,
           () -> StructuredQuery.newestFirst(50).rankBy("views").where(Facet.eq("stateCode", state(rnd))).window(NOW - 30 * DAY, NOW)
               .count(COUNT_CAP), run);
-      measure(report, "P4 state, newest 50, page only", QUERIES,
-          () -> StructuredQuery.newestFirst(50).where(Facet.eq("stateCode", state(rnd))), run);
-      measure(report, "STRUCTURED (state + age + service), newest 100 + count", QUERIES, () -> structured(rnd, 100).count(COUNT_CAP), run);
-      measure(report, "STRUCTURED, newest 50 + count", QUERIES, () -> structured(rnd, 50).count(COUNT_CAP), run);
-      measure(report, "STRUCTURED, newest 50, page only", QUERIES, () -> structured(rnd, 50), run);
       measureSql(report, "STRUCTURED on the SQL plan, newest 100", SQL_QUERIES, () -> structured(rnd, 100), database);
     }
     final String result = "Records: " + RECORDS + ", load average at the end: " + loadAverage() + "\n\n" + report;
     Files.writeString(new File(ROOT, "results.md").toPath(), result, StandardCharsets.UTF_8);
     LogManager.instance().log(this, Level.INFO, "P4 benchmark%n%s", result);
+  }
+
+  /** What the route asks by default: a count within the estimate budget. */
+  private static StructuredQuery estimated(final StructuredQuery query) {
+    return query.count(COUNT_CAP).countBudget(SearchService.DEFAULT_ESTIMATE_BUDGET);
   }
 
   private static String state(final SplittableRandom rnd) {

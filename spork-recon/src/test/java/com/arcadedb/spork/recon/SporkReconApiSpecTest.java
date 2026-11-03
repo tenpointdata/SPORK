@@ -112,6 +112,18 @@ class SporkReconApiSpecTest {
     assertThat(limit.getMaximum().intValue()).isEqualTo(SearchService.MAX_LIMIT).isEqualTo(500);
   }
 
+  /** WS4 shows "about N" and "N+" from these: the contract has to say which fields are estimates and when. */
+  @Test
+  void theSearchTotalSaysWhenItIsAnEstimate() {
+    final OpenAPI openAPI = parse(SporkReconApiSpec.toJson()).getOpenAPI();
+    final Map<String, Schema> answer = openAPI.getComponents().getSchemas().get("SearchAnswer").getProperties();
+
+    assertThat(openAPI.getComponents().getSchemas().get("SearchAnswer").getRequired()).contains("total", "totalExact");
+    assertThat(answer.get("total").getDescription()).contains("ESTIMATE").contains("totalExact");
+    assertThat(answer.get("totalEstimate").getDescription()).contains("ESTIMATE");
+    assertThat(openAPI.getComponents().getSchemas().get("SearchRequest").getProperties()).containsKey("exactTotal");
+  }
+
   @Test
   void theCommittedCopyIsCurrent() throws IOException {
     final String generated = SporkReconApiSpec.toJson();

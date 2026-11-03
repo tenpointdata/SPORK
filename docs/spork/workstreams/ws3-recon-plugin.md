@@ -67,6 +67,8 @@ Every 200 answer carries `requestId` (also in the audit detail, for later comple
 | `directoryDatabase` | `recdir` | upstreamRid to period |
 | `partitionPrefix` | `rec_` | partition databases `rec_<period>` |
 | `hydrateThreads`, `hydrateQueue` | 32, 1024 | the `spork-hydrate` pool |
+| `searchEstimateBudget` | 2,000 | index entries a search's default (estimated) total may read |
+| `textPrefix` | `txt_` | text partitions `txt_<period>`, where search titles are read |
 | `markings` | `{}` | Entry permission to marking bit (0 to 63) |
 | `localMarkings` | 0 | marking bits of local users |
 
@@ -82,13 +84,13 @@ Recon's.
 
 | Piece | Where | Behaviour |
 |---|---|---|
-| Request | `SearchService.parse` | Recon's filters onto schema v1: `state` and `country` upper-cased onto `stateCode` and `countryCode` (ingest's normalization is not defined yet; two-letter codes assumed), `city` through `SporkKeys.cityNorm` onto `cityNorm`, `areaCode` and `service` by item, `hasImages`, `website`, `aggregator`, `ageMin`/`ageMax` (an integer band, 0 to 200), `postedFrom`/`postedTo` (ISO-8601 or epoch ms). `sort` posted_desc (default), posted_asc, views_desc; `limit` 1 to 500 (50); `projection` as hydrate's plus `title`. `phone`, `email`, `business`, `q` and `imageHash` are refused with 400 `filterUnsupported` (P4s and P7 are later arms); any other key is 400 `searchInvalid`. |
+| Request | `SearchService.parse` | Recon's filters onto schema v1: `state` and `country` upper-cased onto `stateCode` and `countryCode` (ingest's normalization is not defined yet; two-letter codes assumed), `city` through `SporkKeys.cityNorm` onto `cityNorm`, `areaCode` and `service` by item, `hasImages`, `website`, `aggregator`, `ageMin`/`ageMax` (an integer band, 0 to 200), `postedFrom`/`postedTo` (ISO-8601 or epoch ms). `sort` posted_desc (default), posted_asc, views_desc; `limit` 1 to 500 (50); `projection` as hydrate's plus `title`; `exactTotal` (false). `phone`, `email`, `business`, `q` and `imageHash` are refused with 400 `filterUnsupported` (P4s and P7 are later arms); any other key is 400 `searchInvalid`. |
 | Walk | engine `StructuredSearch` | The smallest indexed facet drives one cursor per value of its `(facet, tsPosted, views)` composite; the other facets are tested on the Record; at most 40 x limit entries for the page, `partial` beyond. `views_desc` walks `(facet, views, tsPosted)` with the window checked on the key and falls back to the time arm past 10,000 entries. |
-| Count | engine `StructuredQuery.count` | Up to 10,000 (`totalCapped` beyond), counted on the index alone when one facet covers the search and visibility cannot hide the entry; at most 20,000 entries past the page, then a lower bound with `partial` and `totalEstimate`. |
+| Total | `SearchService.search` on engine `StructuredQuery.count` | **An estimate by default** (owner decision 2026-11-03, "estimate for now"): the count reads at most `searchEstimateBudget` index entries (default 2,000, shared by the request's partitions) and `totalExact` says whether it reached the end. When it did not, `total` is the lower bound counted ("N+") and `totalEstimate` the count scaled from the driving facet's size ("about N"), left out when a posted window applies because the scaling ignores it. `exactTotal: true` counts exactly up to 10,000 (`totalCapped` beyond), on the index alone when one facet covers the search and visibility cannot hide the entry, with the core's 20,000-entry budget. Single-facet, windowless totals will come from the core's cardinality table once the Optimizations session adds it; the route switches to it then. |
 | Visibility | `RecordVisibility` (a core `RecordFilter`) | Markings the person does not hold and other tenants' imports are neither rows nor counted. Per partition and request, the hidden RIDs are read from two sparse indexes added to schema v1's `rec.sql`, `(markings)` and `(tenantId)` with `NULL_STRATEGY SKIP`, so a count reads only the records it may have to hide. Unmarked records must leave `markings` null (0 is tolerated, skipped by range). Past 100,000 hidden entries, or without the indexes, every counted record is read: slower, never wrong. |
 | Partitions | `SearchService.search` | Every `rec_<p>` the node holds, newest period first (oldest first for posted_asc), each answering its top `limit` with the person bound as engine user; pages merge in the core's order (time then RID, or views then time then RID), counts add up to the cap. |
 | Titles | `SearchService.title` | `title` in the projection reads `TextBody.title` from `txt_<period>` through the record's `textHash` (one HASH probe), with the person bound on the text database: no grant there is 403 for the request, the console/ops text boundary of 5.4. |
-| Audit | `records.search` | One entry per request: tenant, requestId, records, total, totalCapped, partial, sort, filter names, whether titles were read, and the Merkle root of the released `record_id`s. |
+| Audit | `records.search` | One entry per request: tenant, requestId, records, total, totalExact, totalCapped, partial, sort, filter names, whether titles were read, and the Merkle root of the released `record_id`s. |
 
 ### Measured (5M records, one schema v1 partition, embedded, 1 thread)
 
@@ -96,6 +98,34 @@ Recon's.
 1.0 over 300 cities, age 18 + |N(0,1)| x 6, 1 to 4 services Zipf 1.0 over 40, posted NOW - 730 d x u^2, lognormal views), the
 P4 composites only, fully compacted as at seal; 400 timed queries per shape after 200 of warm-up, production visibility with
 the hidden set. The machine was shared with other sessions' builds and benchmarks throughout: numbers are upper bounds.
+
+**With the route's default, an estimated total** (2026-11-03 13:50 to 14:01, load average 22 falling to 16; SQL ran 2x slower
+than at load 7.7, so upper bounds). Each shape asks what the route asks: the page plus a count within 2,000 index entries.
+
+| shape | p50 ms | p95 ms | p99 ms | total not exact | mean entries read | mean records read |
+|---|---:|---:|---:|---:|---:|---:|
+| P4: state, newest 50 | 2.85 | 11.31 | 27.24 | 400 of 400 | 2,051 | 50 |
+| P4: state + 7 d window, newest 50 | 2.44 | 3.09 | 4.82 | 381 of 400 | 2,016 | 50 |
+| P4b: state, newest 500 | 3.09 | 4.22 | 5.52 | 400 of 400 | 2,501 | 500 |
+| P4v: state + 30 d, views_desc 50 | 3.58 | 8.51 | 27.74 | 400 of 400 | 2,272 | 50 |
+| harness STRUCTURED (state + age band + service), newest 100 | 8.98 | 63.77 | 77.27 | 342 of 400 | 3,497 | 3,496 |
+| P4 with `exactTotal: true` | 11.44 | 13.50 | 15.73 | 0 | 10,001 | 50 |
+| P4v with `exactTotal: true` | 10.68 | 11.95 | 13.65 | 0 | 9,753 | 50 |
+| harness STRUCTURED on the SQL plan, newest 100 (40) | 830.16 | 1,153.14 | 1,610.82 | | | |
+
+- **The p50 targets are met by default**: P4 2.85 ms and P4v 3.58 ms against 5 ms, P4b 3.09 ms against 12 ms; P4b's p99
+  (5.5 ms) is inside 40 ms. A totalExact of false is now the normal answer for any facet with more than about 2,000 matches.
+- **The p99 of P4 and P4v (27 ms) is over the 20 ms target in this run**, while the exact-total shapes of the same run, which
+  read five times more, had p99s of 14 to 16 ms. That points at the machine's stalls (other sessions' builds and benchmarks)
+  rather than the read path, but this machine cannot prove it; it wants a run on a quiet node (P0a).
+- **The harness STRUCTURED shape is still dominated by record reads for its residual filters** (9 ms p50, 64 ms p95): the
+  page's over-read, not the count, at this budget. The page alone was 3.4 / 26 ms; the remedy is the same as for its count
+  (set intersection, or residuals tested on the key bytes of a 3-column composite).
+- With a posted window the estimate is left out (381 of 400 windowed answers carry only the "N+" lower bound), because the
+  core scales by the whole facet. The cardinality-table answer the Optimizations session is adding has the same limit; a
+  windowed estimate needs per-period or per-bucket counts.
+
+**Earlier pass, every total exact** (counted to the 10,000 cap):
 
 Engine core, 2026-11-03 13:23 to 13:39, load average 12 rising to 24 (the SQL baseline ran 1.6x slower than in an earlier
 pass at load 7.7, so read every number as an upper bound):
@@ -115,7 +145,8 @@ pass at load 7.7, so read every number as an upper bound):
 An earlier pass of the same shapes on the plugin's own walk (since folded into the core), at load 7.7, measured P4 + count
 5.90 / 7.12 ms (p50 / p95), P4b 6.12 / 7.05, P4v 6.07 / 7.01, the STRUCTURED page 2.31 / 13.44, and SQL 263 / 744.
 
-Targets (2.4, warm): P4 and P4v 5 ms p50 / 20 ms p99, P4b 12 / 40 ms.
+Targets (2.4, warm): P4 and P4v 5 ms p50 / 20 ms p99, P4b 12 / 40 ms. The findings below are from the exact-total pass,
+which led to the owner's decision to estimate the total by default.
 
 What the numbers say, and what this design cannot reach:
 

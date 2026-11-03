@@ -78,6 +78,14 @@ class SearchRequestTest {
   }
 
   @Test
+  void theTotalIsAnEstimateUnlessTheExactCountIsAskedFor() {
+    assertThat(SearchService.parse(new JSONObject()).exactTotal()).isFalse();
+    assertThat(SearchService.parse(new JSONObject().put("exactTotal", true)).exactTotal()).isTrue();
+    assertThatThrownBy(() -> SearchService.parse(new JSONObject().put("exactTotal", "yes"))).isInstanceOfSatisfying(SporkRefusal.class,
+        refusal -> assertThat(refusal.code()).isEqualTo("searchInvalid"));
+  }
+
+  @Test
   void substringAndFullTextArmsAreRefusedNotIgnored() {
     for (final String key : new String[] { "phone", "email", "business", "q" })
       assertThatThrownBy(() -> SearchService.parse(new JSONObject().put(key, "555"))).isInstanceOfSatisfying(SporkRefusal.class,

@@ -55,12 +55,17 @@ final class SearchService {
   static final int         DEFAULT_LIMIT = 50;
   static final int         MAX_LIMIT     = 500;
   static final int         COUNT_CAP     = 10_000;
+  /**
+   * Index entries the default total may read, across the request's partitions: at the measured 0.5 to 1.2 us per entry this keeps
+   * the count inside P4's 5 ms p50 (owner decision 2026-11-03: an estimated total by default, the exact one on request).
+   */
+  static final int         DEFAULT_ESTIMATE_BUDGET = 2_000;
   static final String      TITLE         = "title";
   static final Set<String> FILTERS       = Set.of("state", "country", "city", "areaCode", "service", "hasImages", "website",
       "aggregator", "ageMin", "ageMax", "postedFrom", "postedTo");
   /** Recon's substring filters and full text: the P4s and P7 arms, not this slice. */
   static final Set<String> UNSUPPORTED   = Set.of("phone", "email", "business", "businessName", "q", "imageHash");
-  private static final Set<String> OPTIONS     = Set.of("sort", "limit", "projection");
+  private static final Set<String> OPTIONS     = Set.of("sort", "limit", "projection", "exactTotal");
   private static final int         MAX_AGE     = 200;
   private static final String      SORT_PROPERTY = "tsPosted";
   private static final String      RANK_PROPERTY = "views";
@@ -80,14 +85,25 @@ final class SearchService {
    * @param query   the core query, without the count and the person's filter, which are per partition
    * @param fields  the Record fields of each row
    * @param title   whether each row carries its ad title from {@code txt_<p>}
-   * @param filters the request's filter names, for the audit entry
-   * @param sort    the sort's wire name
+   * @param filters    the request's filter names, for the audit entry
+   * @param sort       the sort's wire name
+   * @param exactTotal count exactly up to the cap, instead of within the estimate budget
    */
-  record Request(StructuredQuery query, RecordProjection[] fields, boolean title, List<String> filters, String sort) {
+  record Request(StructuredQuery query, RecordProjection[] fields, boolean title, List<String> filters, String sort,
+                 boolean exactTotal) {
   }
 
-  /** What a search released, before it is audited and answered. */
-  record Result(JSONArray records, long[] recordIds, long total, boolean totalCapped, boolean partial, long totalEstimate) {
+  /**
+   * What a search released, before it is audited and answered.
+   *
+   * @param total         matches counted, at most the cap: exact when {@code totalExact}, a lower bound otherwise
+   * @param totalExact    every match was counted (or more than the cap were, {@code totalCapped})
+   * @param totalCapped   more than the cap match
+   * @param partial       the page itself may be short: a read cap stopped it
+   * @param totalEstimate when not exact, the count scaled from the driving facet's size, or -1 when there is none to trust
+   */
+  record Result(JSONArray records, long[] recordIds, long total, boolean totalExact, boolean totalCapped, boolean partial,
+                long totalEstimate) {
   }
 
   SearchService(final ArcadeDBServer server, final SporkReconConfiguration config) {
@@ -170,35 +186,55 @@ final class SearchService {
     } else if (body.has("projection"))
       projectionBody.put("projection", body.get("projection"));
 
+    boolean exactTotal = false;
+    if (body.has("exactTotal") && !body.isNull("exactTotal")) {
+      if (!(body.get("exactTotal") instanceof Boolean exact))
+        throw SporkRefusal.badRequest("searchInvalid", "'exactTotal' must be a boolean");
+      exactTotal = exact;
+    }
+
     final List<String> filters = new ArrayList<>();
     for (final String key : body.keySet())
       if (FILTERS.contains(key))
         filters.add(key);
-    return new Request(query, HydrateService.projection(projectionBody), title, filters, sort);
+    return new Request(query, HydrateService.projection(projectionBody), title, filters, sort, exactTotal);
   }
 
   Result search(final ServerSecurityUser user, final long heldMarkings, final String tenant, final Request request) {
     final RecordVisibility rule = new RecordVisibility(tenant, heldMarkings);
     final StructuredQuery query = request.query();
+    final boolean windowed = query.windowFrom() != Long.MIN_VALUE || query.windowTo() != Long.MAX_VALUE;
     final List<Document> hits = new ArrayList<>();
     long total = 0;
     long estimate = 0;
+    boolean exact = true;
+    final boolean estimable = !windowed;
     boolean capped = false;
     boolean partial = false;
+    // the default total shares one budget of index entries across the partitions; an exact total uses the core's own budget
+    long budgetLeft = config.searchEstimateBudget();
     final EngineUserBinding binding = new EngineUserBinding(user);
     try {
       for (final String name : partitions(!query.descending())) {
         final Database partition = binding.bind(server.getDatabaseForClient(name));
         final long capLeft = COUNT_CAP - total;
         // once the cap is reached a later partition still answers its page, and a count of 1 says whether more match
-        final StructuredSearch.Result page = core(name, partition).search(
-            query.filter(rule.forPartition(partition)).count(capLeft > 0 ? (int) capLeft : 1));
+        StructuredQuery partitionQuery = query.filter(rule.forPartition(partition)).count(capLeft > 0 ? (int) capLeft : 1);
+        if (!request.exactTotal())
+          partitionQuery = partitionQuery.countBudget((int) Math.max(1, budgetLeft));
+        final StructuredSearch.Result page = core(name, partition).search(partitionQuery);
         hits.addAll(page.rows());
-        partial |= page.partial() || page.totalPartial();
+        partial |= page.partial();
+        budgetLeft -= page.scanned();
         if (capLeft > 0) {
           total += page.total();
-          estimate += page.totalPartial() ? page.totalEstimate() : page.total();
           capped |= page.totalCapped();
+          if (page.totalPartial()) {
+            exact = false;
+            // the core scales by the driving facet's whole size: a window cuts that size by an unknown share
+            estimate += page.totalEstimate();
+          } else
+            estimate += page.total();
         } else
           capped |= page.total() > 0;
       }
@@ -215,7 +251,9 @@ final class SearchService {
           title(record, row, binding);
         records.put(row);
       }
-      return new Result(records, recordIds, Math.min(total, COUNT_CAP), capped, partial, Math.min(COUNT_CAP, estimate));
+      total = Math.min(total, COUNT_CAP);
+      final long totalEstimate = exact ? total : estimable ? Math.max(total, Math.min(COUNT_CAP, estimate)) : -1L;
+      return new Result(records, recordIds, total, exact, capped, partial, totalEstimate);
     } finally {
       binding.release();
     }
