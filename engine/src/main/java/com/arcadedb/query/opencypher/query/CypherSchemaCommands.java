@@ -505,6 +505,7 @@ public final class CypherSchemaCommands {
       case FULL_TEXT -> "FULLTEXT";
       case LSM_VECTOR -> "VECTOR";
       case LSM_SPARSE_VECTOR -> "SPARSE_VECTOR";
+      case LSM_IVF_VECTOR -> "VECTOR";
       case GEOSPATIAL -> "POINT";
     };
   }
@@ -518,6 +519,7 @@ public final class CypherSchemaCommands {
       case FULL_TEXT -> "fulltext-1.0";
       case LSM_VECTOR -> "vector-2.0";
       case LSM_SPARSE_VECTOR -> "sparse-vector-1.0";
+      case LSM_IVF_VECTOR -> "ivf-vector-1.0";
       case GEOSPATIAL -> "point-1.0";
     };
   }

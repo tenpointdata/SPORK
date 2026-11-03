@@ -32,6 +32,7 @@ import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexInternal;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.vector.GroupAdmissionState;
+import com.arcadedb.index.ivfvector.LSMIVFVectorIndex;
 import com.arcadedb.index.vector.GroupedTopUpPlanner;
 import com.arcadedb.index.vector.LSMVectorIndex;
 import com.arcadedb.index.vector.VectorQuantizationType;
@@ -68,7 +69,7 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
   public static final String NAME = "vector.neighbors";
 
   private static final Set<String> OPTIONS = Set.of("efSearch", "filter", "where", "groupBy", "groupSize", "maxDistance",
-      "rerank");
+      "rerank", "nprobe");
 
   // Hard cap on the candidate pool the index is asked to materialize when grouping is enabled.
   // Prevents memory exhaustion on pathological combinations of `k` and `groupSize` (e.g. k=1000,
@@ -105,6 +106,9 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
     //   - a map: options {efSearch, filter, where, groupBy, groupSize, maxDistance, rerank}
     int efSearch = -1;
     int rerank = -1;
+    // `nprobe` is the number of posting lists an LSM_IVF_VECTOR index scans; absent is the default of the index. Ignored by
+    // the graph-based LSM_VECTOR index
+    int nprobe = -1;
     Set<RID> allowedRIDs = null;
     String groupBy = null;
     int groupSize = 1;
@@ -120,6 +124,9 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
         rerank = opts.getInt("rerank", -1);
         if (opts.get("rerank") != null && rerank < 0)
           throw new CommandSQLParsingException(NAME + " rerank must be >= 0, got " + rerank);
+        nprobe = opts.getInt("nprobe", -1);
+        if (opts.get("nprobe") != null && nprobe < 1)
+          throw new CommandSQLParsingException(NAME + " nprobe must be >= 1, got " + nprobe);
         allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), NAME, context);
         groupBy = opts.getString("groupBy", null);
         groupSize = opts.getInt("groupSize", 1);
@@ -155,12 +162,13 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
       // so a name that is an index is not a logical one, and the walk of the types is paid only by a name that is not
       final List<TypeIndex> logical = schema.existsIndex(indexSpec) ? null : MultiTypeIndexes.resolve(schema, indexSpec);
       if (logical != null)
-        return executeWithLogicalIndex(indexSpec, logical, key, limit, efSearch, rerank, allowedRIDs, groupBy, groupSize, maxDistance,
-            context);
+        return executeWithLogicalIndex(indexSpec, logical, key, limit, efSearch, rerank, nprobe, allowedRIDs, groupBy, groupSize,
+            maxDistance, context);
 
       final Index directIndex = schema.getIndexByName(indexSpec);
       if (directIndex instanceof TypeIndex typeIndex) {
-        return executeWithTypeIndex(typeIndex, null, key, limit, efSearch, rerank, allowedRIDs, groupBy, groupSize, maxDistance, context);
+        return executeWithTypeIndex(typeIndex, null, key, limit, efSearch, rerank, nprobe, allowedRIDs, groupBy, groupSize, maxDistance,
+            context);
       }
       throw new CommandSQLParsingException(
           "Index '" + indexSpec + "' is not a vector index (found: " + (directIndex != null ? directIndex.getClass().getSimpleName() : "null") + ")");
@@ -192,39 +200,59 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
     // results consistent with the WHERE.
     allowedBucketIds = narrowAllowedBucketIdsByPartitionHint(allowedBucketIds, specifiedTypeName, context);
 
-    return executeWithTypeIndex(typeIndex, allowedBucketIds, key, limit, efSearch, rerank, allowedRIDs, groupBy, groupSize, maxDistance, context);
+    return executeWithTypeIndex(typeIndex, allowedBucketIds, key, limit, efSearch, rerank, nprobe, allowedRIDs, groupBy, groupSize,
+        maxDistance, context);
   }
 
   private Object executeWithLogicalIndex(final String name, final List<TypeIndex> members, final Object key, final int limit,
-      final int efSearch, final int rerank, final Set<RID> allowedRIDs, final String groupBy, final int groupSize,
+      final int efSearch, final int rerank, final int nprobe, final Set<RID> allowedRIDs, final String groupBy, final int groupSize,
       final float maxDistance, final CommandContext context) {
     final List<LSMVectorIndex> vectorIndexes = new ArrayList<>();
+    final List<LSMIVFVectorIndex> ivfIndexes = new ArrayList<>();
     for (final TypeIndex member : members) {
       final var bucketIndexes = member.getIndexesOnBuckets();
       if (bucketIndexes == null || bucketIndexes.length == 0)
         throw new CommandSQLParsingException("Index '" + member.getName() + "' has no bucket indexes");
+      // Every member is checked on its own: an IVF member must not let a later member skip the check, or hide the graph members
+      final List<LSMIVFVectorIndex> memberIVFIndexes = VectorUtils.collectSubIndexesOnce(bucketIndexes, LSMIVFVectorIndex.class, null);
       final List<LSMVectorIndex> memberIndexes = VectorUtils.collectSubIndexesOnce(bucketIndexes, LSMVectorIndex.class, null);
-      if (memberIndexes.isEmpty())
+      if (memberIVFIndexes.isEmpty() && memberIndexes.isEmpty())
         throw new CommandSQLParsingException("Index '" + member.getName() + "' is not a vector index");
+      ivfIndexes.addAll(memberIVFIndexes);
       vectorIndexes.addAll(memberIndexes);
     }
-    if (vectorIndexes.isEmpty())
-      throw new CommandSQLParsingException("Index '" + name + "' has no vector index left");
-
+    // The two kinds answer distances on different scales (an IVF code proxy against the graph's similarity score): no merge of them
+    if (!ivfIndexes.isEmpty() && !vectorIndexes.isEmpty())
+      throw new CommandSQLParsingException("Index '" + name
+          + "' mixes LSM_VECTOR and LSM_IVF_VECTOR members, whose distances cannot be merged: query each type's index on its own");
     // A filter that matched nothing is not "no filter" (issue #8959)
     if (allowedRIDs != null && allowedRIDs.isEmpty())
       return new ArrayList<>(0);
+
+    if (!ivfIndexes.isEmpty())
+      return executeWithIVFIndexes(ivfIndexes, key, limit, nprobe, rerank, allowedRIDs, groupBy, maxDistance, context);
+    if (vectorIndexes.isEmpty())
+      throw new CommandSQLParsingException("Index '" + name + "' has no vector index left");
 
     return executeWithLSMVectorIndexes(vectorIndexes, key, limit, efSearch, rerank, allowedRIDs, groupBy, groupSize, maxDistance,
         context);
   }
 
   private Object executeWithTypeIndex(final TypeIndex typeIndex, final IntHashSet allowedBucketIds, final Object key,
-      final int limit, final int efSearch, final int rerank, final Set<RID> allowedRIDs, final String groupBy,
+      final int limit, final int efSearch, final int rerank, final int nprobe, final Set<RID> allowedRIDs, final String groupBy,
       final int groupSize, final float maxDistance, final CommandContext context) {
     final var bucketIndexes = typeIndex.getIndexesOnBuckets();
     if (bucketIndexes == null || bucketIndexes.length == 0) {
       throw new CommandSQLParsingException("Index '" + typeIndex.getName() + "' has no bucket indexes");
+    }
+
+    // An LSM_IVF_VECTOR index answers from its posting lists; dispatched on the index type, with the same options
+    final List<LSMIVFVectorIndex> ivfIndexes = VectorUtils.collectSubIndexesOnce(bucketIndexes, LSMIVFVectorIndex.class,
+        allowedBucketIds == null ? null : allowedBucketIds::contains);
+    if (!ivfIndexes.isEmpty()) {
+      if (allowedRIDs != null && allowedRIDs.isEmpty())
+        return new ArrayList<>(0);
+      return executeWithIVFIndexes(ivfIndexes, key, limit, nprobe, rerank, allowedRIDs, groupBy, maxDistance, context);
     }
 
     // Filter bucket indexes if a specific type was requested, and visit each sub-index at most once. See
@@ -248,6 +276,47 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
 
     // Search across all matching vector indexes and merge results
     return executeWithLSMVectorIndexes(vectorIndexes, key, limit, efSearch, rerank, allowedRIDs, groupBy, groupSize, maxDistance, context);
+  }
+
+  /**
+   * The IVF path: each bucket index scans its {@code nprobe} posting lists and answers its {@code limit} nearest, the answers
+   * are merged by distance and the records read. No {@code groupBy}: the posting scan has no group-aware budget yet.
+   */
+  private Object executeWithIVFIndexes(final List<LSMIVFVectorIndex> ivfIndexes, final Object key, final int limit, final int nprobe,
+      final int rerank, final Set<RID> allowedRIDs, final String groupBy, final float maxDistance, final CommandContext context) {
+    if (groupBy != null)
+      throw new CommandSQLParsingException(NAME + " groupBy is not supported on LSM_IVF_VECTOR indexes");
+    final float[] queryVector;
+    try {
+      queryVector = VectorUtils.toFloatArray(key);
+    } catch (final IllegalArgumentException e) {
+      throw new CommandSQLParsingException("Unsupported query vector type: " + key.getClass().getSimpleName());
+    }
+    if (queryVector == null)
+      throw new CommandSQLParsingException("Unsupported query vector type: " + key.getClass().getSimpleName());
+
+    final List<Pair<RID, Float>> allNeighbors = new ArrayList<>();
+    for (final LSMIVFVectorIndex index : ivfIndexes)
+      allNeighbors.addAll(index.findNeighbors(queryVector, limit, nprobe, rerank, allowedRIDs));
+    allNeighbors.sort(Comparator.comparing(Pair::getSecond));
+
+    final BasicDatabase db = context.getDatabase();
+    final ArrayList<Object> result = new ArrayList<>(Math.min(limit, allNeighbors.size()));
+    final RidHashSet emitted = new RidHashSet(Math.min(limit, allNeighbors.size()));
+    for (final Pair<RID, Float> neighbor : allNeighbors) {
+      if (result.size() >= limit || neighbor.getSecond() > maxDistance)
+        break;
+      if (!emitted.add(neighbor.getFirst()))
+        continue;
+      final Document record;
+      try {
+        record = (Document) db.lookupByRID(neighbor.getFirst(), true);
+      } catch (final RecordNotFoundException e) {
+        continue;
+      }
+      result.add(new ScoredRecordRow(record, "distance", neighbor.getSecond()));
+    }
+    return result;
   }
 
   /**

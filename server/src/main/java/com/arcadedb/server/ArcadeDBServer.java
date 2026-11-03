@@ -54,6 +54,7 @@ import com.arcadedb.server.http.handler.AbstractServerHttpHandler;
 import com.arcadedb.database.QueryMetricsRecorder;
 import com.arcadedb.database.QueryTracer;
 import com.arcadedb.server.monitor.EngineMetricsBinder;
+import com.arcadedb.server.monitor.IVFVectorIndexMetricsBinder;
 import com.arcadedb.server.monitor.MicrometerQueryMetricsRecorder;
 import com.arcadedb.server.monitor.TimeSeriesReadMetrics;
 import com.arcadedb.server.monitor.MicrometerQueryTracer;
@@ -1249,6 +1250,8 @@ public class ArcadeDBServer {
     // Engine-wide Profiler stats (cache hit/miss, pages, WAL, MVCC conflicts, open files, tx,
     // queries) - exposes arcadedb.engine.* gauges read live from the Profiler on each scrape.
     new EngineMetricsBinder().bindTo(Metrics.globalRegistry);
+    // LSM_IVF_VECTOR totals (searches, scanned entries, reranks, locator deletes, trainings) - arcadedb.vector.ivf.* counters
+    new IVFVectorIndexMetricsBinder().bindTo(Metrics.globalRegistry);
     // HA replication health (heartbeat lag + replication lag) sourced live from the HA plugin -
     // exposes arcadedb.ha.* gauges; harmless no-op (all -1/0) when HA is disabled. Kept in a field
     // and closed in stopMetrics(), or the per-follower gauge refresh scheduler it starts leaks one
