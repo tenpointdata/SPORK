@@ -38,6 +38,7 @@ import java.util.regex.Pattern;
  *   "auditDatabase": "identity",           the chain analyst actions append to (01-architecture 5.2)
  *   "directoryDatabase": "recdir",         upstreamRid -> period
  *   "partitionPrefix": "rec_",             rec_&lt;period&gt;
+ *   "textPrefix": "txt_",                  txt_&lt;period&gt;, where search titles are read
  *   "hydrateThreads": 32,                  the spork-hydrate pool (2.5)
  *   "hydrateQueue": 1024,
  *   "markings": {"spork.marking.minor": 0} Entry permission -> marking bit the holder may see
@@ -55,6 +56,7 @@ public final class SporkReconConfiguration {
   private final String      auditDatabase;
   private final String      directoryDatabase;
   private final String      partitionPrefix;
+  private final String      textPrefix;
   private final int         hydrateThreads;
   private final int         hydrateQueue;
   private final String[]    markingPermissions;
@@ -66,6 +68,7 @@ public final class SporkReconConfiguration {
     this.auditDatabase = name(json, "auditDatabase", "identity");
     this.directoryDatabase = name(json, "directoryDatabase", "recdir");
     this.partitionPrefix = name(json, "partitionPrefix", "rec_");
+    this.textPrefix = name(json, "textPrefix", "txt_");
     this.hydrateThreads = positive(json, "hydrateThreads", 32);
     this.hydrateQueue = positive(json, "hydrateQueue", 1024);
     this.localMarkings = json.getLong("localMarkings", 0L);
@@ -118,6 +121,10 @@ public final class SporkReconConfiguration {
 
   public String partitionPrefix() {
     return partitionPrefix;
+  }
+
+  public String textPrefix() {
+    return textPrefix;
   }
 
   public int hydrateThreads() {

@@ -1,6 +1,7 @@
 # WS3: the `spork-recon` plugin
 
-Status: slice 1 (plugin core) implemented and tested on branch `claude/ws3-recon-plugin-551eca`. Owner of this doc: the
+Status: slice 1 (plugin core) merged; slice 2 (structured search, P4) implemented and tested on branch
+`claude/ws3-recon-plugin-551eca`. Owner of this doc: the
 WS3 session. Architecture: `01-architecture.md` 4b, 5.1 to 5.4, 7.1, 7.2 and the WS3 row of 8; identity and audit:
 `07-entry-identity-and-audit.md`, which supersedes the role claim and shared engine users of 5.1.
 
@@ -72,7 +73,71 @@ Every 200 answer carries `requestId` (also in the audit detail, for later comple
 A file that cannot be parsed stops the plugin at configure (fails closed). No file: only the contract is served and
 every route answers 503 `notConfigured`.
 
-## Decisions taken in this slice
+## Slice 2: structured search (P4, P4b, P4v)
+
+`POST /api/spork/v1/{tenant}/search` (01-architecture 7.2; 02-retrieval-speed.md 2.4; R36), served on direct index cursors by
+the engine's structured-search core (`com.arcadedb.query.structured`, `p4-structured-core.md`), never on the SQL plan. By the
+owner's decision there is one core: the walk, the count and the rank order live in the engine; the plugin adds only what is
+Recon's.
+
+| Piece | Where | Behaviour |
+|---|---|---|
+| Request | `SearchService.parse` | Recon's filters onto schema v1: `state` and `country` upper-cased onto `stateCode` and `countryCode` (ingest's normalization is not defined yet; two-letter codes assumed), `city` through `SporkKeys.cityNorm` onto `cityNorm`, `areaCode` and `service` by item, `hasImages`, `website`, `aggregator`, `ageMin`/`ageMax` (an integer band, 0 to 200), `postedFrom`/`postedTo` (ISO-8601 or epoch ms). `sort` posted_desc (default), posted_asc, views_desc; `limit` 1 to 500 (50); `projection` as hydrate's plus `title`. `phone`, `email`, `business`, `q` and `imageHash` are refused with 400 `filterUnsupported` (P4s and P7 are later arms); any other key is 400 `searchInvalid`. |
+| Walk | engine `StructuredSearch` | The smallest indexed facet drives one cursor per value of its `(facet, tsPosted, views)` composite; the other facets are tested on the Record; at most 40 x limit entries for the page, `partial` beyond. `views_desc` walks `(facet, views, tsPosted)` with the window checked on the key and falls back to the time arm past 10,000 entries. |
+| Count | engine `StructuredQuery.count` | Up to 10,000 (`totalCapped` beyond), counted on the index alone when one facet covers the search and visibility cannot hide the entry; at most 20,000 entries past the page, then a lower bound with `partial` and `totalEstimate`. |
+| Visibility | `RecordVisibility` (a core `RecordFilter`) | Markings the person does not hold and other tenants' imports are neither rows nor counted. Per partition and request, the hidden RIDs are read from two sparse indexes added to schema v1's `rec.sql`, `(markings)` and `(tenantId)` with `NULL_STRATEGY SKIP`, so a count reads only the records it may have to hide. Unmarked records must leave `markings` null (0 is tolerated, skipped by range). Past 100,000 hidden entries, or without the indexes, every counted record is read: slower, never wrong. |
+| Partitions | `SearchService.search` | Every `rec_<p>` the node holds, newest period first (oldest first for posted_asc), each answering its top `limit` with the person bound as engine user; pages merge in the core's order (time then RID, or views then time then RID), counts add up to the cap. |
+| Titles | `SearchService.title` | `title` in the projection reads `TextBody.title` from `txt_<period>` through the record's `textHash` (one HASH probe), with the person bound on the text database: no grant there is 403 for the request, the console/ops text boundary of 5.4. |
+| Audit | `records.search` | One entry per request: tenant, requestId, records, total, totalCapped, partial, sort, filter names, whether titles were read, and the Merkle root of the released `record_id`s. |
+
+### Measured (5M records, one schema v1 partition, embedded, 1 thread)
+
+`StructuredSearchBenchmark` (`@Tag("benchmark")`): 5M records with the retrieval harness's distributions (state through a Zipf
+1.0 over 300 cities, age 18 + |N(0,1)| x 6, 1 to 4 services Zipf 1.0 over 40, posted NOW - 730 d x u^2, lognormal views), the
+P4 composites only, fully compacted as at seal; 400 timed queries per shape after 200 of warm-up, production visibility with
+the hidden set. The machine was shared with other sessions' builds and benchmarks throughout: numbers are upper bounds.
+
+Engine core, 2026-11-03 13:23 to 13:39, load average 12 rising to 24 (the SQL baseline ran 1.6x slower than in an earlier
+pass at load 7.7, so read every number as an upper bound):
+
+| shape | p50 ms | p95 ms | p99 ms | partial | mean entries read | mean records read |
+|---|---:|---:|---:|---:|---:|---:|
+| P4: state, newest 50 + count to 10,000 | 11.73 | 13.19 | 15.44 | 0 | 9,991 | 50 |
+| P4: state + 7 d window, newest 50 + count | 8.46 | 9.27 | 9.78 | 0 | 8,845 | 50 |
+| P4b: state, newest 500 + count | 9.60 | 11.33 | 13.75 | 0 | 10,001 | 500 |
+| P4v: state + 30 d, views_desc 50 + count | 12.08 | 16.20 | 17.30 | 0 | 9,900 | 50 |
+| P4 page only (no count) | 0.16 | 0.25 | 0.32 | 0 | 50 | 50 |
+| harness STRUCTURED (state + age band + service), newest 100 + count | 26.31 | 382.06 | 502.05 | 322 of 400 | 10,353 | 10,353 |
+| harness STRUCTURED, newest 50 + count | 6.47 | 370.21 | 609.92 | 321 of 400 | 8,309 | 8,308 |
+| harness STRUCTURED, newest 50, page only | 3.44 | 26.15 | 27.60 | 186 of 400 | 1,418 | 1,418 |
+| harness STRUCTURED on the SQL plan, newest 100 (40 queries) | 426.44 | 1,466.93 | 1,702.25 | | | |
+
+An earlier pass of the same shapes on the plugin's own walk (since folded into the core), at load 7.7, measured P4 + count
+5.90 / 7.12 ms (p50 / p95), P4b 6.12 / 7.05, P4v 6.07 / 7.01, the STRUCTURED page 2.31 / 13.44, and SQL 263 / 744.
+
+Targets (2.4, warm): P4 and P4v 5 ms p50 / 20 ms p99, P4b 12 / 40 ms.
+
+What the numbers say, and what this design cannot reach:
+
+- **The page is far inside the target.** A covered first page reads 50 entries and 50 records: 0.16 ms. The P99 targets hold for
+  P4, P4b and P4v with the count included, even at load 24.
+- **The capped count is the whole of the P4 and P4v medians, and the 5 ms p50 is not met with it.** A single-facet count reads
+  up to 10,001 index entries and no record, which is what 2.4 designed ("count: 7 leaves"), but the LSM cursor costs 0.5 to 1 us
+  per entry here (5 to 12 ms), against the 0.2 ms 2.4 budgeted from the leaf bytes. Not tuned around, per the brief. The
+  options are design changes: (a) answer a single-facet count with no window from the cardinality table the core already
+  keeps (O(1), exact as of its refresh, so stale by up to its TTL); (b) engine item 4.3 M3, `count(*)` served from the index
+  by leaf (entries per leaf in the page header), which also serves windows; (c) make the count asynchronous or opt-in for
+  Recon's first page.
+- **A multi-filter count cannot be exact and fast on a single-cursor design.** For the harness STRUCTURED shape the other two
+  filters are residuals, so each counted entry is a record read: 10,000 reads, 370 ms p95, and the 20,000-entry budget runs out
+  on 80% of queries, which then answer `partial` with `totalEstimate`. The page alone is 3.4 ms p50 but 26 ms p95, because the
+  40 x limit over-read also runs out (186 of 400 partial) when the joint selectivity is low. Exact counts for this shape need
+  set intersection rather than a cursor: per-value roaring bitmaps per partition (the ObjectSet service of 01-architecture 4b),
+  where three facets intersect in well under a millisecond. Owner decision whether Recon shows "about N" (the estimate) until
+  then.
+- Against SQL on the same data: the STRUCTURED page is 124x faster at the median (3.44 against 426 ms) with the same rows.
+
+## Decisions taken in slice 1
 
 - **Read audit is committed after the read and before the release.** A hydrate reads `recdir` and `rec_<p>`, and a
   transaction cannot span databases, so "same transaction" (5.2) is met as "nothing leaves that the chain does not
@@ -110,8 +175,8 @@ In the order Recon's move needs them (WS4 builds `SporkSource` against the OpenA
 
 1. **Intake** (`POST /intake`, at most 25 tokens, per-token caps on every token kind, `expand=false`, `requestId` for
    the completion append) and **`GET /records/{id}`**.
-2. **Search and count** (`POST /search`, `POST /search:count`) with the console/ops text boundary as Entry permissions,
-   title and text projections from `txt_<p>` behind their grant, and the three denial tests of 5.4.
+2. **Search, the rest of it**: substring arms P4s (`phone`, `email`, `business`, after M6), `q` (P7), `imageHash`,
+   keyset pages through the route (the core has them), `POST /search:count`, and titles on hydrate as on search.
 3. **Pivot** and **partial** (`POST /pivot`, `POST /partial`).
 4. **Group-by** and **timeline** (`POST /groupby`, `POST /timeseries`, query form and `{ids[]}`).
 5. **Feed** (`GET /feed/live`, `feed.view` audited per request including cache hits) and `GET /recent`.
@@ -133,12 +198,18 @@ themselves (owner question 10). The plugin is not yet in the `package` distribut
 
 ## Verification
 
-`mvn -o verify -Pintegration -pl spork-recon -am`. Unit: `OperatingContextTest`, `SporkRoutesTest`, `RecordRefTest`, `HydratePoolTest` (a chunk carries the request's protocol tag and restores the thread's own),
+`mvn -o verify -Pintegration -pl spork-recon -am`. Search: `SearchEquivalenceTest` (the core under the plugin's visibility filter
+against SQL on a v1 partition with hidden records: 200 random filter, sort and window combinations, the benchmark shape, every
+sort per state: same rows, order and count; the smallest facet drives; a covered count reads only the page and the hidden
+records), `SearchRequestTest`, `RecordVisibilityTest`; in the engine, `StructuredSearchCountAndRankTest` (10) next to the core's
+`StructuredSearchTest` (12). Unit: `OperatingContextTest`, `SporkRoutesTest`, `RecordRefTest`, `HydratePoolTest` (a chunk carries the request's protocol tag and restores the thread's own),
 `MerkleRootTest`, `SporkReconConfigurationTest`, `SporkReconApiSpecTest` (the document parses with swagger-parser,
 documents every route with its purposes and refusals, carries the 5,000 cap, matches the committed copy, and the plugin
 registers only its two prefixes). Integration (`BaseGraphServerTest`, ports read back from the server, a stub Entry on a
 fixture-allocated port): `SporkReconPluginIT` (428 both ways, 403 purposeDenied, 403 analystMismatch, 401, 404 tenant and
 route, 405 with Allow, every id form, missing and invalid, partial, markings absent for a person without them, 403 for a
 person with no grant on the partition, projection allowlist, the 5,000 cap, a 2,000-id fan-out in request order with one
-entry, `context.declare`, a local user audited as `local:root`, the served contract) and `SporkReconAuditFailsClosedIT`
+entry, `context.declare`, a local user audited as `local:root`, the served contract; search: page and count of what the person
+may see, unheld markings left out of the count (oldest first, so the count meets them), views order with a window, the purpose
+gate, 428, `filterUnsupported`, no partition grant, titles behind the text grant) and `SporkReconAuditFailsClosedIT`
 (503 and no records when the chain is unavailable).

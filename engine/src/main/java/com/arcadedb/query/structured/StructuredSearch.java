@@ -68,13 +68,19 @@ public final class StructuredSearch {
   /**
    * One page.
    *
-   * @param rows        the accepted records, in order
-   * @param partial     the walk hit the over-read cap before filling the page; more matches may exist after {@code next}
-   * @param scanned     index entries read for this page
-   * @param walkedIndex the index the walk read
-   * @param next        where the next page starts, or null when the walk ran out of entries
+   * @param rows          the accepted records, in order
+   * @param partial       the walk hit a read cap before filling the page; more matches may exist after {@code next}
+   * @param scanned       index entries read for this page and its count
+   * @param walkedIndex   the index the walk read
+   * @param next          where the next page starts, or null when the walk ran out of entries (always null in rank order)
+   * @param total         matches counted, at most {@link StructuredQuery#countCap()}; -1 when no count was asked
+   * @param totalCapped   more than the cap match
+   * @param totalPartial  the count stopped at its budget (or the page at its over-read cap): {@code total} is a lower bound
+   * @param totalEstimate when {@code totalPartial}, the count scaled from the walked facet's size; otherwise {@code total}
+   * @param recordsRead   records read, for the page and the count
    */
-  public record Result(List<Document> rows, boolean partial, long scanned, String walkedIndex, Keyset next) {
+  public record Result(List<Document> rows, boolean partial, long scanned, String walkedIndex, Keyset next, long total,
+                       boolean totalCapped, boolean totalPartial, long totalEstimate, long recordsRead) {
   }
 
   private record Candidate(TypeIndex index, Facet facet, int sortKeyPosition, boolean byItem, long estimate) {
@@ -110,13 +116,19 @@ public final class StructuredSearch {
     final DocumentType type = database.getSchema().existsType(typeName) ? database.getSchema().getType(typeName) : null;
     if (type == null)
       throw new IllegalArgumentException("Type '" + typeName + "' does not exist");
+    if (query.rankProperty() != null)
+      return rank(type, query);
 
     final Candidate walked = choose(type, query);
+    return walk(query, walked, residual(query, walked));
+  }
+
+  private static List<Facet> residual(final StructuredQuery query, final Candidate walked) {
     final List<Facet> residual = new ArrayList<>(query.facets().size());
     for (final Facet f : query.facets())
       if (f != walked.facet())
         residual.add(f);
-    return walk(query, walked, residual);
+    return residual;
   }
 
   // ---------------------------------------------------------------------------------------------------------------------
@@ -128,8 +140,10 @@ public final class StructuredSearch {
       if (!index.supportsOrderedIterations())
         continue;
       final List<String> props = index.getPropertyNames();
-      if (props.size() == 1 && props.get(0).equals(sortProperty)) {
-        sortOnly = index;
+      if (props.get(0).equals(sortProperty)) {
+        // (sort) or (sort, ...): the unfiltered walk, the shortest such index preferred
+        if (sortOnly == null || props.size() < sortOnly.getPropertyNames().size())
+          sortOnly = index;
         continue;
       }
       if (props.size() < 2 || !props.get(1).equals(sortProperty))
@@ -237,13 +251,22 @@ public final class StructuredSearch {
 
     // a BY ITEM composite walked on several values reaches a record once per matching item
     final RidHashSet seen = walked.byItem() && values.length > 1 ? new RidHashSet() : null;
+    final RecordFilter filter = query.filter();
     final long cap = query.overReadCap();
     final List<Document> rows = new ArrayList<>(Math.min(query.limit(), 1_024));
     final List<RID> tieGroup = new ArrayList<>();
+    final Count count = query.countCap() > 0 ? new Count(query, residual, filter, seen) : null;
     long scanned = 0;
+    long read = 0;
     Keyset lastRead = null;
 
     try {
+      if (query.limit() == 0) {
+        // a count alone (the rank order's): no page, so no order to keep
+        if (count != null)
+          count.drain(heads);
+        return result(rows, false, scanned, walked, null, count, read, false);
+      }
       while (!heads.isEmpty()) {
         // every entry with the head's sort value, from every cursor, ordered by RID in the walk's direction
         final long groupSort = heads.peek().sort;
@@ -257,34 +280,288 @@ public final class StructuredSearch {
         if (tieGroup.size() > 1)
           tieGroup.sort((a, b) -> compare(groupSort, a, groupSort, b, desc));
 
-        for (final RID rid : tieGroup) {
+        for (int i = 0; i < tieGroup.size(); i++) {
+          final RID rid = tieGroup.get(i);
           if (after != null && compare(groupSort, rid, after.sortValue(), after.rid(), desc) <= 0)
             continue; // at or before the keyset: read by an earlier page
           if (seen != null && !seen.add(rid))
             continue;
           if (scanned >= cap)
-            return new Result(rows, true, scanned, walked.index().getName(), lastRead);
+            return result(rows, true, scanned, walked, lastRead, count, read, true);
           scanned++;
           lastRead = new Keyset(groupSort, rid);
 
           final Document doc;
           try {
             doc = rid.asDocument();
+            read++;
           } catch (final RecordNotFoundException e) {
             continue; // deleted after the index entry was read
           }
-          if (accepts(doc, residual)) {
+          if (accepts(doc, residual) && (filter == null || filter.accepts(doc))) {
             rows.add(doc);
-            if (rows.size() == query.limit())
-              return new Result(rows, false, scanned, walked.index().getName(), lastRead);
+            if (rows.size() == query.limit()) {
+              if (count != null) {
+                count.matched = rows.size();
+                // the rest of this tie group, then every cursor drained in any order: a count needs no order
+                for (int j = i + 1; j < tieGroup.size() && count.add(tieGroup.get(j)); j++) {
+                }
+                count.drain(heads);
+              }
+              return result(rows, false, scanned, walked, lastRead, count, read, false);
+            }
           }
         }
       }
-      return new Result(rows, false, scanned, walked.index().getName(), null);
+      if (count != null)
+        count.matched = rows.size();
+      return result(rows, false, scanned, walked, null, count, read, false);
     } finally {
       for (final Head h : heads)
         h.cursor.close();
     }
+  }
+
+  private static Result result(final List<Document> rows, final boolean partial, final long scanned, final Candidate walked,
+      final Keyset next, final Count count, final long read, final boolean pageCut) {
+    if (count == null)
+      return new Result(rows, partial, scanned, walked.index().getName(), next, -1L, false, false, -1L, read);
+    if (pageCut)
+      count.matched = rows.size();
+    final boolean totalPartial = pageCut || count.budgetSpent;
+    final long total = Math.min(count.matched, count.cap);
+    long estimate = total;
+    final long entries = scanned + count.entries;
+    if (totalPartial && walked.estimate() != Long.MAX_VALUE && entries > 0)
+      estimate = Math.min(count.cap, Math.max(count.matched, count.matched * walked.estimate() / entries));
+    return new Result(rows, partial, entries, walked.index().getName(), next, total, count.matched > count.cap, totalPartial, estimate,
+        read + count.read);
+  }
+
+  /**
+   * The count past the page: up to the cap, at most the budget of entries. An entry is counted on the index alone when no
+   * residual facet and no filter's {@link RecordFilter#mustRead} asks for its record; otherwise its record is read and tested.
+   */
+  private static final class Count {
+    final int          cap;
+    final int          budget;
+    final List<Facet>  residual;
+    final RecordFilter filter;
+    final RidHashSet   seen;
+    final boolean      indexOnly;
+    long               matched;
+    long               entries;
+    long               read;
+    boolean            budgetSpent;
+
+    Count(final StructuredQuery query, final List<Facet> residual, final RecordFilter filter, final RidHashSet seen) {
+      this.cap = query.countCap();
+      this.budget = query.countBudget();
+      this.residual = residual;
+      this.filter = filter;
+      this.seen = seen;
+      this.indexOnly = residual.isEmpty();
+    }
+
+    /** False once the count is done: past the cap or out of budget. */
+    boolean add(final RID rid) {
+      if (seen != null && !seen.add(rid))
+        return true;
+      if (++entries > budget) {
+        budgetSpent = true;
+        return false;
+      }
+      if (indexOnly && (filter == null || !filter.mustRead(rid)))
+        matched++;
+      else {
+        final Document doc;
+        try {
+          doc = rid.asDocument();
+          read++;
+        } catch (final RecordNotFoundException e) {
+          return true;
+        }
+        if (accepts(doc, residual) && (filter == null || filter.accepts(doc)))
+          matched++;
+      }
+      return matched <= cap;
+    }
+
+    /** Each cursor's current entry, then the rest of it, reading no key: the range already bounds the window. */
+    void drain(final PriorityQueue<Head> heads) {
+      for (final Head h : heads) {
+        if (!add(h.rid))
+          return;
+        while (h.cursor.hasNext()) {
+          final Identifiable next = h.cursor.next();
+          if (next != null && !add(next.getIdentity()))
+            return;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------------
+
+  /** A rank-order candidate: the {@code (facet, rank, sort)} composite of a facet, or {@code (rank, sort)} for none. */
+  private Candidate chooseRank(final DocumentType type, final StructuredQuery query) {
+    final String rank = query.rankProperty();
+    Candidate best = null;
+    TypeIndex rankOnly = null;
+    for (final TypeIndex index : type.getAllIndexes(true)) {
+      if (!index.supportsOrderedIterations())
+        continue;
+      final List<String> props = index.getPropertyNames();
+      if (props.size() == 2 && props.get(0).equals(rank) && props.get(1).equals(sortProperty)) {
+        rankOnly = index;
+        continue;
+      }
+      if (props.size() < 3 || !props.get(1).equals(rank) || !props.get(2).equals(sortProperty))
+        continue;
+      final String leading = props.get(0);
+      final boolean byItem = leading.toLowerCase(Locale.ROOT).endsWith(" by item");
+      final String leadingProperty = byItem ? leading.substring(0, leading.length() - " by item".length()) : leading;
+      for (final Facet facet : query.facets()) {
+        if (!facet.property().equals(leadingProperty))
+          continue;
+        final Map<Object, Long> counts = cardinality(index);
+        long estimate = 0;
+        for (final Object v : facet.valuesArray())
+          estimate += counts.getOrDefault(Facet.normalize(v), 0L);
+        if (best == null || estimate < best.estimate())
+          best = new Candidate(index, facet, 1, byItem, estimate);
+      }
+    }
+    if (best != null)
+      return best;
+    if (rankOnly != null)
+      return new Candidate(rankOnly, null, 0, false, Long.MAX_VALUE);
+    throw new IllegalArgumentException("No index on type '" + typeName + "' orders '" + rank + "' then '" + sortProperty
+        + "': create one on (" + rank + ", " + sortProperty + ") or on (<filter property>, " + rank + ", " + sortProperty + ")");
+  }
+
+  /** The head entry of one rank cursor: the rank and the sort value from the key. */
+  private static final class RankHead {
+    final IndexCursor cursor;
+    final int         rankKeyPosition;
+    long              rank;
+    long              sort;
+    RID               rid;
+
+    RankHead(final IndexCursor cursor, final int rankKeyPosition) {
+      this.cursor = cursor;
+      this.rankKeyPosition = rankKeyPosition;
+    }
+
+    boolean advance() {
+      while (cursor.hasNext()) {
+        final Identifiable next = cursor.next();
+        if (next == null)
+          continue;
+        final Object[] keys = cursor.getKeys();
+        if (keys == null || keys.length <= rankKeyPosition + 1 || !(keys[rankKeyPosition] instanceof final Number r)
+            || !(keys[rankKeyPosition + 1] instanceof final Number t))
+          continue;
+        rank = r.longValue();
+        sort = t.longValue();
+        rid = next.getIdentity();
+        return true;
+      }
+      cursor.close();
+      return false;
+    }
+  }
+
+  /**
+   * The rank order (2.4, P4v): the {@code (facet, rank, sort)} composite descending, the window checked on each key's sort value,
+   * until the page is full or {@link StructuredQuery#rankScanCap()} entries are read. Past that, the window's matches come from
+   * the time arm, up to {@link StructuredQuery#rankFallbackCap()}, sorted here; {@code partial} when the window holds more. The
+   * count is the time arm's.
+   */
+  private Result rank(final DocumentType type, final StructuredQuery query) {
+    final Candidate walked = chooseRank(type, query);
+    final List<Facet> residual = residual(query, walked);
+    final RecordFilter filter = query.filter();
+    final PriorityQueue<RankHead> heads = new PriorityQueue<>((a, b) -> compareRank(a, b));
+    final Object[] values = walked.facet() != null ? walked.facet().valuesArray() : new Object[] { null };
+    for (final Object value : values) {
+      final IndexCursor cursor = value == null ? walked.index().iterator(false) :
+          walked.index().range(false, new Object[] { value }, true, new Object[] { value }, true);
+      final RankHead head = new RankHead(cursor, walked.sortKeyPosition());
+      if (head.advance())
+        heads.add(head);
+    }
+    final RidHashSet seen = walked.byItem() && values.length > 1 ? new RidHashSet() : null;
+
+    final List<Document> rows = new ArrayList<>(Math.min(query.limit(), 1_024));
+    long scanned = 0;
+    long read = 0;
+    boolean overflow = false;
+    try {
+      while (!heads.isEmpty() && rows.size() < query.limit()) {
+        final RankHead h = heads.poll();
+        final RID rid = h.rid;
+        final long sort = h.sort;
+        if (h.advance())
+          heads.add(h);
+        if (++scanned > query.rankScanCap()) {
+          overflow = true;
+          break;
+        }
+        if (sort < query.windowFrom() || sort > query.windowTo() || seen != null && !seen.add(rid))
+          continue;
+        final Document doc;
+        try {
+          doc = rid.asDocument();
+          read++;
+        } catch (final RecordNotFoundException e) {
+          continue;
+        }
+        if (accepts(doc, residual) && (filter == null || filter.accepts(doc)))
+          rows.add(doc);
+      }
+    } finally {
+      for (final RankHead h : heads)
+        h.cursor.close();
+    }
+
+    final Result counted = query.countCap() > 0 ? search(query.timeArm(0, query.countCap())) : null;
+    if (!overflow)
+      return withCount(rows, false, scanned, walked.index().getName(), read, counted);
+
+    // a narrow window the rank order cannot find quickly: its matches by time, sorted by rank here
+    final Result window = search(query.timeArm(query.rankFallbackCap() + 1, 0));
+    final String rankProperty = query.rankProperty();
+    final List<Document> all = new ArrayList<>(window.rows());
+    all.sort((a, b) -> {
+      int c = Long.compare(number(b.get(rankProperty)), number(a.get(rankProperty)));
+      if (c == 0)
+        c = Long.compare(number(b.get(sortProperty)), number(a.get(sortProperty)));
+      return c != 0 ? c : -compare(0, a.getIdentity(), 0, b.getIdentity(), false);
+    });
+    final boolean partial = window.partial() || all.size() > query.rankFallbackCap();
+    return withCount(new ArrayList<>(all.subList(0, Math.min(query.limit(), all.size()))), partial, scanned + window.scanned(),
+        window.walkedIndex(), read + window.recordsRead(), counted);
+  }
+
+  private static Result withCount(final List<Document> rows, final boolean partial, final long scanned, final String walkedIndex,
+      final long read, final Result counted) {
+    if (counted == null)
+      return new Result(rows, partial, scanned, walkedIndex, null, -1L, false, false, -1L, read);
+    return new Result(rows, partial, scanned + counted.scanned(), walkedIndex, null, counted.total(), counted.totalCapped(),
+        counted.totalPartial(), counted.totalEstimate(), read + counted.recordsRead());
+  }
+
+  /** Rank descending, then sort value descending, then RID descending. */
+  private static int compareRank(final RankHead a, final RankHead b) {
+    int c = Long.compare(b.rank, a.rank);
+    if (c == 0)
+      c = Long.compare(b.sort, a.sort);
+    return c != 0 ? c : compare(0, a.rid, 0, b.rid, true);
+  }
+
+  private static long number(final Object value) {
+    return value instanceof final Number n ? n.longValue() : Long.MIN_VALUE;
   }
 
   private static boolean accepts(final Document doc, final List<Facet> residual) {

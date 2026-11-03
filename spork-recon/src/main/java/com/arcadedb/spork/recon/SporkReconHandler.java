@@ -44,14 +44,16 @@ final class SporkReconHandler extends AbstractServerHttpHandler {
   private final ArcadeDBServer          server;
   private final SporkReconConfiguration config;
   private final HydrateService          hydrate;
+  private final SearchService           search;
   private final SporkAudit              audit;
 
   SporkReconHandler(final HttpServer httpServer, final SporkReconConfiguration config, final HydrateService hydrate,
-      final SporkAudit audit) {
+      final SearchService search, final SporkAudit audit) {
     super(httpServer);
     this.server = httpServer != null ? httpServer.getServer() : null;
     this.config = config;
     this.hydrate = hydrate;
+    this.search = search;
     this.audit = audit;
   }
 
@@ -97,6 +99,8 @@ final class SporkReconHandler extends AbstractServerHttpHandler {
       final JSONObject answer;
       if (route == SporkRoutes.HYDRATE)
         answer = hydrate(user, target.tenant(), context, route, requestId, payload);
+      else if (route == SporkRoutes.SEARCH)
+        answer = search(user, target.tenant(), context, route, requestId, payload);
       else
         answer = declare(user, target.tenant(), context, route, requestId);
       answer.put("requestId", requestId);
@@ -130,6 +134,34 @@ final class SporkReconHandler extends AbstractServerHttpHandler {
         .put("invalid", result.invalid())//
         .put("partial", result.partial())//
         .put("auditSeq", entry.getLong("seq"));
+  }
+
+  private JSONObject search(final ServerSecurityUser user, final String tenant, final OperatingContext context, final SporkRoute route,
+      final String requestId, final JSONObject payload) {
+    final SearchService.Request request = SearchService.parse(payload);
+    final SearchService.Result result = search.search(user, heldMarkings(user), tenant, request);
+
+    final JSONObject entry = audit.append(user, context, route.action(), new JSONObject()//
+        .put("tenant", tenant)//
+        .put("requestId", requestId)//
+        .put("records", result.records().length())//
+        .put("total", result.total())//
+        .put("totalCapped", result.totalCapped())//
+        .put("partial", result.partial())//
+        .put("sort", request.sort())//
+        .put("filters", String.join(",", request.filters()))//
+        .put("titles", request.title())//
+        .put("keysRoot", MerkleRoot.ofRecordIds(result.recordIds(), result.recordIds().length)));
+
+    final JSONObject answer = new JSONObject()//
+        .put("records", result.records())//
+        .put("total", result.total())//
+        .put("totalCapped", result.totalCapped())//
+        .put("partial", result.partial())//
+        .put("auditSeq", entry.getLong("seq"));
+    if (result.partial())
+      answer.put("totalEstimate", result.totalEstimate());
+    return answer;
   }
 
   private JSONObject declare(final ServerSecurityUser user, final String tenant, final OperatingContext context, final SporkRoute route,

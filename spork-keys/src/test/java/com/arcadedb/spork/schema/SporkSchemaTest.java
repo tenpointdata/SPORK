@@ -26,6 +26,7 @@ import com.arcadedb.engine.PaginatedComponent;
 import com.arcadedb.exception.DuplicatedKeyException;
 import com.arcadedb.graph.MutableVertex;
 import com.arcadedb.index.TypeIndex;
+import com.arcadedb.index.lsm.LSMTreeIndexAbstract;
 import com.arcadedb.query.sql.executor.ResultSet;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.schema.Property;
@@ -118,6 +119,9 @@ class SporkSchemaTest {
       assertThat(index(record, "upstreamRid").getType()).isEqualTo(Schema.INDEX_TYPE.HASH);
       assertThat(index(record, "tenantId", "importedId").getType()).isEqualTo(Schema.INDEX_TYPE.HASH);
       assertThat(index(record, "textHash").getType()).isEqualTo(Schema.INDEX_TYPE.HASH);
+      // sparse: only marked records and analyst imports, the entries a search count may have to hide (WS3 P4)
+      assertThat(index(record, "markings").getNullStrategy()).isEqualTo(LSMTreeIndexAbstract.NULL_STRATEGY.SKIP);
+      assertThat(index(record, "tenantId").getNullStrategy()).isEqualTo(LSMTreeIndexAbstract.NULL_STRATEGY.SKIP);
       assertThat(record.getPolymorphicProperty("styleVec").getType().name()).isEqualTo("ARRAY_OF_FLOATS");
       assertThat(database.getSchema().getType("HAS_PHONE")).isNotNull();
 
@@ -205,7 +209,9 @@ class SporkSchemaTest {
   }
 
   private static TypeIndex index(final DocumentType type, final String... properties) {
-    final List<TypeIndex> found = type.getIndexesByProperties(properties[0], Arrays.copyOfRange(properties, 1, properties.length));
+    // exactly these properties: (tenantId) and (tenantId, importedId) both contain tenantId
+    final List<TypeIndex> found = type.getIndexesByProperties(properties[0], Arrays.copyOfRange(properties, 1, properties.length))
+        .stream().filter(i -> i.getPropertyNames().equals(Arrays.asList(properties))).toList();
     assertThat(found).as(type.getName() + " " + String.join(",", properties)).isNotEmpty();
     return found.getFirst();
   }

@@ -34,6 +34,7 @@ import io.swagger.v3.oas.models.responses.ApiResponses;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -109,7 +110,8 @@ public final class SporkReconApiSpec {
 
     final ApiResponses responses = new ApiResponses();
     responses.addApiResponse("200", SpecBuilders.jsonResponse("Released, and recorded on the audit chain", route.responseSchema()));
-    responses.addApiResponse("400", error("The body is invalid: idsRequired, tooManyIds, projectionInvalid"));
+    responses.addApiResponse("400", error("The body is invalid: idsRequired, tooManyIds, projectionInvalid, searchInvalid, "
+        + "filterUnsupported"));
     responses.addApiResponse("401", error("No credential, or one Entry rejects"));
     responses.addApiResponse("403", error("purposeDenied (the declared purpose may not call this route), analystMismatch (the "
         + "context names another account), or the person holds no grant on a database the request reads"));
@@ -122,6 +124,15 @@ public final class SporkReconApiSpec {
   }
 
   private static String describe(final SporkRoute route) {
+    if (route == SporkRoutes.SEARCH)
+      return """
+          Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by \
+          default) in posted_desc, posted_asc or views_desc order, and total counts the matches up to 10,000 (totalCapped \
+          when more match). Served on direct cursors over the (facet, tsPosted, views) composites, the smallest filter \
+          driving. partial is true when a read budget ran out: the page may be short and total is a lower bound, with \
+          totalEstimate scaled from the driving filter's size. Records the person may not see are neither returned nor \
+          counted. phone, email, business and q (substring and full text) are refused with filterUnsupported for now. \
+          A title in the projection is read from the record's text partition through its textHash, and needs a grant on it.""";
     if (route == SporkRoutes.HYDRATE)
       return """
           Hydrates up to 5,000 records. ids are upstream RIDs ("168:8"), SPORK record_ids (unsigned decimal strings) or \
@@ -152,7 +163,8 @@ public final class SporkReconApiSpec {
     components.addSchemas(ERROR, SpecBuilders.object("A refusal")//
         .addProperty("error", SpecBuilders.string("For people"))//
         .addProperty("code", SpecBuilders.string("Stable, for clients: contextRequired, contextInvalid, purposeDenied, "
-            + "analystMismatch, unknownTenant, notFound, idsRequired, tooManyIds, projectionInvalid, auditUnavailable"))//
+            + "analystMismatch, unknownTenant, notFound, idsRequired, tooManyIds, projectionInvalid, searchInvalid, filterUnsupported, "
+            + "auditUnavailable"))//
         .required(List.of("error")));
 
     components.addSchemas("SporkContext", SpecBuilders.object("The decoded " + OperatingContext.HEADER + " header")//
@@ -188,6 +200,47 @@ public final class SporkReconApiSpec {
       record.addProperty(field.apiName(), fieldSchema(field));
     record.required(List.of("id", "recordId"));
     components.addSchemas("HydratedRecord", record);
+
+    final List<String> searchFields = new ArrayList<>(fields);
+    searchFields.add(SearchService.TITLE);
+    final Schema<?> searchProjection = SpecBuilders.arrayOf(new Schema<String>().type("string")._enum(searchFields),
+        "The fields to return; every field but styleVec and title when absent. title is read from the text partition and needs "
+            + "a grant on it (403 otherwise)");
+    components.addSchemas("SearchRequest", SpecBuilders.object("POST search: every filter is optional and they are ANDed")//
+        .addProperty("state", SpecBuilders.string("Two-letter state code, matched on stateCode"))//
+        .addProperty("country", SpecBuilders.string("Country code, matched on countryCode"))//
+        .addProperty("city", SpecBuilders.string("City, matched on its normalized form (cityNorm)"))//
+        .addProperty("areaCode", SpecBuilders.string("One of the record's area codes"))//
+        .addProperty("service", SpecBuilders.string("One of the record's services"))//
+        .addProperty("hasImages", SpecBuilders.bool("Only records with (or without) images"))//
+        .addProperty("website", SpecBuilders.string("The source website"))//
+        .addProperty("aggregator", SpecBuilders.string("The aggregator"))//
+        .addProperty("ageMin", SpecBuilders.integer("Inclusive lower bound of age"))//
+        .addProperty("ageMax", SpecBuilders.integer("Inclusive upper bound of age"))//
+        .addProperty("postedFrom", SpecBuilders.string("Inclusive start of the posted window, ISO-8601 (epoch ms accepted)"))//
+        .addProperty("postedTo", SpecBuilders.string("Inclusive end of the posted window, ISO-8601 (epoch ms accepted)"))//
+        .addProperty("sort", new Schema<String>().type("string")._enum(List.of("posted_desc", "posted_asc", "views_desc"))
+            .description("posted_desc by default"))//
+        .addProperty("limit", SpecBuilders.integer("Rows on the page, 1 to 500, 50 by default").minimum(BigDecimal.ONE)
+            .maximum(BigDecimal.valueOf(SearchService.MAX_LIMIT)))//
+        .addProperty("projection", searchProjection));
+
+    final Schema<Object> searched = SpecBuilders.object("One record of the page; a field the record lacks is absent")//
+        .addProperty("recordId", SpecBuilders.string("The SPORK record_id, unsigned decimal"))//
+        .addProperty("upstreamRid", SpecBuilders.string("The upstream RID cluster:position; absent for imports"));
+    for (final RecordProjection field : RecordProjection.values())
+      searched.addProperty(field.apiName(), fieldSchema(field));
+    searched.addProperty(SearchService.TITLE, SpecBuilders.string("The ad title, when asked for and the text is on this node"));
+    searched.required(List.of("recordId"));
+    components.addSchemas("SearchedRecord", searched);
+
+    components.addSchemas("SearchAnswer", envelope(SpecBuilders.object("A page and its count")//
+        .addProperty("records", SpecBuilders.arrayOf(SpecBuilders.ref("SearchedRecord"), "In the requested order"))//
+        .addProperty("total", SpecBuilders.integer("Matches, at most 10,000; a lower bound when partial").format("int64"))//
+        .addProperty("totalCapped", SpecBuilders.bool("More than 10,000 match"))//
+        .addProperty("totalEstimate", SpecBuilders.integer("Only when partial: the count scaled from the driving filter").format(
+            "int64")))//
+        .required(List.of("records", "total", "totalCapped", "requestId", "auditSeq", "servedBy", "partial", "consistencyBookmark")));
 
     components.addSchemas("HydrateAnswer", envelope(SpecBuilders.object("The released records")//
         .addProperty("records", SpecBuilders.arrayOf(SpecBuilders.ref("HydratedRecord"), "In request order"))//
