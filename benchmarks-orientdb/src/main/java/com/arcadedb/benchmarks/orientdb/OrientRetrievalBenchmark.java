@@ -19,6 +19,7 @@
 package com.arcadedb.benchmarks.orientdb;
 
 import com.arcadedb.benchmarks.retrieval.BenchProps;
+import com.arcadedb.benchmarks.retrieval.FixedWorkload;
 import com.orientechnologies.orient.core.db.ODatabaseSession;
 import com.orientechnologies.orient.core.db.OrientDB;
 import com.orientechnologies.orient.core.sql.executor.OResult;
@@ -39,7 +40,9 @@ import org.openjdk.jmh.util.Statistics;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -53,7 +56,7 @@ import static org.openjdk.jmh.annotations.Mode.SampleTime;
  * <p>
  * {@code -Darcadedb.retrievalBench.mode=parity} instead runs every query {@code parityDraws} times (default 50) from a fixed
  * seed on one thread and prints the row totals, plus the plan of each SQL query: the check that both engines answer the
- * same questions with the same rows and that OrientDB uses its indexes.
+ * same questions with the same rows and that OrientDB uses its indexes. {@code mode=fixed} runs the {@link FixedWorkload}.
  */
 @State(Scope.Benchmark)
 public class OrientRetrievalBenchmark {
@@ -145,7 +148,8 @@ public class OrientRetrievalBenchmark {
     switch (mode) {
     case "warm" -> runWarm();
     case "parity" -> runParity();
-    default -> throw new IllegalArgumentException("mode must be warm or parity, was '" + mode + "'");
+    case "fixed" -> runFixed();
+    default -> throw new IllegalArgumentException("mode must be warm, parity or fixed, was '" + mode + "'");
     }
     System.exit(0);
   }
@@ -189,6 +193,44 @@ public class OrientRetrievalBenchmark {
     Files.writeString(out.resolve(name + ".md"), table.toString());
     Files.writeString(out.resolve(name + ".csv"), csv.toString());
     System.out.println(table);
+  }
+
+  /**
+   * The {@link FixedWorkload}: the same parameter sets the ArcadeDB leg's fixed mode answers (same seed, same draws), one
+   * session, one thread. Its row totals must equal the ArcadeDB table's, query for query, except {@code geoRadius14d} (planar
+   * against spherical distance).
+   */
+  private static void runFixed() throws IOException {
+    openShared();
+    final List<String> ids = new ArrayList<>();
+    final String filter = BenchProps.string("queries", "");
+    if (filter.isEmpty())
+      for (final OrientQueryMix.Query q : OrientQueryMix.Query.values())
+        ids.add(q.id);
+    else
+      for (final String id : filter.split(","))
+        ids.add(OrientQueryMix.Query.byId(id.trim()).id);
+    try (final ODatabaseSession db = OrientDataset.session(sharedOrientDB)) {
+      final FixedWorkload.Engine engine = new FixedWorkload.Engine() {
+        @Override
+        public List<Map<String, Object>> draw(final String queryId, final long seed, final int count) {
+          final OrientQueryMix.Query query = OrientQueryMix.Query.byId(queryId);
+          final OrientQueryMix.ParamSampler sampler = new OrientQueryMix.ParamSampler(sharedTables, seed);
+          final List<Map<String, Object>> params = new ArrayList<>(count);
+          for (int i = 0; i < count; i++)
+            params.add(sampler.params(query));
+          return params;
+        }
+
+        @Override
+        public int execute(final String queryId, final Map<String, Object> params) {
+          return OrientQueryMix.execute(db, OrientQueryMix.Query.byId(queryId), params);
+        }
+      };
+      final String label = BenchProps.string("engineLabel", "orientdb-3.2.24");
+      final List<FixedWorkload.Result> rows = new FixedWorkload(engine, FixedWorkload.Settings.fromProperties()).run(ids);
+      System.out.println(FixedWorkload.write(BenchProps.results(), "fixed-" + label + "-" + sharedTables.dataset.records, label, rows));
+    }
   }
 
   /** Row totals over a fixed sequence of parameters, and the plan OrientDB picked for each SQL query. */

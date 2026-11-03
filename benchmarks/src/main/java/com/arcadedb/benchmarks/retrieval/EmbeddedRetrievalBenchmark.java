@@ -170,8 +170,58 @@ public class EmbeddedRetrievalBenchmark {
     case "warm" -> runWarm(manifest, results);
     case "cold" -> runCold(manifest, results);
     case "profile" -> runProfile(manifest, results);
-    default -> throw new IllegalArgumentException("mode must be warm, cold or profile, was '" + mode + "'");
+    case "fixed" -> runFixed(manifest, results);
+    default -> throw new IllegalArgumentException("mode must be warm, cold, profile or fixed, was '" + mode + "'");
     }
+  }
+
+  /** The query ids of {@code queries}, or all nine in mix order. */
+  static List<String> queryIds() {
+    final String filter = BenchProps.string("queries", "");
+    final List<String> ids = new ArrayList<>();
+    if (filter.isEmpty())
+      for (final QueryMix.Query q : QueryMix.Query.values())
+        ids.add(q.id);
+    else
+      for (final String id : filter.split(","))
+        ids.add(QueryMix.Query.byId(id.trim()).id);
+    return ids;
+  }
+
+  /**
+   * The {@link FixedWorkload} against this dataset, in this JVM, one thread: the same parameter sets the OrientDB leg's fixed
+   * mode answers, so the two tables compare query for query. {@code engineLabel} names the engine in the table (default
+   * {@code arcadedb}), which is how runs against different engine builds stay apart.
+   */
+  private static void runFixed(final DatasetManifest manifest, final Path results) throws IOException {
+    final String label = BenchProps.string("engineLabel", "arcadedb");
+    final QueryMix.Tables tables = new QueryMix.Tables(manifest);
+    try (final Database database = new DatabaseFactory(DatasetManifest.databasePath(BenchProps.root()).toString()).open()) {
+      ReconSchema.warmVectorIndex(database);
+      final List<FixedWorkload.Result> rows = new FixedWorkload(fixedEngine(database, tables), FixedWorkload.Settings.fromProperties())
+          .run(queryIds());
+      System.out.println(FixedWorkload.write(results, "fixed-" + label + "-" + manifest.records, label, rows));
+    }
+  }
+
+  /** The ArcadeDB side of the {@link FixedWorkload}: {@link QueryMix}'s sampler and executor over one open database. */
+  static FixedWorkload.Engine fixedEngine(final Database database, final QueryMix.Tables tables) {
+    return new FixedWorkload.Engine() {
+      @Override
+      public List<Map<String, Object>> draw(final String queryId, final long seed, final int count) {
+        final QueryMix.Query query = QueryMix.Query.byId(queryId);
+        final QueryMix.ParamSampler sampler = new QueryMix.ParamSampler(tables, seed, database);
+        final List<Map<String, Object>> params = new ArrayList<>(count);
+        for (int i = 0; i < count; i++)
+          params.add(sampler.params(query));
+        return params;
+      }
+
+      @Override
+      public int execute(final String queryId, final Map<String, Object> params) {
+        return QueryMix.execute(database, QueryMix.Query.byId(queryId), params);
+      }
+    };
   }
 
   private static String includePattern() {
