@@ -20,8 +20,10 @@ package com.arcadedb.server.security;
 
 import com.arcadedb.ContextConfiguration;
 import com.arcadedb.GlobalConfiguration;
+import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseFactory;
 import com.arcadedb.database.DatabaseInternal;
+import com.arcadedb.exception.DatabaseNotAvailableException;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.network.binary.ServerIsNotTheLeaderException;
 import com.arcadedb.security.SecurityManager;
@@ -248,7 +250,7 @@ public class ServerSecurity implements ServerPlugin, SecurityManager {
       final EntryLifecycleStore entryStore = new EntryLifecycleStore(entryConfiguration);
       entryAuthenticator = new EntryAuthenticator(entryConfiguration,
           new EntryClient(entryConfiguration, new HttpEntryTransport(entryConfiguration.getTimeoutMillis()), System::currentTimeMillis),
-          entryStore, name -> server.existsDatabase(name) ? server.getDatabase(name) : null,
+          entryStore, this::entryStateDatabase,
           (principal, databases) -> new EntryServerSecurityUser(server, principal, databases), System::currentTimeMillis);
       entryLifecycleReceiver = new EntryLifecycleReceiver(entryConfiguration, entryStore, new AuditChain(),
           entryAuthenticator::invalidate);
@@ -2800,6 +2802,23 @@ public class ServerSecurity implements ServerPlugin, SecurityManager {
   /** Null when Entry identity is not configured. */
   public EntryConfiguration getEntryConfiguration() {
     return entryConfiguration;
+  }
+
+  /** The database that holds Entry standing and the audit chain, or null when Entry is off or the database is not available. */
+  public Database getEntryStateDatabase() {
+    return entryConfiguration == null ? null : entryStateDatabase(entryConfiguration.getDatabase());
+  }
+
+  /**
+   * Resolved as a client resolves a database, not as the operator does: a request must not reopen a database a restore or a
+   * {@code close database} took away (issues #10533, #10690). Null when it is not available, which every caller answers with 503.
+   */
+  private Database entryStateDatabase(final String name) {
+    try {
+      return server.existsDatabase(name) ? server.getDatabaseForClient(name) : null;
+    } catch (final DatabaseNotAvailableException e) {
+      return null;
+    }
   }
 
   public ApiTokenConfiguration getApiTokenConfiguration() {

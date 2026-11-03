@@ -73,6 +73,7 @@ class Issue10068ServerPeerDialsGoThroughOneBuilderTest {
       "AiAnalyzeProfilerHandler.java", Set.of("HttpRequest.newBuilder("),
       "AiActivateHandler.java", Set.of("HttpRequest.newBuilder("),
       "AiChatHandler.java", Set.of("HttpRequest.newBuilder("),
+      "HttpEntryTransport.java", Set.of("HttpRequest.newBuilder("), // Entry, the identity platform: a person's credential, never the cluster token
       "PluginClassLoader.java", Set.of("toURL()")); // the URL of a plugin jar on disk
 
   @Test
