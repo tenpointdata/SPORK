@@ -94,17 +94,23 @@ All with `mvn -o -pl ha-raft -am verify -DskipITs=false`, 2026-11-03, macOS, JDK
 |---|---|
 | Stock ha-raft and server (main sources at `601343a5b`, only the setting key added so the IT compiles) | `NodeLocalDatabaseBesideRaftGroupIT` **4 of 4 fail**: `warm` is Raft-wrapped (`isReplicated()` true) on both holders; at formation the log shows `Bootstrap source for 'warm'`, then `'warm' bootstrap mismatch ... reinstalling from leader-shipped full snapshot` on one holder and `will be created via leader-shipped snapshot` on the non-holder; the admission on the follower holder is refused (400, forwarded to the leader, where the name now exists) |
 | Patched (commit `e0f3cf593`) | `NodeLocalDatabaseBesideRaftGroupIT` **4 of 4 pass** (122 s); `HALocalDatabasesSettingTest` (server) 4 of 4 |
-| Connected ha-raft ITs, patched | pass: `BootstrapElectionIT`, `RaftBootstrapLeadershipTransferIT`, `PostBootstrapStateHandlerIT`, `SnapshotAcquireNewDatabaseIT`, `SnapshotInstallerIntegrationIT`, `RaftFullSnapshotResyncIT`, `Issue8346SnapshotCaughtUpJoinerConvergesByMatchIT`, `Issue8468QuarantinedSnapshotSourceIT`, `Issue4740Phase2ReconcileIT`, `RaftRestoreDatabase3NodesIT`, `RaftDropDatabase3NodesIT`, `HaRestoreClaimIT`, `GetClusterHandlerIT`, `RaftLeaderFailoverIT`; `HaLeadershipTransferIT` 8 of 9, see below |
+| Connected ha-raft ITs, patched | pass: `BootstrapElectionIT`, `RaftBootstrapLeadershipTransferIT`, `PostBootstrapStateHandlerIT`, `SnapshotAcquireNewDatabaseIT`, `SnapshotInstallerIntegrationIT`, `RaftFullSnapshotResyncIT`, `Issue8346SnapshotCaughtUpJoinerConvergesByMatchIT`, `Issue8468QuarantinedSnapshotSourceIT`, `Issue4740Phase2ReconcileIT`, `RaftRestoreDatabase3NodesIT`, `RaftDropDatabase3NodesIT`, `HaRestoreClaimIT`, `GetClusterHandlerIT`, `RaftLeaderFailoverIT`; `HaLeadershipTransferIT` 8 of 9, its one flaky method settled below |
 | Connected ha-raft unit tests, patched | 142 of 142 pass: `DatabaseReconcilerTest`, the closed-copy family (`Issue8464`, `Issue8589`, `Issue8605`, `Issue8606`, `Issue8641`), the install family (`Issue6202`, `Issue6760`, `Issue8360`, `Issue8702`, `Issue10051`, `Issue8374`), the bootstrap-state family (`Issue8658`, `Issue8843`, `BootstrapStateProbeParsingTest`), `Issue6125SnapshotRouteValidationTest` |
 | Connected server unit tests, patched | pass: `PostServerCommandHandlerSsrfTest`, `Issue7400ServerCommandSpecTest`, `Issue7641DropDatabaseSlotTest` |
 
-**Open: `HaLeadershipTransferIT.aTargetedTransferUnderConcurrentWritesHandsLeadershipToTheTarget`.** It passed 4 of 4
-on stock and 2 of 5 on the patched build (the other 8 methods of the class pass). Each failure is one round of 12 with
-`TIMED_OUT(10s)`; in the one examined, a second targeted transfer to the third peer started 0.5 s into the first
-(`RaftClusterManager.sendTargetedTransfer`) and the leader stepped down to that peer instead. With the setting empty
-every line of this change is a lookup in an empty set, and none is on the transfer path, so this reads as a timing race
-the run order exposed rather than a regression, but the numbers do not prove it. Before the patch leaves the spike branch,
-run the method 20 times on each build.
+**Settled: `HaLeadershipTransferIT.aTargetedTransferUnderConcurrentWritesHandsLeadershipToTheTarget` is a pre-existing
+flake (R35), not caused by the patch.** 20 interleaved runs per build, one build at a time, with local main `ba5045a57` as
+stock and the same commit plus the patch as patched: **stock 16 of 20, patched 16 of 20** (stock failed runs 15, 16, 17,
+19; patched failed runs 9, 15, 17, 19). Every failure has the same signature: one of the 12 rounds gets
+`Failed to transfer leadership ... TIMED_OUT(10s)` (`HaLeadershipTransferIT.java:302`), answered within about 0.5 s of
+the request. The mechanism, seen in the logs of both builds: a round whose transfer succeeds by election while its RPC
+fails on a closed client (`confirmed after the call failed`) leaves Ratis's transfer request pending on the old leader.
+When that node leads again and a later round asks it for the same target, Ratis joins the new request to the stale one
+(as `RaftClusterManager.sendTargetedTransfer` notes), and the stale one expires at its 10 s timeout. The failing request
+lands exactly 10.0 s after the earlier one (stock run 17: `11:57:18.902` and `11:57:28.908`, same leader and target; stock
+run 15: `11:52:08.707` and about `11:52:18.7`). Rounds are about 2.5 s apart, so a collision is a matter of timing. An
+earlier tally (4 of 4 stock, 2 of 5 patched) was noise. The fix belongs in ha-raft's transfer handling, or in the test
+spacing its rounds, and is separate from E26.
 
 ## Production E26: sizing
 
