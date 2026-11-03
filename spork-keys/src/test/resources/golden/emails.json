@@ -1,0 +1,202 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "Jane.Doe@Example.COM",
+   "recon": {
+    "engineLinkKey": "jane.doe@example.com",
+    "engineClusterKey": "jane.doe@example.com",
+    "boardNormalizeAnchor": "jane.doe@example.com",
+    "dossierIdentKey": "email:jane.doe@example.com",
+    "auditIntakeSubject": "jane.doe@example.com",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:jane.doe@example.com"
+   }
+  },
+  {
+   "input": "jane.doe@example.com",
+   "recon": {
+    "engineLinkKey": "jane.doe@example.com",
+    "engineClusterKey": "jane.doe@example.com",
+    "boardNormalizeAnchor": "jane.doe@example.com",
+    "dossierIdentKey": "email:jane.doe@example.com",
+    "auditIntakeSubject": "jane.doe@example.com",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:jane.doe@example.com"
+   }
+  },
+  {
+   "input": " JANE@x.com ",
+   "recon": {
+    "engineLinkKey": " jane@x.com ",
+    "engineClusterKey": " jane@x.com ",
+    "boardNormalizeAnchor": "jane@x.com",
+    "dossierIdentKey": "email:jane@x.com",
+    "auditIntakeSubject": "jane@x.com",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:jane@x.com"
+   }
+  },
+  {
+   "input": "@jane@example.com",
+   "recon": {
+    "engineLinkKey": "@jane@example.com",
+    "engineClusterKey": "@jane@example.com",
+    "boardNormalizeAnchor": "@jane@example.com",
+    "dossierIdentKey": "email:@jane@example.com",
+    "auditIntakeSubject": "@jane@example.com",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:jane@example.com"
+   }
+  },
+  {
+   "input": "MIXED+Tag@Sub.Domain.Org",
+   "recon": {
+    "engineLinkKey": "mixed+tag@sub.domain.org",
+    "engineClusterKey": "mixed+tag@sub.domain.org",
+    "boardNormalizeAnchor": "mixed+tag@sub.domain.org",
+    "dossierIdentKey": "email:mixed+tag@sub.domain.org",
+    "auditIntakeSubject": "mixed+tag@sub.domain.org",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:mixed+tag@sub.domain.org"
+   }
+  },
+  {
+   "input": "",
+   "recon": {
+    "engineLinkKey": "",
+    "engineClusterKey": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "email:",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "  ",
+   "recon": {
+    "engineLinkKey": "  ",
+    "engineClusterKey": "  ",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "email:",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": " Jane@Example.com ",
+   "recon": {
+    "engineLinkKey": " jane@example.com ",
+    "engineClusterKey": " jane@example.com ",
+    "boardNormalizeAnchor": "jane@example.com",
+    "dossierIdentKey": "email:jane@example.com",
+    "auditIntakeSubject": "jane@example.com",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:jane@example.com"
+   }
+  },
+  {
+   "input": "İSTANBUL@örnek.com",
+   "recon": {
+    "engineLinkKey": "i̇stanbul@örnek.com",
+    "engineClusterKey": "i̇stanbul@örnek.com",
+    "boardNormalizeAnchor": "i̇stanbul@örnek.com",
+    "dossierIdentKey": "email:i̇stanbul@örnek.com",
+    "auditIntakeSubject": "i̇stanbul@örnek.com",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "em:i̇stanbul@örnek.com"
+   }
+  },
+  {
+   "input": "ΟΔΟΣ@mail.gr",
+   "recon": {
+    "engineLinkKey": "οδος@mail.gr",
+    "engineClusterKey": "οδος@mail.gr",
+    "boardNormalizeAnchor": "οδος@mail.gr",
+    "dossierIdentKey": "email:οδος@mail.gr",
+    "auditIntakeSubject": "οδος@mail.gr",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:οδος@mail.gr"
+   }
+  },
+  {
+   "input": "STRASSE@ß.de",
+   "recon": {
+    "engineLinkKey": "strasse@ß.de",
+    "engineClusterKey": "strasse@ß.de",
+    "boardNormalizeAnchor": "strasse@ß.de",
+    "dossierIdentKey": "email:strasse@ß.de",
+    "auditIntakeSubject": "strasse@ß.de",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "em:strasse@ß.de"
+   }
+  },
+  {
+   "input": "a@b",
+   "recon": {
+    "engineLinkKey": "a@b",
+    "engineClusterKey": "a@b",
+    "boardNormalizeAnchor": "a@b",
+    "dossierIdentKey": "email:a@b",
+    "auditIntakeSubject": "a@b",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "em:a@b"
+   }
+  },
+  {
+   "input": "no-at-sign.com",
+   "recon": {
+    "engineLinkKey": "no-at-sign.com",
+    "engineClusterKey": "no-at-sign.com",
+    "boardNormalizeAnchor": "no-at-sign.com",
+    "dossierIdentKey": "email:no-at-sign.com",
+    "auditIntakeSubject": "no-at-sign.com",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "em:no-at-sign.com"
+   }
+  },
+  {
+   "input": "ǅemal@x.ba",
+   "recon": {
+    "engineLinkKey": "ǆemal@x.ba",
+    "engineClusterKey": "ǆemal@x.ba",
+    "boardNormalizeAnchor": "ǆemal@x.ba",
+    "dossierIdentKey": "email:ǆemal@x.ba",
+    "auditIntakeSubject": "ǆemal@x.ba",
+    "classifySource": "email"
+   },
+   "spork": {
+    "key": "em:ǆemal@x.ba"
+   }
+  }
+ ]
+}

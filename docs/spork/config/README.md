@@ -15,7 +15,7 @@ and the `TypeBuilder` / `IndexBuilder` / `TypeIndexBuilder` Java APIs. Each valu
 | `olap-node.properties` | Delta over the read node: `ha.serverRole=replica`, 4 GB page cache, parallel-scan defaults, `queryIndexMaxSelectivity=0.6`, build-slice JVM notes | n4 |
 | `jvm.options` | `ARCADEDB_OPTS_MEMORY` and `ARCADEDB_OPTS_GC` for n1 to n3 and n4 with the heap arithmetic; why `ARCADEDB_OPTS_HEADERS` stays unset; what is deliberately not set | all |
 | `os-tuning.sh` | THP, NVMe scheduler and read-ahead, LUKS/LVM/XFS layout and online expansion, sysctls, cgroups, queue-depth check, as documented commands (not to be run blind) | all |
-| `schema-ddl.sql` | `ALTER DATABASE` page-size and compaction settings per database, `CREATE TYPE ... PAGESIZE` buckets, HASH point indexes (plain SQL at the engine default page sizes since round 6), LSM composites, FULL_TEXT / GEOSPATIAL; Java builder calls only where SQL cannot express the page size (FULL_TEXT, GEOSPATIAL) | per database |
+| `schema-ddl.sql` | Schema v1 (WS2), **generated** from the `spork-keys` installer scripts (`spork-keys/src/main/resources/spork/schema/v1/`, installed by `SporkSchema.install`; `SporkSchemaTest` fails while the two differ). `ALTER DATABASE` page-size and compaction settings per database, `CREATE TYPE ... PAGESIZE` buckets, HASH point indexes (plain SQL at the engine default page sizes since round 6), LSM composites, FULL_TEXT / GEOSPATIAL; Java builder calls only where SQL cannot express the page size (FULL_TEXT, GEOSPATIAL) | per database |
 
 ## How settings reach the server
 
@@ -153,4 +153,4 @@ decision is appended to each item and the files in this directory carry it.
 12. **Hamming band indexes (added in round 6 from `06-stylometry-perceptual-hash.md` 3.1).** No corpus-wide band index:
     PDQ 8 bands cost 144 B per distinct image (194 GB at mid 3x next to S-PDQ's 54 GB), pHash 2 bands 49 GB. PDQ bands only
     on the hot-window `media_<p>` and case databases (24 GB today, 43 GB at 3x, in the model as `HOT_BAND_B`); the recipe is
-    a commented block at the end of schema-ddl.sql's `rec_<p>` section.
+    WS12's (round 10: schema v1 leaves `pdq`, `pdqBands` and their hot-window index to the WS12 installer, see `media.sql`).

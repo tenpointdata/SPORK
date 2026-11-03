@@ -1,0 +1,96 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "168:8",
+   "recon": {
+    "classifySource": "ad"
+   }
+  },
+  {
+   "input": "7135550142",
+   "recon": {
+    "classifySource": "phone"
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "recon": {
+    "classifySource": "phone"
+   }
+  },
+  {
+   "input": "jane@example.com",
+   "recon": {
+    "classifySource": "email"
+   }
+  },
+  {
+   "input": "@janedoe",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "janedoe",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "jane@doe",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "555-0142",
+   "recon": {
+    "classifySource": "phone"
+   }
+  },
+  {
+   "input": "555 01",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "instagram:jane",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "+1 713 555 0142",
+   "recon": {
+    "classifySource": "phone"
+   }
+  },
+  {
+   "input": "713-555-0142 ext",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "  ",
+   "recon": {
+    "classifySource": "social"
+   }
+  },
+  {
+   "input": "1234567890123",
+   "recon": {
+    "classifySource": "phone"
+   }
+  }
+ ]
+}

@@ -1,0 +1,126 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "platform": "instagram",
+   "handle": "JaneDoe",
+   "recon": {
+    "engineLinkKey": "instagram:janedoe",
+    "boardNormalizeAnchorHandle": "janedoe",
+    "dossierIdentKey": "social:instagram:janedoe"
+   },
+   "spork": {
+    "key": "sh:instagram:janedoe"
+   }
+  },
+  {
+   "platform": "Instagram",
+   "handle": "@JaneDoe",
+   "recon": {
+    "engineLinkKey": "instagram:@janedoe",
+    "boardNormalizeAnchorHandle": "janedoe",
+    "dossierIdentKey": "social:instagram:@janedoe"
+   },
+   "spork": {
+    "key": "sh:instagram:janedoe"
+   }
+  },
+  {
+   "platform": "snapchat",
+   "handle": " jane_doe ",
+   "recon": {
+    "engineLinkKey": "snapchat: jane_doe ",
+    "boardNormalizeAnchorHandle": "jane_doe",
+    "dossierIdentKey": "social:snapchat: jane_doe"
+   },
+   "spork": {
+    "key": "sh:snapchat:jane_doe"
+   }
+  },
+  {
+   "platform": "twitter",
+   "handle": "@@double",
+   "recon": {
+    "engineLinkKey": "twitter:@@double",
+    "boardNormalizeAnchorHandle": "@double",
+    "dossierIdentKey": "social:twitter:@@double"
+   },
+   "spork": {
+    "key": "sh:twitter:@double"
+   }
+  },
+  {
+   "platform": "",
+   "handle": "bare",
+   "recon": {
+    "engineLinkKey": ":bare",
+    "boardNormalizeAnchorHandle": "bare",
+    "dossierIdentKey": "social::bare"
+   },
+   "spork": {
+    "key": "sh:social:bare"
+   }
+  },
+  {
+   "platform": null,
+   "handle": "NoPlatform",
+   "recon": {
+    "engineLinkKey": "undefined:noplatform",
+    "boardNormalizeAnchorHandle": "noplatform",
+    "dossierIdentKey": "social:undefined:noplatform"
+   },
+   "spork": {
+    "key": "sh:social:noplatform"
+   }
+  },
+  {
+   "platform": "onlyfans",
+   "handle": "",
+   "recon": {
+    "engineLinkKey": "onlyfans:",
+    "boardNormalizeAnchorHandle": "",
+    "dossierIdentKey": "social:onlyfans:"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "platform": "TikTok",
+   "handle": "Ünïcode.Name",
+   "recon": {
+    "engineLinkKey": "tiktok:ünïcode.name",
+    "boardNormalizeAnchorHandle": "ünïcode.name",
+    "dossierIdentKey": "social:tiktok:ünïcode.name"
+   },
+   "spork": {
+    "key": "sh:tiktok:ünïcode.name"
+   }
+  },
+  {
+   "platform": "telegram",
+   "handle": " @Spaced ",
+   "recon": {
+    "engineLinkKey": "telegram: @spaced ",
+    "boardNormalizeAnchorHandle": "spaced",
+    "dossierIdentKey": "social:telegram: @spaced"
+   },
+   "spork": {
+    "key": "sh:telegram:spaced"
+   }
+  },
+  {
+   "platform": "kik",
+   "handle": "İz",
+   "recon": {
+    "engineLinkKey": "kik:i̇z",
+    "boardNormalizeAnchorHandle": "i̇z",
+    "dossierIdentKey": "social:kik:i̇z"
+   },
+   "spork": {
+    "key": "sh:kik:i̇z"
+   }
+  }
+ ]
+}

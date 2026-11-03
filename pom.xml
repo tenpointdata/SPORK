@@ -167,6 +167,7 @@
 
     <modules>
         <module>engine</module>
+        <module>spork-keys</module>
         <module>network</module>
         <module>grpc</module>
         <module>server</module>

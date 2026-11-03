@@ -1,0 +1,76 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+   "recon": {
+    "engineLinkKey": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "dossierIdentKey": "imageHash:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+   },
+   "spork": {
+    "key": "ih:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+   }
+  },
+  {
+   "input": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+   "recon": {
+    "engineLinkKey": "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08",
+    "dossierIdentKey": "imageHash:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
+   },
+   "spork": {
+    "key": "ih:9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"
+   }
+  },
+  {
+   "input": "d41d8cd98f00b204e9800998ecf8427e",
+   "recon": {
+    "engineLinkKey": "d41d8cd98f00b204e9800998ecf8427e",
+    "dossierIdentKey": "imageHash:d41d8cd98f00b204e9800998ecf8427e"
+   },
+   "spork": {
+    "key": "ih:d41d8cd98f00b204e9800998ecf8427e"
+   }
+  },
+  {
+   "input": " 9f86d081 ",
+   "recon": {
+    "engineLinkKey": " 9f86d081 ",
+    "dossierIdentKey": "imageHash:9f86d081"
+   },
+   "spork": {
+    "key": "ih: 9f86d081 "
+   }
+  },
+  {
+   "input": "abc",
+   "recon": {
+    "engineLinkKey": "abc",
+    "dossierIdentKey": "imageHash:abc"
+   },
+   "spork": {
+    "key": "ih:abc"
+   }
+  },
+  {
+   "input": "",
+   "recon": {
+    "engineLinkKey": "",
+    "dossierIdentKey": "imageHash:"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85",
+   "recon": {
+    "engineLinkKey": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85",
+    "dossierIdentKey": "imageHash:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85"
+   },
+   "spork": {
+    "key": "ih:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85"
+   }
+  }
+ ]
+}

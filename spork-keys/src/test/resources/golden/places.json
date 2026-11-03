@@ -1,0 +1,242 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "basic": {
+    "lat": 29.7604,
+    "lon": -95.3698
+   },
+   "location": {
+    "city": "Houston",
+    "state": "TX",
+    "country": "US",
+    "geocode": [
+     29.7,
+     -95.3
+    ]
+   },
+   "recon": {
+    "city": "Houston",
+    "state": "TX",
+    "country": "US",
+    "lat": 29.7604,
+    "lon": -95.3698
+   },
+   "spork": {
+    "key": "pl:us:tx:houston:9vk1mc9",
+    "placeId": "-2748116622293609448",
+    "cityNorm": "houston",
+    "geohash7": "9vk1mc9"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "Houston",
+    "state": "TX",
+    "country": "US",
+    "geocode": [
+     29.7,
+     -95.3
+    ]
+   },
+   "recon": {
+    "city": "Houston",
+    "state": "TX",
+    "country": "US",
+    "lat": 29.7,
+    "lon": -95.3
+   },
+   "spork": {
+    "key": "pl:us:tx:houston:9vk0zqs",
+    "placeId": "-130949375382359213",
+    "cityNorm": "houston",
+    "geohash7": "9vk0zqs"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "city": "Houston",
+    "state": "TX",
+    "country": "US",
+    "lat": 29.76,
+    "lon": -95.37
+   },
+   "spork": {
+    "key": "pl:us:tx:houston:9vk1mc9",
+    "placeId": "-2748116622293609448",
+    "cityNorm": "houston",
+    "geohash7": "9vk1mc9"
+   }
+  },
+  {
+   "basic": {
+    "lat": 0,
+    "lon": 0
+   },
+   "location": {
+    "city": "new york",
+    "state": "NY"
+   },
+   "recon": {
+    "city": "new york",
+    "state": "NY",
+    "country": "US",
+    "lat": 40.71,
+    "lon": -74.01
+   },
+   "spork": {
+    "key": "pl:us:ny:new york:dr5reg5",
+    "placeId": "-2101996368580253005",
+    "cityNorm": "new york",
+    "geohash7": "dr5reg5"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "Boise",
+    "state": "ID",
+    "country": "US"
+   },
+   "recon": {
+    "city": "Boise",
+    "state": "ID",
+    "country": "US",
+    "lat": 0,
+    "lon": 0
+   },
+   "spork": {
+    "key": "pl:us:id:boise",
+    "placeId": "-1631492091480153112",
+    "cityNorm": "boise",
+    "geohash7": null
+   }
+  },
+  {
+   "basic": {},
+   "location": {},
+   "recon": {
+    "city": "Unknown",
+    "state": "??",
+    "country": "US",
+    "lat": 0,
+    "lon": 0
+   },
+   "spork": {
+    "key": "pl:us:??:unknown",
+    "placeId": "7258483219838368390",
+    "cityNorm": "unknown",
+    "geohash7": null
+   }
+  },
+  {
+   "basic": {
+    "lat": "29.7",
+    "lon": "-95.3"
+   },
+   "location": {
+    "city": "Dallas",
+    "state": "TX",
+    "geocode": [
+     32.7767,
+     -96.797
+    ]
+   },
+   "recon": {
+    "city": "Dallas",
+    "state": "TX",
+    "country": "US",
+    "lat": 32.7767,
+    "lon": -96.797
+   },
+   "spork": {
+    "key": "pl:us:tx:dallas:9vg4mqf",
+    "placeId": "-3957722309640707202",
+    "cityNorm": "dallas",
+    "geohash7": "9vg4mqf"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "São Paulo",
+    "state": "SP",
+    "country": "BR",
+    "geocode": [
+     -23.5505,
+     -46.6333
+    ]
+   },
+   "recon": {
+    "city": "São Paulo",
+    "state": "SP",
+    "country": "BR",
+    "lat": -23.5505,
+    "lon": -46.6333
+   },
+   "spork": {
+    "key": "pl:br:sp:são paulo:6gyf4bf",
+    "placeId": "-6328500208297344427",
+    "cityNorm": "são paulo",
+    "geohash7": "6gyf4bf"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "  Las   Vegas ",
+    "state": "nv",
+    "country": "us",
+    "geocode": [
+     36.1699,
+     -115.1398
+    ]
+   },
+   "recon": {
+    "city": "  Las   Vegas ",
+    "state": "nv",
+    "country": "us",
+    "lat": 36.1699,
+    "lon": -115.1398
+   },
+   "spork": {
+    "key": "pl:us:nv:las vegas:9qqjgbt",
+    "placeId": "8355693966928626453",
+    "cityNorm": "las vegas",
+    "geohash7": "9qqjgbt"
+   }
+  },
+  {
+   "basic": {},
+   "location": {
+    "city": "Ciudad: Juárez",
+    "state": "CHH",
+    "country": "MX",
+    "geocode": [
+     31.6904,
+     -106.4245
+    ]
+   },
+   "recon": {
+    "city": "Ciudad: Juárez",
+    "state": "CHH",
+    "country": "MX",
+    "lat": 31.6904,
+    "lon": -106.4245
+   },
+   "spork": {
+    "key": "pl:mx:chh:ciudad juárez:9tsk630",
+    "placeId": "-1886537701422610919",
+    "cityNorm": "ciudad juárez",
+    "geohash7": "9tsk630"
+   }
+  }
+ ]
+}
