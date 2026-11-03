@@ -1,0 +1,563 @@
+{
+  "openapi" : "3.0.3",
+  "info" : {
+    "title" : "SPORK Recon API",
+    "description" : "Recon's API on SPORK, served by the spork-recon ServerPlugin (docs/spork/01-architecture.md 7). Every route is under /api/spork/v1/{tenant}/ and is called as the signed-in person: Authorization: Bearer <their Entry credential>. The X-Spork-Context header carries the Operating Context (caseRef, purpose), never identity. A route refuses with 428 contextRequired or contextInvalid when the context is absent or unreadable, 403 purposeDenied when the declared purpose may not call it, and 503 auditUnavailable when the audit chain cannot record the release; every refusal body is a SporkError with a stable code.",
+    "license" : {
+      "name" : "Apache-2.0"
+    },
+    "version" : "1.0.0-slice1"
+  },
+  "security" : [ {
+    "entryBearer" : [ ]
+  }, {
+    "basicAuth" : [ ]
+  } ],
+  "paths" : {
+    "/api/spork/v1/{tenant}/context" : {
+      "post" : {
+        "tags" : [ "Recon" ],
+        "summary" : "Declare an Operating Context",
+        "description" : "Declares the Operating Context of the session and records it on the audit chain (context.declare). Echoes the person the server authenticated, which is the analyst of every entry the context produces.\n\nPurposes allowed: victim_identification, investigative_lead, network_disruption, standing_monitoring, training. Audit: one 'context.declare' entry on the chain, committed before the response is released.",
+        "operationId" : "declareContext",
+        "parameters" : [ {
+          "name" : "tenant",
+          "in" : "path",
+          "description" : "The tenant, one of the installation's configured tenants",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Spork-Context",
+          "in" : "header",
+          "description" : "base64url of the JSON Operating Context {caseRef?, purpose} (component SporkContext). Never identity, role or markings.",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "Released, and recorded on the audit chain",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ContextAnswer"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "No credential, or one Entry rejects",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "purposeDenied (the declared purpose may not call this route), analystMismatch (the context names another account), or the person holds no grant on a database the request reads",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "notFound or unknownTenant",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "405" : {
+            "description" : "The path exists with another method; Allow lists it",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "428" : {
+            "description" : "contextRequired (no X-Spork-Context) or contextInvalid (unreadable)",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "auditUnavailable: the release could not be recorded, so nothing was released",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/spork/v1/{tenant}/records:hydrate" : {
+      "post" : {
+        "tags" : [ "Recon" ],
+        "summary" : "Hydrate up to 5,000 records by id",
+        "description" : "Hydrates up to 5,000 records. ids are upstream RIDs (\"168:8\"), SPORK record_ids (unsigned decimal strings) or imp:<importedId>; duplicates are answered once. Records come back in request order with the projection asked for (every field but styleVec by default). An id that matches nothing, a record whose markings the person does not hold and another tenant's import are all reported in missing, so a hidden record is indistinguishable from an absent one. partial is true when an id belongs to a partition this node does not hold. Recon pages larger sets.\n\nPurposes allowed: victim_identification, investigative_lead, network_disruption. Audit: one 'records.hydrate' entry on the chain, committed before the response is released.",
+        "operationId" : "hydrateRecords",
+        "parameters" : [ {
+          "name" : "tenant",
+          "in" : "path",
+          "description" : "The tenant, one of the installation's configured tenants",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Spork-Context",
+          "in" : "header",
+          "description" : "base64url of the JSON Operating Context {caseRef?, purpose} (component SporkContext). Never identity, role or markings.",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "description" : "The request",
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/HydrateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Released, and recorded on the audit chain",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/HydrateAnswer"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "No credential, or one Entry rejects",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "purposeDenied (the declared purpose may not call this route), analystMismatch (the context names another account), or the person holds no grant on a database the request reads",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "notFound or unknownTenant",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "405" : {
+            "description" : "The path exists with another method; Allow lists it",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "428" : {
+            "description" : "contextRequired (no X-Spork-Context) or contextInvalid (unreadable)",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "auditUnavailable: the release could not be recorded, so nothing was released",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "SporkError" : {
+        "required" : [ "error" ],
+        "type" : "object",
+        "properties" : {
+          "error" : {
+            "type" : "string",
+            "description" : "For people"
+          },
+          "code" : {
+            "type" : "string",
+            "description" : "Stable, for clients: contextRequired, contextInvalid, purposeDenied, analystMismatch, unknownTenant, notFound, idsRequired, tooManyIds, projectionInvalid, auditUnavailable"
+          }
+        },
+        "description" : "A refusal"
+      },
+      "SporkContext" : {
+        "required" : [ "purpose" ],
+        "type" : "object",
+        "properties" : {
+          "caseRef" : {
+            "maxLength" : 200,
+            "type" : "string",
+            "description" : "The case the work is for, 1 to 200 printable characters"
+          },
+          "purpose" : {
+            "type" : "string",
+            "description" : "The declared purpose",
+            "enum" : [ "victim_identification", "investigative_lead", "network_disruption", "standing_monitoring", "training" ]
+          },
+          "analyst" : {
+            "type" : "string",
+            "description" : "Optional; when present it must be the authenticated Entry account id"
+          }
+        },
+        "description" : "The decoded X-Spork-Context header"
+      },
+      "ContextAnswer" : {
+        "required" : [ "analyst", "auditSeq", "consistencyBookmark", "partial", "purpose", "requestId", "servedBy", "tenant" ],
+        "type" : "object",
+        "properties" : {
+          "tenant" : {
+            "type" : "string",
+            "description" : "The tenant"
+          },
+          "analyst" : {
+            "type" : "string",
+            "description" : "The authenticated person: the Entry account id, or local:<name>"
+          },
+          "caseRef" : {
+            "type" : "string",
+            "description" : "The declared case",
+            "nullable" : true
+          },
+          "purpose" : {
+            "type" : "string",
+            "description" : "The declared purpose",
+            "enum" : [ "victim_identification", "investigative_lead", "network_disruption", "standing_monitoring", "training" ]
+          },
+          "requestId" : {
+            "type" : "string",
+            "description" : "This request; also in the audit entry's detail"
+          },
+          "auditSeq" : {
+            "type" : "integer",
+            "description" : "The seq of the audit entry that recorded the release",
+            "format" : "int64"
+          },
+          "servedBy" : {
+            "type" : "string",
+            "description" : "The server that answered"
+          },
+          "partial" : {
+            "type" : "boolean",
+            "description" : "True when part of the answer lives on databases this node does not hold"
+          },
+          "consistencyBookmark" : {
+            "type" : "string",
+            "description" : "The commit index to pass as X-ArcadeDB-Read-After for read-your-writes; null outside HA",
+            "nullable" : true
+          }
+        },
+        "description" : "The declared context, as the server recorded it"
+      },
+      "HydrateRequest" : {
+        "required" : [ "ids" ],
+        "type" : "object",
+        "properties" : {
+          "ids" : {
+            "maxItems" : 5000,
+            "type" : "array",
+            "description" : "The records to hydrate",
+            "items" : {
+              "type" : "string",
+              "description" : "An upstream RID, a record_id or imp:<importedId>"
+            }
+          },
+          "projection" : {
+            "type" : "array",
+            "description" : "The fields to return; every field but styleVec when absent",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "phones", "emails", "socials", "businessNames", "imageHashes", "lat", "lon", "city", "state", "country", "postedAt", "collectedAt", "age", "services", "paymentTypes", "clientele", "source", "viewCount", "hasImages", "style", "styleVec", "textHash", "priorityScore", "markings" ]
+            }
+          }
+        },
+        "description" : "POST records:hydrate"
+      },
+      "HydratedRecord" : {
+        "required" : [ "id", "recordId" ],
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string",
+            "description" : "The id as requested"
+          },
+          "recordId" : {
+            "type" : "string",
+            "description" : "The SPORK record_id, unsigned decimal"
+          },
+          "upstreamRid" : {
+            "type" : "string",
+            "description" : "The upstream RID cluster:position; absent for imports"
+          },
+          "phones" : {
+            "type" : "array",
+            "description" : "phones",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "emails" : {
+            "type" : "array",
+            "description" : "emails",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "socials" : {
+            "type" : "array",
+            "description" : "socials",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "businessNames" : {
+            "type" : "array",
+            "description" : "businessNames",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "imageHashes" : {
+            "type" : "array",
+            "description" : "imageHashes",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "lat" : {
+            "type" : "number",
+            "description" : "lat"
+          },
+          "lon" : {
+            "type" : "number",
+            "description" : "lon"
+          },
+          "city" : {
+            "type" : "string",
+            "description" : "city"
+          },
+          "state" : {
+            "type" : "string",
+            "description" : "stateCode"
+          },
+          "country" : {
+            "type" : "string",
+            "description" : "countryCode"
+          },
+          "postedAt" : {
+            "type" : "string",
+            "description" : "tsPosted, ISO-8601 UTC with milliseconds",
+            "format" : "date-time"
+          },
+          "collectedAt" : {
+            "type" : "string",
+            "description" : "tsCollected, ISO-8601 UTC with milliseconds",
+            "format" : "date-time"
+          },
+          "age" : {
+            "type" : "integer",
+            "description" : "age"
+          },
+          "services" : {
+            "type" : "array",
+            "description" : "services",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "paymentTypes" : {
+            "type" : "array",
+            "description" : "paymentTypes",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "clientele" : {
+            "type" : "array",
+            "description" : "clientele",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "source" : {
+            "type" : "string",
+            "description" : "source"
+          },
+          "viewCount" : {
+            "type" : "integer",
+            "description" : "views"
+          },
+          "hasImages" : {
+            "type" : "boolean",
+            "description" : "hasImages"
+          },
+          "style" : {
+            "type" : "string",
+            "description" : "style"
+          },
+          "styleVec" : {
+            "type" : "array",
+            "description" : "24 float32 values",
+            "items" : {
+              "type" : "number"
+            }
+          },
+          "textHash" : {
+            "type" : "string",
+            "description" : "SHA-256 (32 bytes) of the 4-byte title length, title and body, lowercase hex"
+          },
+          "priorityScore" : {
+            "type" : "number",
+            "description" : "priorityScore"
+          },
+          "markings" : {
+            "type" : "array",
+            "description" : "The marking bits the record carries",
+            "items" : {
+              "type" : "integer"
+            }
+          }
+        },
+        "description" : "One record; a field the record lacks is absent"
+      },
+      "HydrateAnswer" : {
+        "required" : [ "auditSeq", "consistencyBookmark", "invalid", "missing", "partial", "records", "requestId", "servedBy" ],
+        "type" : "object",
+        "properties" : {
+          "records" : {
+            "type" : "array",
+            "description" : "In request order",
+            "items" : {
+              "$ref" : "#/components/schemas/HydratedRecord"
+            }
+          },
+          "missing" : {
+            "type" : "array",
+            "description" : "Ids that matched nothing the person may see",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "invalid" : {
+            "type" : "array",
+            "description" : "Ids in none of the three forms",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "requestId" : {
+            "type" : "string",
+            "description" : "This request; also in the audit entry's detail"
+          },
+          "auditSeq" : {
+            "type" : "integer",
+            "description" : "The seq of the audit entry that recorded the release",
+            "format" : "int64"
+          },
+          "servedBy" : {
+            "type" : "string",
+            "description" : "The server that answered"
+          },
+          "partial" : {
+            "type" : "boolean",
+            "description" : "True when part of the answer lives on databases this node does not hold"
+          },
+          "consistencyBookmark" : {
+            "type" : "string",
+            "description" : "The commit index to pass as X-ArcadeDB-Read-After for read-your-writes; null outside HA",
+            "nullable" : true
+          }
+        },
+        "description" : "The released records"
+      }
+    },
+    "securitySchemes" : {
+      "entryBearer" : {
+        "type" : "http",
+        "description" : "The signed-in person's own Entry credential (session, PAT or MCP)",
+        "scheme" : "bearer"
+      },
+      "basicAuth" : {
+        "type" : "http",
+        "description" : "Local break-glass users only; audited as local:<name>",
+        "scheme" : "basic"
+      }
+    }
+  }
+}
