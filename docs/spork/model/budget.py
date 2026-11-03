@@ -874,8 +874,8 @@ print('trigger dates at %.0f GB (80%% of the 4 TB ceiling), when the next runway
 for lbl in COMBO_SAVE:
     print('  %-70s ' % lbl[:70] + ' | '.join('%s %s' % (sc, fmt(cross(lambda R, sc=sc: COMBO_SAVE[lbl](R, sc), TRIG_4TB))) for sc in S))
 print('  %-70s ' % 'E' + ' | '.join('%s %s' % (sc, fmt(cross(lambda R, sc=sc: tot_E(R, sc), TRIG_4TB))) for sc in S))
-# Owner decision 2026-11-03: "Plan C" (A + E26). Scene and tattoo on the hot window only (option 4, part of A) is still
-# open, so C is also shown without it.
+# Owner decisions 2026-11-03: "Plan C" (A + E26), then "Approve both" (scene and tattoo on the hot window only, option 4,
+# part of A; OCR on the daily stream only). C without option 4 is kept for the record.
 C_NO4 = ('v3 hot cap 200M -> 150M', 'v1 warm FTS pruning', 'v5 S-FACE rerank int8 -> 4-bit', 'RF2 warm partitions (2 of 4 nodes)')
 
 

@@ -72,8 +72,10 @@ owner review.
 - Fixed hardware (round 10): no GPU, no 256 GB RAM, no second drive. With full replicas mid crosses 3,000 GB at about
   2027-12 and would need 140% of it at 3x. Combination A (valves 3, 1, 5; scene and tattoo codes on the hot window)
   holds to about 2028-01. **The owner chose plan C**: A plus E26 (warm partitions on 2 of 4 nodes, in production by
-  about 2027-07), which holds to about 2029-01 at 95% at 3x (96% without the hot-window scene option); with an
-  object store, about 2029-07. "Replicate, do not shard" now holds for hot data only. High face counts do not fit this hardware without a retention window and a face-scope cut.
+  about 2027-07), which holds to about 2029-01 at 95% at 3x (scene and tattoo on the hot window and OCR on new images
+  only, both approved); **the owner then adopted plan E** (C plus the non-representative gallery and warm text in the
+  existing object store), which holds to about 2029-07 at 86% at 3x. "Replicate, do not shard" now holds for hot data
+  only. High face counts do not fit this hardware without a retention window and a face-scope cut.
 - History is the engine's: Identity and MEMBER_OF are versioned types (native record versioning, built in a
   worktree), so the current view is the plain edge list with no validity filter and the as-of view is
   `history.edges(identity, t)`. Reads that do not ask for history pay nothing; history costs about 36 B per record
@@ -120,14 +122,16 @@ Run Maven in one checkout at a time: the main checkout's `target/` directories a
 
 ## What needs the owner
 
-Section 9.2 of the architecture lists 23 questions; the ones that gate work soonest:
+Section 9.2 of the architecture lists 24 questions; the ones that gate work soonest:
 
 1. Hardware: the 4 TB replacement drive model, on every node by about 2027-01-15 (ideally before the cluster is
-   first formed). Plan C (E26) is decided; still open: scene and tattoo search on the hot window only, and OCR on
-   the daily stream only.
+   first formed). Decided by the owner: plan C (E26), scene and tattoo search on the hot window only, and OCR on the
+   daily stream only. An object store or off-node backup mount exists, and plan E (C plus valves 2 and 4 on it, to
+   about 2029-07, E17 committed) is adopted; confirming the store is S3-compatible is now a gate on E.
 2. Object store with Object Lock for originals, crops, warm text, segments, backups (about 200 TB of originals at 3x).
 3. Backup mount: off-node, encrypted, about 1.9 TB from Q1 (2.0 TB with every index space) and 4.5 TB at 3x.
-4. Object store and backup mount: do they already exist? The fixed-hardware plan is shown with and without them.
+4. Object store and backup mount: one exists (answered). Still needed: is it S3-compatible, how much free capacity,
+   Object Lock, and who holds its encryption keys (backups stay off until that is confirmed).
 5. Faces: image counts per record (settles low/mid/high); existing crops or embeddings; which purposes may run face,
    tattoo and ARC search; rules for minor-flagged faces.
 6. Governance: marking model (flat labels vs classification + compartments), whether links carry their own markings,
