@@ -99,7 +99,10 @@ class Issue10699NoNarrowingIntReadsInFunctionsTest {
       Map.entry("vector/SQLFunctionVectorQuantizeBinary", 1),//
       Map.entry("vector/SQLFunctionVectorQuantizeInt8", 2),
       // hashCode() of a double pair
-      Map.entry("geo/LightweightPoint", 2)));
+      Map.entry("geo/LightweightPoint", 2),
+      // grid rows, columns and the column count of a geohash cover, computed from the cell size of a precision already
+      // checked to be 1 to 12 (at most 2^30 cells a side), never from an argument
+      Map.entry("geo/SQLFunctionGeoHashCover", 3)));
 
   @Test
   void noSqlFunctionReadsAnIntegerArgumentThroughANarrowingConversion() throws Exception {

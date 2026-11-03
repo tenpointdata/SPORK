@@ -22,6 +22,7 @@ import com.arcadedb.database.Identifiable;
 import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.function.sql.SQLFunctionAbstract;
 import com.arcadedb.query.sql.executor.CommandContext;
+import com.arcadedb.utility.NumberUtils;
 import org.locationtech.spatial4j.io.GeohashUtils;
 import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Shape;
@@ -71,10 +72,16 @@ public class SQLFunctionGeoHash extends SQLFunctionAbstract {
   static int precision(final Object value, final int defaultValue, final String caller) {
     if (value == null)
       return defaultValue;
-    if (!(value instanceof Number number) || number.intValue() < 1 || number.intValue() > 12
-        || number.doubleValue() != number.intValue())
-      throw new CommandExecutionException(caller + "(): the precision must be an integer from 1 to 12, got " + value);
-    return number.intValue();
+    if (value instanceof Number number) {
+      try {
+        final int precision = NumberUtils.toIntWhole(number);
+        if (precision >= 1 && precision <= 12)
+          return precision;
+      } catch (final ArithmeticException e) {
+        // NOT A WHOLE NUMBER IN THE INT RANGE: FALL THROUGH TO THE ERROR BELOW
+      }
+    }
+    throw new CommandExecutionException(caller + "(): the precision must be an integer from 1 to 12, got " + value);
   }
 
   @Override

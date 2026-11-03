@@ -37,6 +37,7 @@ import com.arcadedb.query.sql.executor.WorkGuard;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.schema.Schema;
 import com.arcadedb.utility.IntHashSet;
+import com.arcadedb.utility.NumberUtils;
 import org.locationtech.spatial4j.shape.Point;
 import org.locationtech.spatial4j.shape.Shape;
 
@@ -207,7 +208,7 @@ public class SQLFunctionGeoNearest extends SQLFunctionAbstract {
     if (!(value instanceof Number number) || number.doubleValue() != Math.floor(number.doubleValue()) || number.longValue() < 0
         || number.longValue() > Integer.MAX_VALUE)
       throw new CommandExecutionException(caller + "(): k must be a non-negative integer, got " + value);
-    return number.intValue();
+    return NumberUtils.toIntWhole(number);
   }
 
   public static double parseMaxDistance(final Object value, final String caller) {

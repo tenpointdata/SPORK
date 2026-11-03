@@ -21,6 +21,7 @@ package com.arcadedb.function.sql.similarity;
 import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.function.sql.SQLFunctionAbstract;
 import com.arcadedb.similarity.BitHash;
+import com.arcadedb.utility.NumberUtils;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -91,7 +92,7 @@ abstract class SQLFunctionSimilarityAbstract extends SQLFunctionAbstract {
     if (!(value instanceof Number n) || n.doubleValue() != Math.rint(n.doubleValue()) || n.longValue() < min || n.longValue() > max)
       throw new CommandSQLParsingException(
           getName() + "(): " + argument + " must be an integer between " + min + " and " + max + ", got " + value);
-    return n.intValue();
+    return NumberUtils.toIntWhole(n);
   }
 
   static List<Long> toList(final long[] values) {
