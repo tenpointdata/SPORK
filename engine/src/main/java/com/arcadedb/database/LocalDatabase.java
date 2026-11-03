@@ -1324,7 +1324,7 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
     if (rids == null)
       throw new IllegalArgumentException("Record ids are null");
 
-    stats.readRecord.addAndGet(rids.length);
+    stats.readRecord.add(rids.length);
     getPageManager().incrementBatchedRecordLookups();
 
     return executeInReadLock(() -> {
