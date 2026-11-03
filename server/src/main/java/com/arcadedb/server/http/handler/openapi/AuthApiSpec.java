@@ -257,11 +257,22 @@ public class AuthApiSpec implements OpenApiContributor {
     final Schema<Object> schema = SpecBuilders.object("The receipt Entry records: the delivery's intent, applied in full");
     schema.addProperty("schemaVersion", SpecBuilders.integer("Always 2"));
     schema.addProperty("deliveryId", SpecBuilders.string("The acknowledged delivery"));
+    schema.addProperty("eventId", SpecBuilders.string("The delivery's event"));
+    schema.addProperty("bindingId", SpecBuilders.string("The delivery's binding"));
+    schema.addProperty("bindingRevision", SpecBuilders.integer("The delivery's binding revision"));
     schema.addProperty("sequence", SpecBuilders.integer("The applied sequence"));
     schema.addProperty("desiredState", SpecBuilders.string("The applied state"));
+    schema.addProperty("consumerSubjectId", SpecBuilders.string("The delivery's consumer subject"));
+    schema.addProperty("consumerContextId", SpecBuilders.string("The delivery's consumer context"));
     schema.addProperty("consumerReceiptId", SpecBuilders.string("This server's receipt id; a replay answers the same one"));
+    schema.addProperty("revocations", SpecBuilders.arrayOf(SpecBuilders.freeFormObject("{path, sequence}"),
+        "The delivery's revocations, as applied"));
     schema.addProperty("appliedPaths", SpecBuilders.arrayOf(SpecBuilders.string("session, pat or mcp"), "Every required path"));
     schema.addProperty("grantsRecreated", SpecBuilders.bool("Always false"));
+    // EntryLifecycleReceiver.acknowledgement() writes every field unconditionally
+    schema.setRequired(List.of("schemaVersion", "deliveryId", "eventId", "bindingId", "bindingRevision", "sequence",
+        "desiredState", "consumerSubjectId", "consumerContextId", "consumerReceiptId", "revocations", "appliedPaths",
+        "grantsRecreated"));
     return schema;
   }
 }
