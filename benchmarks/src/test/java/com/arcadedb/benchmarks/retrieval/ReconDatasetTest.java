@@ -32,7 +32,9 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -233,5 +235,25 @@ class ReconDatasetTest {
       final Vertex phone = rs.next().getVertex().orElseThrow();
       return (int) phone.countEdges(Vertex.DIRECTION.IN, ReconSchema.HAS_PHONE);
     }
+  }
+
+  @Test
+  void fixedWorkloadAnswersEveryQueryAndTheSameRowsTwice() {
+    final FixedWorkload.Settings settings = new FixedWorkload.Settings(12_345L, 3, Map.of("vectorKnn20", 2), 2, 0);
+    final List<FixedWorkload.Result> first = new FixedWorkload(EmbeddedRetrievalBenchmark.fixedEngine(database, new QueryMix.Tables(manifest)),
+        settings).run(EmbeddedRetrievalBenchmark.queryIds());
+    final List<FixedWorkload.Result> second = new FixedWorkload(EmbeddedRetrievalBenchmark.fixedEngine(database, new QueryMix.Tables(manifest)),
+        settings).run(EmbeddedRetrievalBenchmark.queryIds());
+
+    assertThat(first).extracting(FixedWorkload.Result::query)
+        .containsExactly(Arrays.stream(QueryMix.Query.values()).map(q -> q.id).toArray(String[]::new));
+    for (final FixedWorkload.Result r : first) {
+      assertThat(r.draws()).isEqualTo(r.query().equals("vectorKnn20") ? 2 : 3);
+      assertThat(r.medianMs()).isPositive();
+      assertThat(r.medianMs()).isLessThanOrEqualTo(r.maxMs());
+    }
+    assertThat(first.get(0).rows()).isEqualTo(3); // identLookup: one phone per draw
+    // the same seed asks the same questions: the row totals are what the OrientDB leg's totals are compared against
+    assertThat(second).extracting(FixedWorkload.Result::rows).isEqualTo(first.stream().map(FixedWorkload.Result::rows).toList());
   }
 }

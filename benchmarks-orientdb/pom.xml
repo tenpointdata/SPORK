@@ -34,7 +34,7 @@
         arcadedb-benchmarks, run against OrientDB 3.2.24 embedded. Deliberately NOT a module of the root reactor: OrientDB
         3.2 ships Lucene 8 and ArcadeDB's engine ships Lucene 10 under the same package names, so the two can never share a
         classpath. Nothing ArcadeDB is on this module's classpath; the four pure-JDK domain classes of arcadedb-benchmarks
-        (ReconDomain, ZipfSampler, LatencyStats, BenchProps) are compiled in from that module's sources so both engines draw
+        (ReconDomain, ZipfSampler, LatencyStats, BenchProps, FixedWorkload) are compiled in from that module's sources so both engines draw
         exactly the same records and parameters. OrientDB is Apache 2.0. Never deployed.
 
         Build and run with benchmarks-orientdb/bin/orientdb-bench.sh.
@@ -94,6 +94,7 @@
                         <include>com/arcadedb/benchmarks/retrieval/ZipfSampler.java</include>
                         <include>com/arcadedb/benchmarks/retrieval/LatencyStats.java</include>
                         <include>com/arcadedb/benchmarks/retrieval/BenchProps.java</include>
+                        <include>com/arcadedb/benchmarks/retrieval/FixedWorkload.java</include>
                     </includes>
                 </configuration>
             </plugin>

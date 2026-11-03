@@ -250,6 +250,9 @@ hs_err_pid*
 ### Eclipse ###
 .metadata
 bin/
+# the benchmark harness drivers live in bin/ on purpose
+!benchmarks/bin/
+!benchmarks-orientdb/bin/
 tmp/
 *.tmp
 *.bak
