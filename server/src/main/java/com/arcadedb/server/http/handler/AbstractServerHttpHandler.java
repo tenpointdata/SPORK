@@ -55,6 +55,8 @@ import com.arcadedb.server.http.RequestBodyTooLargeException;
 import com.arcadedb.server.http.ResultSetTooLargeException;
 import com.arcadedb.server.http.RetryLaterException;
 import com.arcadedb.server.security.ApiTokenConfiguration;
+import com.arcadedb.server.security.entry.EntryAuthenticationException;
+import com.arcadedb.server.security.entry.EntryAuthenticator;
 import com.arcadedb.server.ServerControlPlane;
 import com.arcadedb.server.security.ServerSecurityException;
 import com.arcadedb.server.security.ServerSecurityUser;
@@ -769,7 +771,7 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
         // authenticates them here, exactly as the node the client dialled already did.
       }
 
-      if (user == null) {
+      if (user == null && !authenticatesItsOwnCredential()) {
         if (isRequireAuthentication() && (authorization == null || authorization.isEmpty())) {
           exchange.setStatusCode(401);
           exchange.getResponseHeaders().put(Headers.WWW_AUTHENTICATE, "Basic");
@@ -792,6 +794,17 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
                 } catch (final ServerSecurityException ex) {
                   exchange.setStatusCode(401);
                   sendErrorResponse(exchange, 401, "Invalid or expired API token", null, null);
+                  return;
+                }
+              } else if (EntryAuthenticator.isEntryCredential(token)
+                  && httpServer.getServer().getSecurity().getEntryAuthenticator() != null) {
+                // The person's own Entry credential (docs/spork/07-entry-identity-and-audit.md): an Entry account with the
+                // groups its Entry permissions grant, refused at once when Entry has disabled or suspended it
+                try {
+                  user = httpServer.getServer().getSecurity().getEntryAuthenticator().authenticate(token);
+                } catch (final EntryAuthenticationException ex) {
+                  exchange.setStatusCode(ex.getHttpStatus());
+                  sendErrorResponse(exchange, ex.getHttpStatus(), ex.getMessage(), null, null);
                   return;
                 }
               } else {
@@ -2224,6 +2237,14 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
     return true;
   }
 
+  /**
+   * True for a route whose {@code Authorization} header is not a user credential at all but one the route checks itself, such
+   * as Entry's lifecycle installation credential. The pipeline then neither authenticates the header nor binds a user.
+   */
+  protected boolean authenticatesItsOwnCredential() {
+    return false;
+  }
+
   protected ServerSecurityUser authenticate(final String userName, final String userPassword) {
     return httpServer.getServer().getSecurity().authenticate(userName, userPassword, null);
   }
@@ -2597,13 +2618,21 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
    * and liveness probes among them - does no authentication work whatsoever. Dispatching those too would trade a
    * cheap inline check for a thread hand-off on the server's most frequent requests.
    *
-   * @return {@code true} when the request carries a Basic {@code Authorization} header
+   * An Entry bearer is the one exception: it may cost two server-to-server reads from Entry, so it dispatches too.
+   *
+   * @return {@code true} when the request carries a Basic {@code Authorization} header or an Entry bearer
    */
   static boolean authenticationNeedsWorkerThread(final HttpServerExchange exchange) {
     final String authorization = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
     // Matched the same way the authentication below does - startsWith, not equalsIgnoreCase on a split scheme - so
     // the dispatch decision and the branch it is taken for cannot drift apart.
-    return authorization != null && authorization.startsWith(AUTHORIZATION_BASIC);
+    if (authorization == null)
+      return false;
+    if (authorization.startsWith(AUTHORIZATION_BASIC))
+      return true;
+    // A bearer ArcadeDB did not issue is an Entry credential: a verdict-cache miss is two reads from Entry
+    return authorization.startsWith(AUTHORIZATION_BEARER)
+        && EntryAuthenticator.isEntryCredential(authorization.substring(AUTHORIZATION_BEARER.length()).trim());
   }
 
   /**

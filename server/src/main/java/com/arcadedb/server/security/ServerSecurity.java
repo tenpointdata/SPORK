@@ -29,6 +29,14 @@ import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONException;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.ArcadeDBServer;
+import com.arcadedb.server.audit.AuditChain;
+import com.arcadedb.server.security.entry.EntryAuthenticator;
+import com.arcadedb.server.security.entry.EntryClient;
+import com.arcadedb.server.security.entry.EntryConfiguration;
+import com.arcadedb.server.security.entry.EntryLifecycleReceiver;
+import com.arcadedb.server.security.entry.EntryLifecycleStore;
+import com.arcadedb.server.security.entry.EntryServerSecurityUser;
+import com.arcadedb.server.security.entry.HttpEntryTransport;
 import com.arcadedb.server.DefaultConsoleReader;
 import com.arcadedb.server.HAServerPlugin;
 import com.arcadedb.server.ServerException;
@@ -135,6 +143,10 @@ public class ServerSecurity implements ServerPlugin, SecurityManager {
   // The users half of the reload policy shared with the group and token stores (issue #10404), and its watcher.
   private final        UsersPolicy                     usersPolicy;
   private final        ApiTokenConfiguration           apiTokenConfig;
+  // Entry identity (docs/spork/07-entry-identity-and-audit.md): all null when server-entry.json is absent.
+  private final        EntryConfiguration              entryConfiguration;
+  private final        EntryAuthenticator              entryAuthenticator;
+  private final        EntryLifecycleReceiver          entryLifecycleReceiver;
   private static final int                                MAX_TOKEN_FAILURES   = 5;
   private static final long                               TOKEN_LOCKOUT_MS     = 30_000;
   private final        ConcurrentHashMap<String, long[]>  tokenFailures        = new ConcurrentHashMap<>();
@@ -229,6 +241,24 @@ public class ServerSecurity implements ServerPlugin, SecurityManager {
     });
 
     apiTokenConfig = new ApiTokenConfiguration(configPath);
+
+    // A file that does not validate stops the start: half-configured Entry identity must not serve requests
+    entryConfiguration = EntryConfiguration.load(configPath);
+    if (entryConfiguration != null) {
+      final EntryLifecycleStore entryStore = new EntryLifecycleStore(entryConfiguration);
+      entryAuthenticator = new EntryAuthenticator(entryConfiguration,
+          new EntryClient(entryConfiguration, new HttpEntryTransport(entryConfiguration.getTimeoutMillis()), System::currentTimeMillis),
+          entryStore, name -> server.existsDatabase(name) ? server.getDatabase(name) : null,
+          (principal, databases) -> new EntryServerSecurityUser(server, principal, databases), System::currentTimeMillis);
+      entryLifecycleReceiver = new EntryLifecycleReceiver(entryConfiguration, entryStore, new AuditChain(),
+          entryAuthenticator::invalidate);
+      LogManager.instance().log(this, Level.INFO, "Entry identity enabled (origin=%s environment=%s service=%s state=%s)",
+          entryConfiguration.getOrigin(), entryConfiguration.getEnvironmentId(), entryConfiguration.getServiceId(),
+          entryConfiguration.getDatabase());
+    } else {
+      entryAuthenticator = null;
+      entryLifecycleReceiver = null;
+    }
 
     replicatedFingerprints = new ReplicatedSecurityFingerprintRepository(configPath);
 
@@ -2755,6 +2785,21 @@ public class ServerSecurity implements ServerPlugin, SecurityManager {
       updateUser(updated);
     } else
       createUser(new JSONObject().put("name", "root").put("password", encodedPassword));
+  }
+
+  /** Null when Entry identity is not configured. */
+  public EntryAuthenticator getEntryAuthenticator() {
+    return entryAuthenticator;
+  }
+
+  /** Null when Entry identity is not configured. */
+  public EntryLifecycleReceiver getEntryLifecycleReceiver() {
+    return entryLifecycleReceiver;
+  }
+
+  /** Null when Entry identity is not configured. */
+  public EntryConfiguration getEntryConfiguration() {
+    return entryConfiguration;
   }
 
   public ApiTokenConfiguration getApiTokenConfiguration() {
