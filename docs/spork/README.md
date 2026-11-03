@@ -54,7 +54,7 @@ owner review.
 9. Governance in the database: Operating Context on every sensitive call, hash-chained audit appended in the same
    transaction, redaction by data class and role, retention and deletion propagated through graph, text, vector and
    ROC projections, envelope encryption in the plugin.
-10. Delivery: planned by gates (measurements, external answers, hardware, GPU-hours, model deadlines, integration
+10. Delivery: planned by gates (measurements, external answers, hardware, CPU core-days, model deadlines, integration
     risk), not engineering time. Train 1 (Q1): Recon moves onto SPORK with zero engine changes, and the System 1
     first spaces ship beside it (E18 `LSM_IVF_VECTOR`, gated on a Phase 0 recall test with a fallback onto the
     existing indexes). Train 2 (Q2 releases): faces, the remaining spaces, set-oriented retrieval, governance and the
@@ -122,7 +122,7 @@ Run Maven in one checkout at a time: the main checkout's `target/` directories a
 
 ## What needs the owner
 
-Section 9.2 of the architecture lists 24 questions; the ones that gate work soonest:
+Section 9.2 of the architecture lists 25 questions; the ones that gate work soonest:
 
 1. Hardware: the 4 TB replacement drive model, on every node by about 2027-01-15 (ideally before the cluster is
    first formed). Decided by the owner: plan C (E26), scene and tattoo search on the hot window only, and OCR on the
@@ -141,6 +141,8 @@ Section 9.2 of the architecture lists 24 questions; the ones that gate work soon
    terms; ROC EULA position on storing templates and shortlist results in SPORK (9.3 lists the ROC questions).
 9. "Kaseware PATH": nothing public uses that name; confirm it is the intended product.
 10. If the index is not ready at the Q1 exit, does Recon's move wait for it or cut over first?
+11. Warm-data deletion cadence (E26, the plan C mechanism the Phase 0 spike validated): deletions on older data are
+    hidden at once but physically removed only at the next rewrite. How often must that rewrite run?
 
 ## Conventions
 
