@@ -357,7 +357,7 @@ class PageCacheBenchmark {
           for (int r = 0; r < runs; r++) {
             final LocalBucket bucket = (LocalBucket) local.getSchema()
                 .getBucketById((int) (byBucket[runStarts[r]] >>> 32));
-            contents[r] = bucket.getRecords(positions, runStarts[r], runStarts[r + 1]);
+            contents[r] = bucket.getRecords(positions, runStarts[r], runStarts[r + 1], new boolean[runStarts[r + 1] - runStarts[r]]);
           }
           phase[1] = System.nanoTime() - t0;
 

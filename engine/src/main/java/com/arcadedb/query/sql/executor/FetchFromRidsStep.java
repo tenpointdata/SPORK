@@ -22,6 +22,8 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.RID;
 import com.arcadedb.database.Record;
 import com.arcadedb.database.TransactionContext;
+import com.arcadedb.exception.ConcurrentModificationException;
+import com.arcadedb.exception.DatabaseOperationException;
 import com.arcadedb.exception.RecordNotFoundException;
 import com.arcadedb.exception.TimeoutException;
 import com.arcadedb.query.sql.parser.BooleanExpression;
@@ -142,7 +144,7 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
           if (n == 0)
             return;
 
-          final Record[] records = database.lookupByRIDs(n == batch.length ? batch : Arrays.copyOf(batch, n), loadContent);
+          final Record[] records = hydrate(database, n == batch.length ? batch : Arrays.copyOf(batch, n));
           for (int i = 0; i < n; i++)
             if (records[i] != null)
               loaded.add(records[i]);
@@ -176,6 +178,24 @@ public class FetchFromRidsStep extends AbstractExecutionStep {
           return null;
         final Record written = tx.getWrittenRecord(rid);
         return written != null ? written : buffered;
+      }
+
+      /**
+       * The batch with its content when it loads, which is the common case and the point of the batching. Before the batching
+       * this step answered every RID with {@code lookupByRID(rid, false)}: under {@code READ_COMMITTED} a lazy shell, its content
+       * read only by whoever needed it. A record whose content does not load (a broken chunk chain) was therefore still handed
+       * out, and a DELETE took the loader's verdict on its own tolerant path (#6282). The batch keeps that answer: when loading
+       * the content raises the loader's verdict, the batch is hydrated again without it, which hands out the same shells and
+       * raises, under {@code REPEATABLE_READ} that forces the load, the same exception the per-RID path raised.
+       */
+      private Record[] hydrate(final DatabaseInternal database, final RID[] rids) {
+        if (!loadContent)
+          return database.lookupByRIDs(rids, false);
+        try {
+          return database.lookupByRIDs(rids, true);
+        } catch (final DatabaseOperationException | ConcurrentModificationException e) {
+          return database.lookupByRIDs(rids, false);
+        }
       }
 
       private Record reread(final RID rid) {

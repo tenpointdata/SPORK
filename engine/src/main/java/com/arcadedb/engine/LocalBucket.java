@@ -1409,11 +1409,20 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
    * Only a record that lies whole in its own slot is decoded here. Every other shape - a placeholder pointer, the head of a
    * chunk chain, placeholder content - is handed to {@link #getRecordInternal(RID, boolean)}, which knows them all and finds
    * the page in the cache by then, so the two paths cannot disagree on what a slot means.
+   * <p>
+   * A record of those other shapes whose loader fails - a broken chunk chain, a chain that kept moving under the read - is not
+   * allowed to take the rest of the batch down with it: its entry is left {@code null}, its flag in {@code unloaded} is raised,
+   * and the caller answers it through the single-record path, which raises (or, for a caller that does not need the content,
+   * never meets) exactly the verdict it always did. A corrupted record must stay deletable by RID.
+   *
+   * @param unloaded one flag per position, same indexing as the result, raised where the record exists but its content could
+   *                 not be loaded here; the caller clears it
    *
    * @return one entry per position, in the same order: the record's content, or {@code null} where {@link #getRecord(RID)}
-   * would raise {@code RecordNotFoundException} or answer nothing (deleted, filtered by a before-read event, past the bucket)
+   * would raise {@code RecordNotFoundException} or answer nothing (deleted, filtered by a before-read event, past the bucket),
+   * or where {@code unloaded} is raised
    */
-  public Binary[] getRecords(final long[] positions, final int from, final int to) {
+  public Binary[] getRecords(final long[] positions, final int from, final int to, final boolean[] unloaded) {
     database.checkPermissionsOnFile(fileId, SecurityDatabaseUser.ACCESS.READ_RECORD);
 
     final Binary[] records = new Binary[to - from];
@@ -1490,6 +1499,9 @@ public class LocalBucket extends PaginatedComponent implements Bucket {
             records[i - from] = getRecordInternal(rid, false);
           } catch (final RecordNotFoundException e) {
             // GONE BETWEEN THE SLOT READ AND THE LOAD
+          } catch (final DatabaseOperationException | ConcurrentModificationException e) {
+            // THE LOADER'S VERDICT (A BROKEN CHAIN IS A DatabaseOperationException): THE CALLER ASKS THE SINGLE-RECORD PATH
+            unloaded[i - from] = true;
           }
         }
       }
