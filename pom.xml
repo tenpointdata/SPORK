@@ -187,6 +187,7 @@
         <module>bolt</module>
         <module>grpcw</module>
         <module>grpc-client</module>
+        <module>spork-recon</module>
         <module>coverage</module>
         <module>studio</module>
         <module>package</module>
