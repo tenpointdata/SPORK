@@ -1297,6 +1297,141 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
     });
   }
 
+  /** Batches of this many positions or more are hydrated through the packed sort; a RID list too large to pack falls back. */
+  private static final int  LOOKUP_BATCH_INDEX_BITS = 22;
+  private static final long LOOKUP_BATCH_MAX_POSITION = 1L << (Long.SIZE - 1 - LOOKUP_BATCH_INDEX_BITS);
+
+  /**
+   * Batched hydration (SPORK L1): what one {@link #lookupByRID(RID, boolean)} per RID answers, for the whole set at once, with
+   * the read lock taken once, the RIDs grouped by (bucket, page), the pages this call will miss read in parallel on the page
+   * prefetch pool and every page read once however many of the RIDs it holds. A cold 500-record hydrate is 500 device round
+   * trips one after the other through the single lookup and a few dozen in flight at once through this one.
+   * <p>
+   * The order is the caller's. A RID the transaction holds is answered from the transaction, as the single lookup does;
+   * without {@code loadContent} under {@code READ_COMMITTED} the answer is the same lazy shell, but only for a record that
+   * exists: the slot is read (the pages batched as above) and nothing is copied, where the single lookup hands a shell out
+   * unchecked and a missing record surfaced only when the shell was loaded (#4643). Where the single lookup raises
+   * {@code RecordNotFoundException} - a deleted record, a position past its bucket, a bucket that no longer exists - the
+   * entry is {@code null}, and so it is for a record an after-read event filtered away. A {@code null} RID is a {@code null}
+   * entry.
+   * <p>
+   * The grouping is two primitive sorts and no objects: the input indexes packed under their bucket id, then the positions
+   * of each bucket's run packed over their index in the run. A list whose shape does not fit the packing (over 4M RIDs, a
+   * position past 2^41) is hydrated one lookup at a time instead, so no input is refused.
+   */
+  @Override
+  public Record[] lookupByRIDs(final RID[] rids, final boolean loadContent) {
+    if (rids == null)
+      throw new IllegalArgumentException("Record ids are null");
+
+    stats.readRecord.addAndGet(rids.length);
+    getPageManager().incrementBatchedRecordLookups();
+
+    return executeInReadLock(() -> {
+      checkDatabaseIsOpen();
+
+      final TransactionContext tx = getTransaction();
+      // FORCE LOAD OF CONTENT TO GUARANTEE THE LOADING OF MULTI-PAGE RECORD INTO THE TX CONTEXT, AS lookupByRID DOES
+      final boolean loadRecordContent = loadContent || tx.getIsolationLevel() == TRANSACTION_ISOLATION_LEVEL.REPEATABLE_READ;
+      final Record[] records = new Record[rids.length];
+
+      // 1. THE TRANSACTION'S OWN RECORDS; THE REST IS PACKED (bucket << 32 | index) FOR THE SORT BELOW
+      final long[] byBucket = new long[rids.length];
+      int pending = 0;
+      for (int i = 0; i < rids.length; i++) {
+        final RID rid = rids[i];
+        if (rid == null)
+          continue;
+
+        final Record inTransaction = tx.getRecordFromCache(rid);
+        if (inTransaction != null) {
+          records[i] = inTransaction;
+          continue;
+        }
+
+        if (rid.getBucketId() < 0 || rid.getPosition() < 0)
+          // NO RECORD LIVES THERE: A NULL ENTRY. A NEGATIVE POSITION WOULD ALSO BREAK THE PACKING BELOW (review m2)
+          continue;
+
+        if (rid.getPosition() >= LOOKUP_BATCH_MAX_POSITION || rids.length >= (1 << LOOKUP_BATCH_INDEX_BITS)) {
+          // A SHAPE THE PACKING CANNOT HOLD: ONE LOOKUP AT A TIME FOR THE WHOLE LIST
+          lookupOneByOne(rids, records, loadRecordContent);
+          return records;
+        }
+        byBucket[pending++] = ((long) rid.getBucketId() << 32) | i;
+      }
+      if (pending == 0)
+        return records;
+
+      Arrays.sort(byBucket, 0, pending);
+
+      // 2. PER BUCKET: THE POSITIONS SORTED, ONE PAGE READ PER DISTINCT PAGE, THE MISSES PREFETCHED TOGETHER
+      final long[] byPosition = new long[pending];
+      final long[] positions = new long[pending];
+      for (int runStart = 0; runStart < pending; ) {
+        final int bucketId = (int) (byBucket[runStart] >>> 32);
+        int runEnd = runStart + 1;
+        while (runEnd < pending && (int) (byBucket[runEnd] >>> 32) == bucketId)
+          ++runEnd;
+        final int run = runEnd - runStart;
+
+        // A dangling RID can reference a bucket that no longer exists: the records simply do not exist (#4501)
+        final LocalBucket bucket = schema.getBucketById(bucketId, false);
+        if (bucket != null) {
+          final DocumentType type = schema.getTypeByBucketId(bucketId);
+          for (int k = 0; k < run; k++) {
+            final int index = (int) byBucket[runStart + k];
+            byPosition[k] = (rids[index].getPosition() << LOOKUP_BATCH_INDEX_BITS) | k;
+          }
+          Arrays.sort(byPosition, 0, run);
+          for (int k = 0; k < run; k++)
+            positions[k] = byPosition[k] >>> LOOKUP_BATCH_INDEX_BITS;
+
+          final Binary[] contents = bucket.getRecords(positions, 0, run);
+
+          for (int k = 0; k < run; k++) {
+            final Binary content = contents[k];
+            if (content == null)
+              continue;
+            final int index = (int) byBucket[runStart + (int) (byPosition[k] & ((1 << LOOKUP_BATCH_INDEX_BITS) - 1))];
+            final RID rid = rids[index];
+            if (!loadRecordContent && type != null) {
+              // THE RECORD EXISTS: ITS LAZY SHELL, AS lookupByRID(rid, false) ANSWERS, WITHOUT COPYING THE CONTENT IN HAND
+              final Record shell = recordFactory.newImmutableRecord(wrappedDatabaseInstance, type, rid, type.getType());
+              if (shell instanceof ImmutableDocument document)
+                document.setReadInTransaction(tx.getBeginSequence());
+              records[index] = shell;
+              continue;
+            }
+            Record record = recordFactory.newImmutableRecord(wrappedDatabaseInstance, type, rid, content.copyOfContent(), null);
+            // #8610: recorded before the read events run, which may hand back another record
+            if (record instanceof ImmutableDocument document)
+              document.setReadInTransaction(tx.getBeginSequence());
+            records[index] = invokeAfterReadEvents(record);
+          }
+        }
+        runStart = runEnd;
+      }
+      return records;
+    });
+  }
+
+  /** The fallback of {@link #lookupByRIDs}: the single lookup per RID, with its exceptions turned into {@code null} entries. */
+  private void lookupOneByOne(final RID[] rids, final Record[] records, final boolean loadContent) {
+    for (int i = 0; i < rids.length; i++) {
+      final RID rid = rids[i];
+      if (rid == null || records[i] != null || rid.getBucketId() < 0 || rid.getPosition() < 0)
+        continue;
+      try {
+        // A SHELL ONLY FOR A RECORD THAT EXISTS, AS THE BATCHED PATH ANSWERS
+        if (loadContent || existsRecord(rid))
+          records[i] = lookupByRID(rid, loadContent);
+      } catch (final RecordNotFoundException e) {
+        // A NULL ENTRY, AS THE BATCHED PATH ANSWERS
+      }
+    }
+  }
+
   @Override
   public IndexCursor lookupByKey(final String type, final String keyName, final Object keyValue) {
     return lookupByKey(type, new String[] { keyName }, new Object[] { keyValue });

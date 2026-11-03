@@ -565,6 +565,33 @@ public class PaginatedComponentFile extends ComponentFile {
 //    return range[1] - range[0] + 1;
   }
 
+  /**
+   * Largest page read through the per-thread direct buffer; a page above it is read straight into its heap buffer. Twice the
+   * largest page size in use (256 KB index pages), so one buffer per thread serves every file it reads.
+   */
+  private static final int MAX_POOLED_READ_BUFFER = 512 * 1024;
+
+  /**
+   * SPORK S2: the direct buffer a page is read into before ONE copy into the heap page, one per thread, grown to the largest
+   * page the thread has read. {@code FileChannel.read} into a heap buffer goes through the JDK's own temporary direct buffer and
+   * copies once too, but measured on the OS page cache it costs 22 us per 64 KB page against 13 us for an explicit direct read
+   * and a bulk {@code get} ({@code PageCacheBenchmark.pageReadCopy}): the JDK's path takes and returns its buffer from a
+   * per-thread cache on every call and copies through {@code ByteBuffer.put(ByteBuffer)}. The footprint is the same as the
+   * JDK's cache would have held per thread, and it is released with the thread.
+   */
+  private static final ThreadLocal<ByteBuffer> READ_BUFFER = new ThreadLocal<>();
+
+  private static ByteBuffer directReadBuffer(final int size) {
+    ByteBuffer buffer = READ_BUFFER.get();
+    if (buffer == null || buffer.capacity() < size) {
+      buffer = ByteBuffer.allocateDirect(size);
+      READ_BUFFER.set(buffer);
+    }
+    buffer.clear();
+    buffer.limit(size);
+    return buffer;
+  }
+
   public void read(final CachedPage page) throws IOException {
     final int pageNumber = page.getPageId().getPageNumber();
     if (page.getPageId().getPageNumber() < 0)
@@ -579,15 +606,24 @@ public class PaginatedComponentFile extends ComponentFile {
       final ByteBuffer buffer = page.getByteBuffer();
       buffer.clear();
 
+      final int size = (int) page.getPhysicalSize();
+      // READ INTO THE THREAD'S DIRECT BUFFER AND COPY ONCE INTO THE PAGE (SPORK S2); A PAGE TOO LARGE FOR IT IS READ IN PLACE
+      final ByteBuffer target = size <= MAX_POOLED_READ_BUFFER ? directReadBuffer(size) : buffer;
+
       final long pos = page.getPhysicalSize() * (long) pageNumber;
       boolean read;
       try {
-        read = readFully(buffer, pos);
+        read = readFully(target, pos);
       } catch (final ClosedChannelException e) {
-        read = readAfterReopen(buffer, 0, pos);
+        read = readAfterReopen(target, 0, pos);
       }
       if (!read)
         throw new IOException("Unexpected EOF reading page " + pageNumber + " from file '" + getFileName() + "'");
+
+      if (target != buffer) {
+        target.flip();
+        buffer.put(target);
+      }
     } finally {
       channelLock.readLock().unlock();
     }

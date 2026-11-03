@@ -28,6 +28,7 @@ import com.arcadedb.engine.WALFileFactory;
 import com.arcadedb.exception.DatabaseIsClosedException;
 import com.arcadedb.exception.DatabaseIsReopeningException;
 import com.arcadedb.exception.DatabaseOperationException;
+import com.arcadedb.exception.RecordNotFoundException;
 import com.arcadedb.exception.TransactionException;
 import com.arcadedb.exception.ValidationException;
 import com.arcadedb.graph.Edge;
@@ -86,6 +87,33 @@ public interface DatabaseInternal extends Database {
   MutableEmbeddedDocument newEmbeddedDocument(EmbeddedModifier modifier, String typeName);
 
   DatabaseInternal getEmbedded();
+
+  /**
+   * Batched hydration (SPORK L1): what one {@link #lookupByRID(RID, boolean)} per RID answers, for the whole set at once and
+   * in the caller's order, with {@code null} where the single lookup would raise {@code RecordNotFoundException}, and, without
+   * {@code loadContent}, a lazy shell only for a record that exists (the single lookup hands one out unchecked). The embedded
+   * database groups the RIDs by (bucket, page), reads the misses in parallel and every page once.
+   * <p>
+   * The default answers one {@link #lookupByRID(RID, boolean)} at a time ON THIS INSTANCE, and deliberately does not unwrap
+   * to {@link #getEmbedded()}: a wrapper guards its single lookup (the HA wrapper refuses a client while the database directory
+   * is being replaced from a snapshot), and a default that routed straight to the embedded database skipped the guard for the
+   * whole batch (review M2). A wrapper that wants the batched path overrides this, guards, and delegates.
+   */
+  default Record[] lookupByRIDs(final RID[] rids, final boolean loadContent) {
+    final Record[] records = new Record[rids.length];
+    for (int i = 0; i < rids.length; i++) {
+      if (rids[i] == null)
+        continue;
+      try {
+        // A LAZY SHELL ONLY FOR A RECORD THAT EXISTS, AS THE EMBEDDED BATCH ANSWERS: lookupByRID(rid, false) HANDS ONE OUT UNCHECKED
+        if (loadContent || existsRecord(rids[i]))
+          records[i] = lookupByRID(rids[i], loadContent);
+      } catch (final RecordNotFoundException e) {
+        // A NULL ENTRY
+      }
+    }
+    return records;
+  }
 
   /**
    * Closes the database with drop semantics but without removing its files, leaving their deletion to the

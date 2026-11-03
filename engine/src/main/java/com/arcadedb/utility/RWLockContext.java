@@ -174,6 +174,30 @@ public class RWLockContext {
   }
 
   /**
+   * Runs {@code task} under the shared lock only if no writer HOLDS the lock right now, and never waits for it: a fair
+   * lock's {@code tryLock()} barges past queued writers, so a thread here cannot be parked behind a writer that is itself
+   * waiting for a reader. For work that is a hint and may simply be dropped, such as a page prefetch: holding the shared lock
+   * keeps a close or drop (both take the exclusive lock) from running under it.
+   *
+   * @return {@code false}, without running {@code task}, when a writer holds the lock
+   */
+  public boolean tryExecuteInReadLock(final Runnable task) {
+    if (!enableLocking) {
+      task.run();
+      return true;
+    }
+    final ReentrantReadWriteLock.ReadLock rl = stripes[(int) Thread.currentThread().threadId() & stripeMask].readLock();
+    if (!rl.tryLock())
+      return false;
+    try {
+      task.run();
+      return true;
+    } finally {
+      rl.unlock();
+    }
+  }
+
+  /**
    * Executes a callback in an exclusive lock.
    */
   public <RET> RET executeInWriteLock(final Callable<RET> callable) {

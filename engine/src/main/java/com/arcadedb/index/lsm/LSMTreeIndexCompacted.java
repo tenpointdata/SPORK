@@ -712,7 +712,10 @@ public class LSMTreeIndexCompacted extends LSMTreeIndexAbstract {
     }
 
     for (int pageNumber = effectivePageCount - 1; pageNumber > 0; ) {
-      final BasePage lastPage = database.getTransaction().getPageForAbsoluteReads(new PageId(database, file.getFileId(), pageNumber), pageSize);
+      final PageId lastPageId = new PageId(database, file.getFileId(), pageNumber);
+      final BasePage lastPage = database.getTransaction().getPageForAbsoluteReads(lastPageId, pageSize);
+      // EVERY LOOKUP READS THE SERIES TAIL AND ROOT: PINNED, SO A HYDRATE STREAM DOES NOT EVICT THEM (SPORK M1)
+      database.getPageManager().pinPage(lastPageId);
 
       final int rootPageCount = getCompactedPageNumberOfSeries(lastPage);
 
@@ -738,6 +741,7 @@ public class LSMTreeIndexCompacted extends LSMTreeIndexAbstract {
 
       final PageId pageId = new PageId(database, file.getFileId(), pageNumber);
       final BasePage rootPage = database.getTransaction().getPageForAbsoluteReads(pageId, pageSize);
+      database.getPageManager().pinPage(pageId);
 
       if (pageId.getPageNumber() > 0) {
         final int rootPageId = getCompactedPageNumberOfSeries(rootPage);

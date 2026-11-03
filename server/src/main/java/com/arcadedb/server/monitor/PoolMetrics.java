@@ -20,6 +20,7 @@ package com.arcadedb.server.monitor;
 
 import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.async.AsyncCommandPool;
+import com.arcadedb.engine.PagePrefetchPool;
 import com.arcadedb.graph.GhostEdgeReporter;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.index.sparsevector.SparseVectorScoringPool;
@@ -108,6 +109,12 @@ public final class PoolMetrics implements MeterBinder {
     // and queueCapacityRemaining reports -1 (not applicable); queue_depth is the signal to watch.
     final ParallelScanProducerPool pspp = ParallelScanProducerPool.getInstance();
     bindPool(registry, "parallel_scan", "ParallelScanProducerPool bucket-scan producer pool", pspp::getPoolStats);
+
+    // The page read-ahead pool (SPORK L1): the misses of a batched record hydration, an index range served in physical order
+    // or a multi-page record, read in parallel. A caller-runs fallback means the submitting thread read that page itself, as
+    // it would have without the prefetch: a saturation signal, not a loss.
+    final PagePrefetchPool ppp = PagePrefetchPool.getInstance();
+    bindPool(registry, "page_prefetch", "PagePrefetchPool page read-ahead pool", ppp::getPoolStats);
 
     // The pool that runs commands dispatched with awaitResponse=false (issue #6303, item 3). Its caller-runs count is
     // the one an operator most wants to see here: a fallback means the pool was saturated and the command ran on the

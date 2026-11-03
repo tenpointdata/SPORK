@@ -2336,6 +2336,12 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
   }
 
   @Override
+  public Record[] lookupByRIDs(final RID[] rids, final boolean loadContent) {
+    refuseClientWhileDirectoryIsReplaced();
+    return proxied.lookupByRIDs(rids, loadContent);
+  }
+
+  @Override
   public Iterator<Record> iterateType(final String typeName, final boolean polymorphic) {
     refuseClientWhileDirectoryIsReplaced();
     return proxied.iterateType(typeName, polymorphic);

@@ -372,6 +372,11 @@ public class ServerDatabase implements DatabaseInternal {
   }
 
   @Override
+  public Record[] lookupByRIDs(final RID[] rids, final boolean loadContent) {
+    return current().lookupByRIDs(rids, loadContent);
+  }
+
+  @Override
   public IndexCursor lookupByKey(final String type, final String keyName, final Object keyValue) {
     return current().lookupByKey(type, keyName, keyValue);
   }

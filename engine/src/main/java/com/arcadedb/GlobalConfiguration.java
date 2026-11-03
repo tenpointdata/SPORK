@@ -361,6 +361,20 @@ public enum GlobalConfiguration {
       0 = available cores (min 2); consider capping explicitly on very high core-count machines""",
       Integer.class, 0),
 
+  PAGE_PREFETCH_POOL_THREADS("arcadedb.pagePrefetchPoolThreads", SCOPE.JVM,
+      """
+      Maximum number of threads in the JVM-wide pool that reads ahead the pages a batched record hydration, an \
+      index range served in physical order or a multi-page record is about to read (PageManager.prefetch). Each \
+      task is one blocking page read, so the right size is the device's queue depth, not the core count. \
+      0 = twice the available cores (min 8). Read once, when the pool is first used""",
+      Integer.class, 0),
+
+  PAGE_PREFETCH_QUEUE_SIZE("arcadedb.pagePrefetchQueueSize", SCOPE.JVM,
+      """
+      Capacity of the page prefetch pool's task queue. A prefetch the full queue refuses is read by the \
+      submitting thread itself, as it would have been without the prefetch. 0 = 1024""",
+      Integer.class, 4096),
+
   FLUSH_ALL_PAGES_TIMEOUT("arcadedb.flushAllPagesTimeout", SCOPE.DATABASE,
       """
       Milliseconds of NO FLUSH PROGRESS after which waiting for all of a database's pages to reach the \

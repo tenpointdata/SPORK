@@ -46,6 +46,15 @@ public class CachedPage {
   // The bulk scan that loaded this page into the cache, until any other reader touches it (issue #11011). A plain field: a
   // stale read only delays a promotion or lets the eviction take the page a little earlier, both harmless
   private          PageManager.BulkScan loadedByBulkScan;
+  // SPORK M1: the CLOCK reference bit. Set by every access that finds the page cached, cleared by the evictor's hand when it
+  // passes: a page the hand finds clear was not touched for a whole lap and is evicted. A plain field, written only when it
+  // changes, for the same reason lastAccessed is: threads reading the same page must not fight over its cache line
+  private          boolean              referenced = true;
+  // SPORK M1: the priority byte. A pinned page (page 0 of every file: the HASH directory start, the LSM and Dictionary header
+  // pages, and whatever a loader pins through PageManager.pinPage) is passed over by the evictor's hand while the pinned pages
+  // together stay under their share of the cache. Page 0 is pinned by construction, in both constructors, because a page
+  // reaches the cache by two roads (a read, and a commit's publication) and both must agree
+  private          boolean              pinned;
 
   public CachedPage(final MutablePage page, final boolean copyBuffer) {
     this.pageId = page.pageId;
@@ -68,12 +77,14 @@ public class CachedPage {
     }
     this.size = page.size;
     this.version = page.version;
+    this.pinned = pageId.getPageNumber() == 0;
   }
 
   public CachedPage(final PageManager pageManager, final PageId pageId, final int size) {
     this.pageId = pageId;
     this.content = new Binary(size).setAutoResizable(false);
     this.size = size;
+    this.pinned = pageId.getPageNumber() == 0;
   }
 
   public void loadMetadata() {
@@ -150,6 +161,28 @@ public class CachedPage {
     final long now = CoarseClock.currentTimeMillis();
     if (lastAccessed != now)
       lastAccessed = now;
+    // THE CLOCK BIT, WRITTEN ONLY WHEN THE HAND CLEARED IT (SPORK M1)
+    if (!referenced)
+      referenced = true;
+  }
+
+  /** The CLOCK reference bit: whether the page was accessed since the evictor's hand last passed it. */
+  boolean isReferenced() {
+    return referenced;
+  }
+
+  /** Clears the CLOCK reference bit: the evictor's hand passed, and the page has one lap to be touched again. */
+  void clearReferenced() {
+    referenced = false;
+  }
+
+  /** Whether the evictor passes this page over while the pinned pages stay within their share of the cache. */
+  public boolean isPinned() {
+    return pinned;
+  }
+
+  void setPinned(final boolean pinned) {
+    this.pinned = pinned;
   }
 
   public PageId getPageId() {

@@ -33,24 +33,35 @@ import com.arcadedb.exception.PageSnapshotException;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.schema.LocalSchema;
 import com.arcadedb.utility.CallableNoReturn;
+import com.arcadedb.utility.CoarseClock;
 import com.arcadedb.utility.CodeUtils;
 import com.arcadedb.utility.ExcludeFromJacocoGeneratedReport;
 import com.arcadedb.utility.FileUtils;
 import com.arcadedb.utility.LockContext;
+import com.arcadedb.utility.RWLockContext;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.function.BiFunction;
@@ -145,6 +156,73 @@ public class PageManager extends LockContext {
   private final    AtomicLong                        totalSnapshotBarriersFailedSuspend    = new AtomicLong();
   private final    AtomicLong                        totalSnapshotBarriersFailedFlush      = new AtomicLong();
   private volatile long                              lastCheckForRAM                       = 0;
+  // SPORK S1: the read in flight per page, so N readers missing the same page share one physical read and park on it
+  // instead of each reading, allocating and discarding its own image. An entry lives from the first miss to the end of
+  // the read, success or failure; the owner removes its own future (remove(key, value)), never a successor's.
+  private final    ConcurrentMap<PageId, CompletableFuture<CachedPage>> inFlightReads = new ConcurrentHashMap<>();
+  private final    LongAdder                         coalescedReads                        = new LongAdder();
+  // SPORK prefetch: pages asked of prefetch(), and the subset that were misses and had a read issued for them
+  private final    LongAdder                         prefetchRequested                     = new LongAdder();
+  private final    LongAdder                         prefetchIssued                        = new LongAdder();
+  // Prefetches declined because the cache was past the evictor's wake threshold, or abandoned by the task because it was past
+  // the hard limit by then: a prefetch never publishes over the budget (review M4)
+  private final    LongAdder                         prefetchSkippedOverBudget             = new LongAdder();
+  // Joiners whose wait for the read in flight ran out and that read the page themselves (review M3)
+  private final    LongAdder                         inFlightReadTimeouts                  = new LongAdder();
+  // SPORK L1: lookupByRIDs() calls, the read-path twin of readRecord for the batched hydration
+  private final    AtomicLong                        batchedRecordLookups                  = new AtomicLong();
+  // SPORK M1: the sort-the-world eviction runs that happened on a READER's thread (the fallback when the evictor is off),
+  // the evictor's wake-ups and the readers that parked above the hard limit
+  private final    AtomicLong                        synchronousEvictionRuns               = new AtomicLong();
+  private final    AtomicLong                        evictorWakeups                        = new AtomicLong();
+  private final    AtomicLong                        readerParks                           = new AtomicLong();
+  // SPORK M1: the evictor thread and the thresholds it works to, derived from maxRAM at startup(). Written under
+  // LIFECYCLE_LOCK like flushThread; read without it by every page access
+  private volatile PageCacheEvictor                  evictor;
+  private volatile long                              evictorWakeThreshold                  = Long.MAX_VALUE;
+  private volatile long                              evictorLowWater                       = Long.MAX_VALUE;
+  private volatile long                              readerParkThreshold                   = Long.MAX_VALUE;
+  private volatile long                              pinnedRAMBudget                       = 0;
+  // Serializes the CLOCK sweep between the evictor and a synchronous reclaim (#7184): two hands on one ring would evict twice
+  // what either meant to
+  private final    ReentrantLock                     evictionLock                          = new ReentrantLock();
+  // TEST-ONLY switches that bring the pre-SPORK behaviour back, so a benchmark can measure before and after in one JVM:
+  // every reader its own physical read, and eviction by sort-the-world on the reader's thread. Volatile reads on the MISS
+  // path and on the (cheap) disposal check only; never set in production
+  private static volatile boolean                    readCoalescingEnabled                 = true;
+  private static volatile boolean                    backgroundEvictionEnabled             = true;
+  // THE CLOCK HAND OF THE SWEEP AND THE PINNED WEIGHT IT MEASURES PER LAP, TOUCHED ONLY UNDER evictionLock
+  private          Iterator<CachedPage>              hand;
+  private          long                              pinnedRAMThisLap;
+  private          long                              pinnedRAMLastLap;
+  /** The cache fill, as a percentage of {@code maxRAM}, at which a page access wakes the evictor (SPORK M1). */
+  static final int EVICTOR_WAKE_PERCENT      = 95;
+  /** What the evictor sweeps the cache down to once woken: below the wake threshold, so a sweep ends. */
+  static final int EVICTOR_LOW_WATER_PERCENT = 90;
+  /** The fill above which a READER parks, for a bounded time, until the evictor has caught up: the hard limit. */
+  static final int READER_PARK_PERCENT       = 110;
+  /** The share of the budget the pinned pages may hold together before the evictor stops passing them over. */
+  static final int PINNED_RAM_PERCENT        = 10;
+  /** How long a reader parks above the hard limit before going on regardless, so a stuck evictor can never wedge a read. */
+  private static final long READER_PARK_MAX_NANOS   = 100_000_000L;
+  private static final long READER_PARK_SLICE_NANOS = 200_000L;
+
+  /**
+   * The smallest budget the evictor's thresholds are derived from: 16 pages of 256 KB, the largest standard page size (LSM
+   * index pages). {@code arcadedb.maxPageRAM = 0} is legal and used to mean "keep as little as possible"; thresholds of 0 made
+   * every page access park (review M5), so the evictor works to at least this much whatever the setting says.
+   */
+  static final long MIN_EVICTION_BUDGET = 16L * 256 * 1024;
+
+  /**
+   * Longest a joiner waits for the read in flight before taking the read over and reading the page itself: a safety net, not a
+   * latency budget. Volatile and package-private only so a test can shorten it.
+   */
+  static volatile long inFlightReadWaitMs = 5_000L;
+
+  /** How long {@link #shutdown()} waits for the evictor thread to finish a sweep in progress. */
+  private static final long EVICTOR_JOIN_TIMEOUT_MS = 10_000L;
+
   // LIFECYCLE INVARIANT (#5070): flushThread and readCache are written only under LIFECYCLE_LOCK
   // during the 0->1 startup / 1->0 shutdown transitions, and read lock-free on the hot paths. That is safe
   // ONLY because a reader implies refcount > 0 (its database holds a reference), so no transition can run
@@ -280,6 +358,21 @@ public class PageManager extends LockContext {
      *                     normally to let it proceed.
      */
     void onPageRead(PageId pageId) throws IOException;
+
+    /**
+     * The PHYSICAL read of a page, called by the one thread that performs it, after the read cache and the flush queue
+     * have been consulted and before the file is read (SPORK S1). Where {@link #onPageRead} fires for every logical read,
+     * this fires once per read in flight, which is what a test of the read coalescing has to hold or fail.
+     */
+    default void onPhysicalPageRead(final PageId pageId) throws IOException {
+    }
+
+    /**
+     * The physical read of a page has the bytes in hand and is about to publish them (cache the page, settle its in-flight
+     * future). Where a test holds a read with the image already taken from the file, the window a teardown has to close.
+     */
+    default void onPhysicalPageReadCompleted(final PageId pageId) throws IOException {
+    }
   }
 
   /** Installs (or, with {@code null}, removes) the test-only page-read fault injector. See {@link PageReadFaultInjector}. */
@@ -354,6 +447,26 @@ public class PageManager extends LockContext {
     public long evictionRuns;
     public long pagesEvicted;
     public int  readCachePages;
+    /** Logical page reads that joined a physical read another thread had in flight instead of reading again (SPORK S1). */
+    public long coalescedReads;
+    /** Pages asked of {@link #prefetch(Collection)}, and the misses among them a read was issued for. */
+    public long prefetchRequested;
+    public long prefetchIssued;
+    /** Prefetches declined, or dropped by their task, because the cache was over its budget: a hint never overfills it. */
+    public long prefetchSkippedOverBudget;
+    /** Joiners that waited the whole safety-net time for a read in flight and then read the page themselves. */
+    public long inFlightReadTimeouts;
+    /** {@code LocalDatabase.lookupByRIDs} calls (SPORK L1). */
+    public long batchedRecordLookups;
+    /**
+     * Eviction runs that copied and sorted the whole cache on a READER's thread: zero while the background evictor is on,
+     * which is the steady state (SPORK S16/M1). Counted in {@link #evictionRuns} too.
+     */
+    public long synchronousEvictionRuns;
+    /** Times a page access found the cache past 95% of its budget and woke the evictor. */
+    public long evictorWakeups;
+    /** Times a reader parked because the cache was past 110% of its budget and the evictor had not caught up yet. */
+    public long readerParks;
     /**
      * #6116: the point-in-time snapshot windows (#6075) as an operator sees them. The five instantaneous readings go
      * up AND down with the lifetime of a window, so they are gauges; the three totals below them are counters. A
@@ -509,8 +622,38 @@ public class PageManager extends LockContext {
       throw new ConfigurationException(
           GlobalConfiguration.MAX_PAGE_RAM.getKey() + " configuration is invalid (" + (maxRAM / (1024 * 1024)) + " MB)");
 
+    // SPORK M1: the evictor is woken at 95% of the budget and sweeps down to 90%; readers park only above 110%; the pinned
+    // pages together may hold 10% before they lose their immunity. The budget is floored (review M5): with maxPageRAM = 0 the
+    // thresholds were 0 and every page access parked
+    final long evictionBudget = Math.max(maxRAM, MIN_EVICTION_BUDGET);
+    this.evictorWakeThreshold = evictionBudget / 100 * EVICTOR_WAKE_PERCENT;
+    this.evictorLowWater = evictionBudget / 100 * EVICTOR_LOW_WATER_PERCENT;
+    this.readerParkThreshold = evictionBudget / 100 * READER_PARK_PERCENT;
+    this.pinnedRAMBudget = evictionBudget / 100 * PINNED_RAM_PERCENT;
+    this.lastCheckForRAM = 0;
+    // A NEW LIFECYCLE STARTS FROM AN EMPTY CACHE: WHATEVER A LATE WRITER ADDED OR SUBTRACTED AFTER THE LAST shutdown() IS NOT
+    // CARRIED INTO IT (review m1)
+    totalReadCacheRAM.set(0L);
+    // THE TEST-ONLY BEFORE/AFTER SWITCHES DO NOT OUTLIVE A LIFECYCLE: A TEST THAT FORGETS TO RESTORE THEM CANNOT CHANGE THE
+    // BEHAVIOUR OF THE NEXT ONE (review m7)
+    readCoalescingEnabled = true;
+    backgroundEvictionEnabled = true;
+    // THE HAND OF THE PREVIOUS LIFECYCLE POINTED INTO A CACHE THAT IS GONE
+    evictionLock.lock();
+    try {
+      hand = null;
+      pinnedRAMThisLap = 0L;
+      pinnedRAMLastLap = 0L;
+    } finally {
+      evictionLock.unlock();
+    }
+
     flushThread = new PageManagerFlushThread(this, configuration);
     flushThread.start();
+
+    final PageCacheEvictor evictorThread = new PageCacheEvictor();
+    evictorThread.start();
+    this.evictor = evictorThread;
   }
 
   /**
@@ -546,6 +689,22 @@ public class PageManager extends LockContext {
       }
     }
 
+    final PageCacheEvictor evictorThread = evictor;
+    if (evictorThread != null) {
+      evictor = null;
+      evictorThread.shutdown();
+      // JOINED LIKE THE FLUSH THREAD (review m1): A SWEEP STILL RUNNING WOULD SUBTRACT THE PAGES IT EVICTS AFTER THE RESET BELOW
+      try {
+        evictorThread.join(EVICTOR_JOIN_TIMEOUT_MS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    // NO READER IS LEFT (REFCOUNT 0); A READ STILL IN FLIGHT IS A PREFETCH THAT WILL FIND THE DATABASE CLOSED. ITS JOINERS, IF
+    // ANY, READ THE PAGE THEMSELVES
+    abandonInFlightReads(null, -1);
+
     if (readCache != null)
       // close() is a reachable test/emergency API and may run before any startup() (#5070).
       readCache.clear();
@@ -553,6 +712,9 @@ public class PageManager extends LockContext {
   }
 
   public void removeAllReadPagesOfDatabase(final Database database) {
+    // THE READS IN FLIGHT FIRST, THE CACHED PAGES SECOND: A READ THAT LANDS AFTER THE SWEEP BELOW FINDS ITS FUTURE ABANDONED AND
+    // TAKES ITS OWN PAGE BACK OUT (readPage), SO NO IMAGE OF THIS LIFECYCLE OF THE DATABASE SURVIVES IT (review M1)
+    abandonInFlightReads(database, -1);
     for (final CachedPage p : readCache.values()) {
       final PageId pageId = p.getPageId();
       if (pageId.getDatabase().equals(database))
@@ -1636,6 +1798,8 @@ public class PageManager extends LockContext {
     if (thread != null)
       thread.removeAllPagesOfFile(database, fileId);
 
+    // AS removeAllReadPagesOfDatabase: THE READS IN FLIGHT OF THE FILE FIRST (review M1)
+    abandonInFlightReads(database, fileId);
     for (final CachedPage p : readCache.values()) {
       final PageId pageId = p.getPageId();
       if (pageId.getDatabase().equals(database) && pageId.getFileId() == fileId)
@@ -1996,7 +2160,10 @@ public class PageManager extends LockContext {
   }
 
   public void overwritePage(final MutablePage page) throws IOException {
-    readCache.remove(page.pageId);
+    // A READ IN FLIGHT HAS THE IMAGE THIS WRITE REPLACES: ABANDONED FIRST, SO IT CANNOT BE CACHED AFTER THE REMOVE (review M1)
+    abandonInFlightRead(page.pageId);
+    // ACCOUNTED: A BARE readCache.remove() LEFT THE PAGE'S BYTES IN totalReadCacheRAM FOR EVER
+    removePageFromCache(page.pageId);
 
     flushPage(page);
 
@@ -2100,6 +2267,15 @@ public class PageManager extends LockContext {
     stats.chunkChainReadRetries = totalChunkChainReadRetries.get();
     stats.evictionRuns = evictionRuns.get();
     stats.pagesEvicted = pagesEvicted.get();
+    stats.coalescedReads = coalescedReads.sum();
+    stats.prefetchRequested = prefetchRequested.sum();
+    stats.prefetchIssued = prefetchIssued.sum();
+    stats.prefetchSkippedOverBudget = prefetchSkippedOverBudget.sum();
+    stats.inFlightReadTimeouts = inFlightReadTimeouts.sum();
+    stats.batchedRecordLookups = batchedRecordLookups.get();
+    stats.synchronousEvictionRuns = synchronousEvictionRuns.get();
+    stats.evictorWakeups = evictorWakeups.get();
+    stats.readerParks = readerParks.get();
     stats.snapshotWindowsOpened = totalSnapshotWindowsOpened.get();
     stats.snapshotWindowsInvalidated = totalSnapshotWindowsInvalidated.get();
     stats.snapshotWindowsOverflowed = totalSnapshotWindowsOverflowed.get();
@@ -2275,15 +2451,16 @@ public class PageManager extends LockContext {
    * are strongly referenced and no collection would have taken them. The pages come back from disk on the next read,
    * so this costs I/O and nothing else.
    * <p>
-   * Uses the ordinary eviction path, and therefore the ordinary eviction policy (least recently used, larger pages
-   * first on a tie). Deliberately not clamped to {@code maxRAM}: the point here is to go BELOW the configured cache
-   * size on purpose, temporarily, in exchange for something the caller values more.
+   * Uses the ordinary eviction path, and therefore the ordinary eviction policy (the CLOCK sweep of {@link #sweep}: pages a
+   * bulk scan alone read first, then the pages not touched for a lap, pinned pages last). Deliberately not clamped to
+   * {@code maxRAM}: the point here is to go BELOW the configured cache size on purpose, temporarily, in exchange for
+   * something the caller values more.
    * <p>
-   * <b>Cost.</b> {@link #evictOldestPages} sorts the whole read cache under this class's monitor, so the price is set
-   * by how many pages are cached and NOT by how many bytes are asked for - one sort whether the caller wants 4 MB or
-   * 4 GB. That is the same price the routine {@link #checkForPageDisposal()} pays, minus its 100 ms throttle, so a
-   * caller has to be rare: the vector-index rebuild this was added for happens once per rebuild, holding a JVM-wide
-   * permit. Anything on a per-request path wants a different mechanism, not this one.
+   * <b>Cost.</b> The sweep runs on the caller's thread, serialized with the evictor on {@link #evictionLock}, and visits
+   * at most two laps of the cache: proportional to what it frees plus the pages it gives a second chance to (SPORK M1).
+   * Before that it copied and sorted the whole cache, one sort whether the caller wanted 4 MB or 4 GB. Still a caller
+   * has to be rare: the vector-index rebuild this was added for happens once per rebuild, holding a JVM-wide permit.
+   * Anything on a per-request path wants a different mechanism, not this one.
    * <p>
    * A handover, not a reservation: the bytes are unreferenced when this returns, so the next collection can take
    * them, and concurrent readers are free to cache pages of their own again immediately. Nothing here can promise a
@@ -2309,7 +2486,14 @@ public class PageManager extends LockContext {
     if (before <= 0)
       return 0L;
 
-    evictOldestPages(Math.min(bytesToFree, before), before);
+    // THE SAME CLOCK SWEEP THE EVICTOR RUNS, ON THE CALLER'S THREAD AND SERIALIZED WITH IT (SPORK M1): proportional to what
+    // it frees, not to the size of the cache
+    evictionLock.lock();
+    try {
+      sweep(Math.min(bytesToFree, before));
+    } finally {
+      evictionLock.unlock();
+    }
 
     return Math.max(0L, before - totalReadCacheRAM.get());
   }
@@ -2606,25 +2790,59 @@ public class PageManager extends LockContext {
         // AVOID CREATING AN EMPTY PAGE JUST TO CHECK THE VERSION
         return null;
 
-      checkForPageDisposal();
-
-      page = new CachedPage(this, pageId, size);
-
-      if (!isNewPage) {
-        // ACQUIRE A LOCK ON THE I/O OPERATION TO AVOID PARTIAL READS/WRITES
-        final CachedPage finalPage = page;
-        concurrentPageAccess(pageId, false, () -> file.read(finalPage));
-        // A page read for a bulk scan is its until another reader wants it (issue #11011)
-        if (cache)
-          page.setLoadedByBulkScan(BULK_SCAN.get());
+      if (isNewPage) {
+        // A ZERO PAGE: NOTHING TO READ, NOTHING TO SHARE
+        page = new CachedPage(this, pageId, size);
+        page.loadMetadata();
+      } else {
+        // SPORK S1: THE FIRST THREAD TO MISS INSTALLS A FUTURE AND READS; EVERY OTHER THREAD MISSING THE SAME PAGE WHILE THE
+        // READ IS IN FLIGHT PARKS ON IT AND GETS THE SAME IMAGE, WHICH IS WHAT EACH WOULD HAVE READ ITSELF, SINCE ALL OF THEM
+        // PASSED THE READ-CACHE AND FLUSH-QUEUE CHECKS BEFORE THE READ BEGAN. Before this, 32 threads warming one hot page
+        // after a restart or an eviction issued 32 device reads and 32 page-sized allocations, and the version-monotonic put
+        // threw 31 of the images away. A prefetch installs its future at submission, so a reader arriving before the pool has
+        // started the task joins it all the same
+        final boolean coalesce = readCoalescingEnabled;
+        while (true) {
+          final CompletableFuture<CachedPage> mine = coalesce ? new CompletableFuture<>() : null;
+          final CompletableFuture<CachedPage> inFlight = coalesce ? inFlightReads.putIfAbsent(pageId, mine) : null;
+          if (inFlight == null)
+            // READ, RECONCILED WITH THE FLUSH QUEUE, COUNTED AND CACHED BEFORE THE FUTURE IS COMPLETED
+            return readPage(pageId, size, file, cache, mine);
+          coalescedReads.increment();
+          try {
+            final CachedPage shared = awaitInFlightRead(inFlight, pageId);
+            if (shared != null)
+              return afterJoinedRead(shared, cache);
+            // THE OWNER GAVE THE READ UP (INTERRUPTED, OR A PREFETCH ABANDONED) AND REMOVED ITS FUTURE: THE NEXT LAP INSTALLS OURS
+          } catch (final TimeoutException e) {
+            // THE SAFETY NET (review M3): THE OWNER NEITHER COMPLETED NOR REMOVED ITS FUTURE IN TIME. JOINING IT AGAIN WOULD WAIT
+            // FOR EVER ON A FUTURE THAT MAY NEVER SETTLE, SO THIS THREAD TAKES THE READ OVER: ITS FUTURE REPLACES THE OWNER'S,
+            // AND THE OWNER'S OWN remove(key, value) CANNOT TAKE IT OUT. A JOINER THAT LOSES THE REPLACE JOINS THE WINNER
+            inFlightReadTimeouts.increment();
+            if (inFlightReads.replace(pageId, inFlight, mine))
+              return readPage(pageId, size, file, cache, mine);
+          }
+        }
       }
-
-      page.loadMetadata();
-
-      if (LogManager.instance().isLoggable(this, Level.FINE))
-        LogManager.instance().log(this, Level.FINE, "Loaded page %s (threadId=%d)", null, page, Thread.currentThread().threadId());
     }
 
+    return afterOwnRead(pageId, page, cache);
+  }
+
+  /** The tail of {@link #loadPage} for a page this thread loaded itself (from the file, the flush queue or as a zero page). */
+  private CachedPage afterOwnRead(final PageId pageId, final CachedPage loaded, final boolean cache) {
+    CachedPage page = loaded;
+    // THE READ RAN WITHOUT THE FLUSH QUEUE'S KNOWLEDGE: A COMMIT THAT PUBLISHED A NEWER VERSION MEANWHILE, EVICTED FROM THE READ
+    // CACHE BEFORE THIS LOOKUP AND STILL WAITING TO BE WRITTEN, IS THE MOST RECENT VERSION, AND THE COMMIT-TIME VERSION PROBE
+    // (getMostRecentVersionOfPage) MUST SEE IT. One map get on the miss path (SPORK S1)
+    final CachedPage queued = flushThread.getCachedPageFromMutablePageInQueue(pageId);
+    if (queued != null && queued.getVersion() > page.getVersion())
+      page = queued;
+
+    if (LogManager.instance().isLoggable(this, Level.FINE))
+      LogManager.instance().log(this, Level.FINE, "Loaded page %s (threadId=%d)", null, page, Thread.currentThread().threadId());
+
+    // ONE COUNT PER PAGE LOADED, NOT PER READER THAT JOINED ITS READ: THE JOINERS ARE coalescedReads
     totalPagesRead.incrementAndGet();
     totalPagesReadSize.addAndGet(page.getPhysicalSize());
 
@@ -2632,6 +2850,321 @@ public class PageManager extends LockContext {
       putPageInReadCache(page);
 
     return page;
+  }
+
+  /**
+   * The tail of {@link #loadPage} for a thread that joined a read in flight (SPORK S1). The put is the same version-monotonic
+   * merge the owner's is, so it is idempotent when the owner cached the page already and it caches it when the owner did not
+   * ({@link #getMostRecentVersionOfPage} reads without caching) or the evictor took it meanwhile.
+   */
+  private CachedPage afterJoinedRead(final CachedPage shared, final boolean cache) {
+    // Another reader wants a page a bulk scan loaded: from now on it is an ordinary page (issue #11011)
+    final BulkScan loadedBy = shared.getLoadedByBulkScan();
+    if (loadedBy != null && loadedBy != BULK_SCAN.get())
+      shared.setLoadedByBulkScan(null);
+    if (cache)
+      putPageInReadCache(shared);
+    return shared;
+  }
+
+  /**
+   * Reads one page from its file, through the per-page I/O interlock, and settles {@code mine}, the in-flight future this
+   * thread owns for it (or {@code null} when coalescing is off), in every outcome: a read that fails fails every joiner with
+   * the same exception, and leaves nothing behind, so the next reader reads again. The page is reconciled with the flush
+   * queue, counted and CACHED before the future is completed, so there is no instant at which the page is neither in the cache
+   * nor in flight: a reader arriving then would read it a second time.
+   */
+  private CachedPage readPage(final PageId pageId, final int size, final PaginatedComponentFile file, final boolean cache,
+      final CompletableFuture<CachedPage> mine) throws IOException {
+    try {
+      final PageReadFaultInjector faultInjector = pageReadFaultInjector;
+      if (faultInjector != null)
+        faultInjector.onPhysicalPageRead(pageId);
+
+      final CachedPage page = new CachedPage(this, pageId, size);
+      // ACQUIRE A LOCK ON THE I/O OPERATION TO AVOID PARTIAL READS/WRITES
+      concurrentPageAccess(pageId, false, () -> file.read(page));
+      // A page read for a bulk scan is its until another reader wants it (issue #11011)
+      if (cache)
+        page.setLoadedByBulkScan(BULK_SCAN.get());
+      page.loadMetadata();
+
+      if (faultInjector != null)
+        faultInjector.onPhysicalPageReadCompleted(pageId);
+
+      final CachedPage loaded = afterOwnRead(pageId, page, cache);
+      if (mine != null && !mine.complete(loaded) && cache && mine.isCompletedExceptionally())
+        // THE READ WAS ABANDONED WHILE IN FLIGHT (review M1): THE DATABASE CLOSED OR DROPPED, THE FILE WAS DELETED, OR THE PAGE
+        // OVERWRITTEN. THE ABANDON RAN BEFORE THE TEARDOWN SWEPT THE CACHE, SO A PUT THAT LANDED AFTER THE SWEEP IS TAKEN BACK
+        // HERE, AND ONE THAT LANDED BEFORE IT WAS SWEPT: EITHER WAY THE IMAGE DOES NOT OUTLIVE WHAT IT WAS READ FROM
+        discardAbandonedPage(loaded);
+      return loaded;
+
+    } catch (final Throwable e) {
+      if (mine != null)
+        mine.completeExceptionally(e);
+      throw e;
+    } finally {
+      if (mine != null)
+        inFlightReads.remove(pageId, mine);
+    }
+  }
+
+  /**
+   * @return the page the owner read, or {@code null} when the owner gave the read up (interrupted, a prefetch abandoned) and
+   * the joiner has to read the page itself
+   *
+   * @throws TimeoutException when the wait ran out with the owner's future still unsettled: the caller takes the read over
+   */
+  private static CachedPage awaitInFlightRead(final CompletableFuture<CachedPage> inFlight, final PageId pageId)
+      throws IOException, TimeoutException {
+    try {
+      return inFlight.get(inFlightReadWaitMs, TimeUnit.MILLISECONDS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new InterruptedIOException("Interrupted while waiting for the read in flight of page " + pageId);
+    } catch (final ExecutionException e) {
+      final Throwable cause = e.getCause();
+      if (cause instanceof InterruptedIOException || cause instanceof ReadAbandonedException)
+        return null;
+      if (cause instanceof IOException ioException)
+        throw ioException;
+      if (cause instanceof RuntimeException runtimeException)
+        throw runtimeException;
+      if (cause instanceof Error error)
+        throw error;
+      throw new IOException("Error reading page " + pageId, cause);
+    }
+  }
+
+  /** What a prefetch completes its future with when it gives the read up: the joiners read the page themselves. */
+  private static final class ReadAbandonedException extends IOException {
+    private ReadAbandonedException() {
+      super("prefetch abandoned");
+    }
+
+    /** A signal, not a report: it is never shown, so the stack it would carry is not worth capturing. */
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+      return this;
+    }
+  }
+
+  /**
+   * Asks the prefetch pool to read the pages this caller is about to read, so the misses are in flight at once instead of
+   * one device round trip at a time (SPORK L1). Pages already cached, already being read, waiting in the flush queue or past
+   * the end of their file are skipped. Nothing waits on the reads: a caller reads the page as usual and, when the prefetch
+   * has not landed yet, joins it through the in-flight future the prefetch installed at submission. A page of a database
+   * that closes meanwhile is dropped by the task, at FINE, and its joiners read it themselves.
+   *
+   * @return how many reads were issued
+   */
+  public int prefetch(final Collection<PageId> pageIds) {
+    int issued = 0;
+    for (final PageId pageId : pageIds)
+      if (prefetch(pageId))
+        ++issued;
+    return issued;
+  }
+
+  /** {@link #prefetch(Collection)} for one page: allocation-free when the page is cached, which is the common case. */
+  public boolean prefetch(final PageId pageId) {
+    final PagePrefetchPool pool = PagePrefetchPool.getInstance();
+    return prefetch(pageId, pool.getExecutorService());
+  }
+
+  /**
+   * {@link #prefetch(PageId)} on a given executor. Package-private for the tests, which have to hand it an executor that shuts
+   * down between the check and the submission, or one that holds the task until the test runs it.
+   */
+  boolean prefetch(final PageId pageId, final ExecutorService executor) {
+    prefetchRequested.increment();
+    final ConcurrentMap<PageId, CachedPage> cache = readCache;
+    final PageManagerFlushThread thread = flushThread;
+    if (cache == null || thread == null || cache.containsKey(pageId) || inFlightReads.containsKey(pageId))
+      return false;
+
+    // A HINT NEVER PUBLISHES OVER THE BUDGET (review M4): PAST THE EVICTOR'S WAKE THRESHOLD THE READER THAT NEEDS THE PAGE READS
+    // IT ITSELF, AND PARKS AS EVERY READER DOES WHEN THE CACHE IS PAST THE HARD LIMIT; THE PREFETCH TASKS NEVER PARK
+    if (totalReadCacheRAM.get() >= evictorWakeThreshold) {
+      prefetchSkippedOverBudget.increment();
+      return false;
+    }
+
+    final DatabaseInternal database = (DatabaseInternal) pageId.getDatabase();
+    if (!database.isOpen())
+      return false;
+    final PaginatedComponentFile file;
+    try {
+      file = (PaginatedComponentFile) database.getFileManager().getFileIfExists(pageId.getFileId());
+    } catch (final RuntimeException e) {
+      // THE DATABASE IS CLOSING UNDER THE CALLER: THE HINT IS DROPPED, THE READER THAT NEEDS THE PAGE REPORTS IT
+      return false;
+    }
+    // isPageInQueue: A MAP PROBE, WHERE THE COPY OF THE QUEUED PAGE getCachedPageFromMutablePageInQueue MAKES IS NOT NEEDED TO
+    // ANSWER "IS IT THERE" (review m4)
+    if (file == null || file.isDropped() || !file.isOpen() || pageId.getPageNumber() < 0
+        || pageId.getPageNumber() >= file.getTotalPages() || thread.isPageInQueue(pageId))
+      return false;
+
+    if (executor.isShutdown())
+      return false;
+
+    // THE FUTURE IS INSTALLED NOW, NOT WHEN THE TASK STARTS: A READER ARRIVING IN BETWEEN JOINS IT INSTEAD OF READING TOO
+    final CompletableFuture<CachedPage> mine = new CompletableFuture<>();
+    if (inFlightReads.putIfAbsent(pageId, mine) != null)
+      return false;
+    prefetchIssued.increment();
+    try {
+      executor.execute(() -> prefetchTask(pageId, file, mine));
+    } catch (final RuntimeException e) {
+      abandonPrefetch(pageId, mine);
+      throw e;
+    }
+    // A POOL THAT SHUT DOWN BETWEEN THE CHECK ABOVE AND THE SUBMISSION RUNS NOTHING: ITS CALLER-RUNS POLICY DROPS A PLAIN TASK
+    // ON A SHUT-DOWN POOL, AND A shutdownNow() DRAINS THE QUEUE, SO THE FUTURE WOULD NEVER SETTLE AND EVERY LATER READER OF THE
+    // PAGE WOULD WAIT FOR IT (review M3). A TASK THAT DOES RUN AFTER ALL FINDS ITS FUTURE SETTLED AND DOES NOTHING
+    if (executor.isShutdown() && !mine.isDone()) {
+      abandonPrefetch(pageId, mine);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * The body of a prefetch, on a pool thread or, saturated, on the submitter's. It holds no lifecycle reference of its own, so
+   * it borrows the DATABASE's: the shared lock, which a close and a drop exclude with their exclusive lock (review M1). Taken
+   * with a try, never waited for: a fair lock would queue this task behind a writer that is itself waiting for a reader parked
+   * on this very prefetch. Under the lock everything the submission checked is checked again, since the database may have been
+   * closed and reopened, or the file dropped, while the task sat in the queue; anything that does not hold abandons the
+   * prefetch and the joiners read the page themselves.
+   */
+  private void prefetchTask(final PageId pageId, final PaginatedComponentFile file, final CompletableFuture<CachedPage> mine) {
+    try {
+      if (mine.isDone())
+        // ABANDONED WHILE QUEUED (A TEARDOWN, OR A POOL THAT SHUT DOWN UNDER THE SUBMISSION)
+        return;
+      if (!(pageId.getDatabase() instanceof RWLockContext lockContext) || !lockContext.tryExecuteInReadLock(
+          () -> readPrefetchedPage(pageId, file, mine)))
+        // A WRITER HOLDS THE DATABASE: A CLOSE, A DROP OR A SCHEMA CHANGE. THE HINT IS DROPPED
+        abandonPrefetch(pageId, mine);
+    } catch (final Throwable e) {
+      // A HINT THAT COULD NOT BE HONOURED: THE READER THAT NEEDS THE PAGE READS IT ITSELF AND REPORTS WHAT IT FINDS. A read that
+      // failed settled the future with its own failure already, so a joiner sees what the reader would have seen
+      abandonPrefetch(pageId, mine);
+      if (LogManager.instance().isLoggable(this, Level.FINE))
+        LogManager.instance().log(this, Level.FINE, "Prefetch of page %s dropped: %s", null, pageId, e.toString());
+    }
+  }
+
+  /** {@link #prefetchTask} under the database's shared lock. */
+  private void readPrefetchedPage(final PageId pageId, final PaginatedComponentFile file, final CompletableFuture<CachedPage> mine) {
+    final DatabaseInternal database = (DatabaseInternal) pageId.getDatabase();
+    final PageManagerFlushThread thread = flushThread;
+    if (thread == null || readCache == null || mine.isDone() || !database.isOpen() || file.isDropped() || !file.isOpen()
+        || database.getFileManager().getFileIfExists(pageId.getFileId()) != file) {
+      abandonPrefetch(pageId, mine);
+      return;
+    }
+    // THE BUDGET AGAIN, AT THE HARD LIMIT THIS TIME (review M4): THE CACHE MAY HAVE FILLED WHILE THE TASK WAITED
+    if (totalReadCacheRAM.get() > readerParkThreshold) {
+      prefetchSkippedOverBudget.increment();
+      abandonPrefetch(pageId, mine);
+      return;
+    }
+    try {
+      readPage(pageId, file.getPageSize(), file, true, mine);
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  private void abandonPrefetch(final PageId pageId, final CompletableFuture<CachedPage> mine) {
+    inFlightReads.remove(pageId, mine);
+    mine.completeExceptionally(new ReadAbandonedException());
+  }
+
+  /** Abandons the read in flight of one page, if any: its owner keeps its image to itself, its joiners read the page again. */
+  private void abandonInFlightRead(final PageId pageId) {
+    final CompletableFuture<CachedPage> inFlight = inFlightReads.get(pageId);
+    if (inFlight != null)
+      abandonPrefetch(pageId, inFlight);
+  }
+
+  /**
+   * Abandons every read in flight of {@code database} ({@code null} for every database) and, with {@code fileId >= 0}, of that
+   * file only (review M1). An empty map on a quiet node, so a teardown pays nothing for it.
+   */
+  private void abandonInFlightReads(final Database database, final int fileId) {
+    if (inFlightReads.isEmpty())
+      return;
+    for (final Map.Entry<PageId, CompletableFuture<CachedPage>> entry : inFlightReads.entrySet()) {
+      final PageId pageId = entry.getKey();
+      if ((database == null || pageId.getDatabase().equals(database)) && (fileId < 0 || pageId.getFileId() == fileId))
+        abandonPrefetch(pageId, entry.getValue());
+    }
+  }
+
+  /** Takes back out of the cache the image of a read abandoned while in flight, exactly that instance, accounted. */
+  private void discardAbandonedPage(final CachedPage page) {
+    final ConcurrentMap<PageId, CachedPage> cache = readCache;
+    if (cache != null && cache.remove(page.getPageId(), page))
+      totalReadCacheRAM.addAndGet(-1L * page.getPhysicalSize());
+  }
+
+  /** TEST-ONLY: the lock the evictor sweeps under. A test that holds it keeps the evictor from catching up. */
+  ReentrantLock getEvictionLock() {
+    return evictionLock;
+  }
+
+  /** The cache fill past which a page access wakes the evictor, and the hard limit above which a reader parks. For tests. */
+  long getEvictorWakeThreshold() {
+    return evictorWakeThreshold;
+  }
+
+  long getReaderParkThreshold() {
+    return readerParkThreshold;
+  }
+
+  /** Whether a read of the page is in flight right now. For tests and diagnostics. */
+  boolean isReadInFlight(final PageId pageId) {
+    return inFlightReads.containsKey(pageId);
+  }
+
+  /**
+   * Pins a cached page: the evictor passes it over while the pinned pages together stay under {@value #PINNED_RAM_PERCENT}%
+   * of the cache budget (SPORK M1). Page 0 of every file is pinned by construction; a loader pins the other pages it knows
+   * every lookup touches, the root and tail pages of an LSM series. One map get, nothing allocated; a page not cached is left
+   * alone, since the pin would be lost with the next load anyway.
+   */
+  public void pinPage(final PageId pageId) {
+    final ConcurrentMap<PageId, CachedPage> cache = readCache;
+    if (cache == null)
+      return;
+    final CachedPage page = cache.get(pageId);
+    if (page != null && !page.isPinned())
+      page.setPinned(true);
+  }
+
+  /** Whether the read cache holds the page right now. For tests and diagnostics. */
+  public boolean isPageCached(final PageId pageId) {
+    final ConcurrentMap<PageId, CachedPage> cache = readCache;
+    return cache != null && cache.containsKey(pageId);
+  }
+
+  /** Counts one {@code lookupByRIDs} call (SPORK L1). */
+  public void incrementBatchedRecordLookups() {
+    batchedRecordLookups.incrementAndGet();
+  }
+
+  /** TEST-ONLY: {@code false} gives every reader its own physical read, the pre-SPORK behaviour, for a before/after run. */
+  public static void setReadCoalescingEnabled(final boolean enabled) {
+    readCoalescingEnabled = enabled;
+  }
+
+  /** TEST-ONLY: {@code false} evicts by sort-the-world on the reader's thread, the pre-SPORK behaviour, for a before/after run. */
+  public static void setBackgroundEvictionEnabled(final boolean enabled) {
+    backgroundEvictionEnabled = enabled;
   }
 
   /**
@@ -2674,18 +3207,46 @@ public class PageManager extends LockContext {
     }
   }
 
-  private void checkForPageDisposal() {
-    final long now = System.currentTimeMillis();
-    if (now - lastCheckForRAM < 100)
+  /**
+   * The disposal check every page access runs: one volatile read and a compare while the cache is under 95% of its budget,
+   * which is the steady state. Past it the evictor is woken (a CAS and, when it was parked, one unpark), and past 110% the
+   * reader parks until the evictor has caught up (SPORK M1). Readers never evict themselves: the whole-cache copy-and-sort
+   * every reader used to run on its own thread, 0.2 to 0.5 s at 800K pages while every other reader waited, is gone from the
+   * read path. The legacy path is kept behind the TEST-ONLY switch as the benchmark's "before".
+   *
+   * @param mayPark {@code false} on the publication path (a commit putting its pages, the flush thread): it wakes the
+   *                evictor and never parks, so no lock holder is ever parked here
+   */
+  private void checkForPageDisposal(final boolean mayPark) {
+    final long totalRAM = totalReadCacheRAM.get();
+    if (totalRAM < evictorWakeThreshold)
       return;
 
-    final long totalRAM = totalReadCacheRAM.get();
+    final PageCacheEvictor evictorThread = evictor;
+    if (backgroundEvictionEnabled && evictorThread != null) {
+      evictorThread.wake();
+      // STRICTLY ABOVE (review M5): AT A THRESHOLD OF 0 ">=" PARKED EVERY ACCESS, AN EMPTY CACHE INCLUDED
+      if (mayPark && totalRAM > readerParkThreshold)
+        parkUntilTheEvictorCatchesUp(evictorThread);
+      return;
+    }
+
+    // LEGACY: SORT-THE-WORLD ON THE CALLER'S THREAD, AT MOST ONCE PER 100 MS AND ONLY ONCE THE BUDGET IS REACHED
+    if (CoarseClock.currentTimeMillis() - lastCheckForRAM < 100)
+      return;
     if (totalRAM < maxRAM)
       return;
+    synchronousEvictionRuns.incrementAndGet();
+    evictOldestPages(totalRAM * freePageRAM / 100, totalRAM, false);
+  }
 
-    final long ramToFree = totalRAM * freePageRAM / 100;
-
-    evictOldestPages(ramToFree, totalRAM);
+  private void parkUntilTheEvictorCatchesUp(final PageCacheEvictor evictorThread) {
+    readerParks.incrementAndGet();
+    final long deadline = System.nanoTime() + READER_PARK_MAX_NANOS;
+    while (totalReadCacheRAM.get() > readerParkThreshold && System.nanoTime() < deadline) {
+      evictorThread.wake();
+      LockSupport.parkNanos(this, READER_PARK_SLICE_NANOS);
+    }
   }
 
   /** A cached page with the eviction keys it had when an eviction run read them. */
@@ -2710,7 +3271,20 @@ public class PageManager extends LockContext {
     return o1.page().getPageId().compareTo(o2.page().getPageId());
   };
 
-  private synchronized void evictOldestPages(final long ramToFree, final long totalRAM) {
+  /**
+   * The legacy eviction: copy the whole cache, sort it, drop the oldest. Kept for the TEST-ONLY "before" switch and argued
+   * against in {@link #checkForPageDisposal}. SPORK S16 hygiene: the throttle stamp is taken on ENTRY, so a reader that
+   * arrives during the run is throttled by it rather than queueing for a run of its own, and the budget is re-checked under
+   * the monitor so a run another thread completed meanwhile is not repeated.
+   *
+   * @param force run even when the cache is back under the budget
+   */
+  private synchronized void evictOldestPages(final long ramToFree, final long totalRAM, final boolean force) {
+    lastCheckForRAM = CoarseClock.currentTimeMillis();
+    if (!force && totalReadCacheRAM.get() < maxRAM)
+      // ANOTHER RUN FREED THE CACHE WHILE THIS THREAD WAITED FOR THE MONITOR (SPORK S16)
+      return;
+
     evictionRuns.incrementAndGet();
 
     if (LogManager.instance().isLoggable(this, Level.FINE))
@@ -2755,7 +3329,118 @@ public class PageManager extends LockContext {
       LogManager.instance().log(this, Level.WARNING, "Cannot free pages in RAM (current=%s > max=%s threadId=%d)", null,
           FileUtils.getSizeAsString(newTotalRAM), FileUtils.getSizeAsString(maxRAM), Thread.currentThread().threadId());
 
-    lastCheckForRAM = System.currentTimeMillis();
+    lastCheckForRAM = CoarseClock.currentTimeMillis();
+  }
+
+  /**
+   * The CLOCK sweep (SPORK M1): the hand walks the read cache's own map, which costs nothing to maintain, and at every page it
+   * asks one question. A page a bulk scan alone has read goes at once (#11011). A pinned page is passed over while the pinned
+   * pages seen in the last lap fit the budget. A page with its reference bit set has the bit cleared and one more lap to be
+   * touched again. A page with the bit clear is evicted. The hand keeps its position between runs, so the cost of a run is
+   * proportional to what it frees plus the pages it gives a second chance to, never to the size of the cache, and nothing is
+   * copied or sorted. {@code remove(key, value)} evicts only the instance the hand inspected: a newer version a commit put
+   * under the same id meanwhile stays.
+   * <p>
+   * Under {@link #evictionLock}: the evictor and a synchronous reclaim (#7184) never sweep at once.
+   *
+   * @return bytes freed
+   */
+  private long sweep(final long bytesToFree) {
+    final ConcurrentMap<PageId, CachedPage> cache = readCache;
+    if (cache == null || bytesToFree <= 0)
+      return 0L;
+
+    evictionRuns.incrementAndGet();
+    long freed = 0L;
+    // TWO LAPS AT MOST: THE FIRST CLEARS EVERY BIT, THE SECOND EVICTS; ONLY A CACHE OF NOTHING BUT PINNED PAGES UNDER BUDGET
+    // OUTLASTS IT, AND THAT IS A CACHE NOTHING SHOULD SHRINK
+    long visitsLeft = 2L * cache.size() + 2;
+    while (freed < bytesToFree && visitsLeft-- > 0) {
+      if (hand == null || !hand.hasNext()) {
+        // A LAP ENDED: WHAT THE PINNED PAGES WEIGH IS WHAT THIS LAP SAW
+        pinnedRAMLastLap = pinnedRAMThisLap;
+        pinnedRAMThisLap = 0L;
+        hand = cache.values().iterator();
+        if (!hand.hasNext())
+          break;
+      }
+      final CachedPage page = hand.next();
+
+      if (page.getLoadedByBulkScan() == null) {
+        if (page.isPinned()) {
+          pinnedRAMThisLap += page.getPhysicalSize();
+          if (pinnedRAMLastLap <= pinnedRAMBudget)
+            continue;
+        }
+        if (page.isReferenced()) {
+          page.clearReferenced();
+          continue;
+        }
+      }
+
+      if (cache.remove(page.getPageId(), page)) {
+        final long size = page.getPhysicalSize();
+        totalReadCacheRAM.addAndGet(-1L * size);
+        pagesEvicted.incrementAndGet();
+        freed += size;
+      }
+    }
+    return freed;
+  }
+
+  /**
+   * The evictor thread (SPORK M1): parked until a page access finds the cache past {@value #EVICTOR_WAKE_PERCENT}% of its
+   * budget, then sweeps it down to {@value #EVICTOR_LOW_WATER_PERCENT}% and parks again. One per {@link #startup()}, daemon,
+   * stopped by {@link #shutdown()}. The wake is a CAS on {@code wakeRequested}: readers that find it already raised do not
+   * unpark again, so a thousand readers past the threshold cost one syscall, not a thousand.
+   */
+  private final class PageCacheEvictor extends Thread {
+    private final    AtomicBoolean wakeRequested = new AtomicBoolean();
+    private volatile boolean       running       = true;
+
+    private PageCacheEvictor() {
+      super("ArcadeDB PageCache Evictor");
+      setDaemon(true);
+    }
+
+    void wake() {
+      if (!wakeRequested.get() && wakeRequested.compareAndSet(false, true)) {
+        evictorWakeups.incrementAndGet();
+        LockSupport.unpark(this);
+      }
+    }
+
+    void shutdown() {
+      running = false;
+      LockSupport.unpark(this);
+    }
+
+    @Override
+    public void run() {
+      while (running) {
+        if (!wakeRequested.getAndSet(false)) {
+          LockSupport.park(this);
+          continue;
+        }
+        try {
+          final long totalRAM = totalReadCacheRAM.get();
+          if (totalRAM < evictorWakeThreshold)
+            continue;
+          evictionLock.lock();
+          try {
+            sweep(totalRAM - evictorLowWater);
+          } finally {
+            evictionLock.unlock();
+          }
+          if (LogManager.instance().isLoggable(this, Level.FINE))
+            LogManager.instance().log(this, Level.FINE, "Page cache evictor swept %s down to %s (max=%s)", null,
+                FileUtils.getSizeAsString(totalRAM), FileUtils.getSizeAsString(totalReadCacheRAM.get()),
+                FileUtils.getSizeAsString(maxRAM));
+        } catch (final Throwable e) {
+          LogManager.instance().log(this, Level.SEVERE, "Error in the page cache evictor", e);
+        }
+      }
+    }
   }
 
   // Reused per-thread slot for the RAM delta decided inside VERSION_MONOTONIC_MERGE: keeps the put hot
@@ -2789,7 +3474,8 @@ public class PageManager extends LockContext {
     if (ramDelta[0] != 0)
       totalReadCacheRAM.addAndGet(ramDelta[0]);
 
-    checkForPageDisposal();
+    // THE PUBLICATION PATH WAKES THE EVICTOR AND NEVER PARKS: A COMMITTER HOLDS THE PAGE-MANAGER LOCK HERE
+    checkForPageDisposal(false);
   }
 
   /**
@@ -2812,7 +3498,8 @@ public class PageManager extends LockContext {
     if (faultInjector != null)
       faultInjector.onPageRead(pageId);
 
-    checkForPageDisposal();
+    // THE ONE DISPOSAL CHECK OF A LOGICAL READ, HIT OR MISS (SPORK S2): loadPage no longer runs its own
+    checkForPageDisposal(true);
 
     CachedPage page = readCache.get(pageId);
     if (page == null) {

@@ -129,6 +129,9 @@ class Issue8363DirectoryReplacementClientGateTest {
     calls.put("command(sql, map)", () -> close(replicated.command("sql", "select from Seed", Map.of())));
     calls.put("begin()", () -> replicated.begin());
     calls.put("lookupByRID", () -> replicated.lookupByRID(seedRid, true));
+    // The batched hydration behind SELECT FROM [#rids] and WHERE @rid IN [...] (SPORK L1): it used to route straight to the
+    // embedded database and read the copy being discarded
+    calls.put("lookupByRIDs", () -> replicated.lookupByRIDs(new RID[] { seedRid }, true));
     calls.put("existsRecord", () -> replicated.existsRecord(seedRid));
     calls.put("countType", () -> replicated.countType("Seed", true));
     calls.put("iterateType", () -> replicated.iterateType("Seed", true));
