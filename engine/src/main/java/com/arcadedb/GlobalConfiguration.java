@@ -120,6 +120,8 @@ public enum GlobalConfiguration {
         QUERY_PARALLELISM_QUEUE_SIZE.setValue(64);
         SPARSE_VECTOR_SCORING_POOL_THREADS.setValue(1);
         SPARSE_VECTOR_SCORING_QUEUE_SIZE.setValue(64);
+        VECTOR_SEARCH_POOL_THREADS.setValue(1);
+        VECTOR_SEARCH_QUEUE_SIZE.setValue(64);
 
         ASYNC_OPERATIONS_QUEUE_IMPL.setValue("standard");
         SERVER_HTTP_IO_THREADS.setValue(cores > 8 ? 4 : 2);
@@ -420,6 +422,22 @@ public enum GlobalConfiguration {
       queue is full, the submitter executes the task inline, which degrades parallelism \
       but never fails the query. REQUIRES JVM RESTART: same singleton lifecycle as \
       SPARSE_VECTOR_SCORING_POOL_THREADS.""",
+      Integer.class, 1024),
+
+  VECTOR_SEARCH_POOL_THREADS("arcadedb.vectorSearchPoolThreads", SCOPE.JVM,
+      """
+      Maximum number of threads in the JVM-wide pool that searches the per-bucket sub-indexes of one LSM_VECTOR \
+      index in parallel (vector.neighbors, db.index.vector.queryNodes, select().nearestTo()). A type with N buckets \
+      has N independent graphs, and searching them one after the other makes a query's latency the sum of N searches \
+      instead of the slowest one. 0 = available cores (min 2). REQUIRES JVM RESTART: the pool is a lazy singleton \
+      constructed once on first use. See arcadedb.vectorIndex.parallelSearch to turn the fan-out off.""",
+      Integer.class, 0),
+
+  VECTOR_SEARCH_QUEUE_SIZE("arcadedb.vectorSearchQueueSize", SCOPE.JVM,
+      """
+      Maximum number of per-bucket searches that can wait in the dense vector search pool's queue before the \
+      CallerRuns rejection policy fires: the submitter then searches that bucket itself, which costs parallelism \
+      and never the query. REQUIRES JVM RESTART: same singleton lifecycle as arcadedb.vectorSearchPoolThreads.""",
       Integer.class, 1024),
 
   SPARSE_VECTOR_SCORING_MAX_PARTITIONS("arcadedb.sparseVectorScoringMaxPartitions", SCOPE.JVM,
@@ -1599,7 +1617,12 @@ public enum GlobalConfiguration {
       """
       Maximum number of vector index graph rebuilds that can run concurrently across all databases. \
       Concurrent rebuilds are memory-intensive; running too many in parallel can cause OOM kills. \
-      Set to 1 to serialize all rebuilds (safest for memory). Higher values trade memory for throughput.""",
+      Set to 1 to serialize all rebuilds (safest for memory). Above 1 the extra rebuilds are also heap-budgeted: \
+      each one reserves its estimated peak heap for its whole duration, and a rebuild that would push the sum of the \
+      reservations past arcadedb.vectorIndex.rebuildMaxHeapPercent of the available heap waits for one to finish, \
+      so a wider setting runs builds side by side only while they fit. The first rebuild is never held back by the \
+      heap budget, exactly as with a single permit. Each build still uses arcadedb.vectorIndex.graphBuildParallelism \
+      threads, so lower that when several CPU-bound builds are to run at once.""",
       Integer.class, 1),
 
   VECTOR_INDEX_NATIVE_VECTORIZATION("arcadedb.vectorIndex.nativeVectorization", SCOPE.JVM,
@@ -1618,6 +1641,17 @@ public enum GlobalConfiguration {
       property 'jvector.enable_native_vectorization' (true or false) at startup, so other jvector users in the same JVM \
       see its value. A GraalVM native image never uses the native library.""",
       Boolean.class, false),
+
+  VECTOR_INDEX_PARALLEL_SEARCH("arcadedb.vectorIndex.parallelSearch", SCOPE.DATABASE,
+      """
+      Whether a k-NN search over an LSM_VECTOR index with several bucket sub-indexes searches them in parallel on the \
+      dense vector search pool (arcadedb.vectorSearchPoolThreads) instead of one after the other. The answer is the \
+      same either way: the per-bucket results are merged exactly as the serial search merges them. A search still \
+      runs serially when its caller holds uncommitted changes or a REPEATABLE_READ transaction (a worker could not \
+      see them), when a sub-index has no graph loaded yet (the first search after an open builds or loads it on the \
+      caller), when it is itself running on a pool worker, or when enough searches are already in flight to keep the \
+      pool busy without splitting.""",
+      Boolean.class, true),
 
   VECTOR_INDEX_REBUILD_MAX_HEAP_PERCENT("arcadedb.vectorIndex.rebuildMaxHeapPercent", SCOPE.DATABASE,
       """

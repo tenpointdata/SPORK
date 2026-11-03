@@ -23,6 +23,7 @@ import com.arcadedb.database.async.AsyncCommandPool;
 import com.arcadedb.graph.GhostEdgeReporter;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.index.sparsevector.SparseVectorScoringPool;
+import com.arcadedb.index.vector.VectorSearchPool;
 import com.arcadedb.query.ParallelScanProducerPool;
 import com.arcadedb.query.QueryEngineManager;
 import com.arcadedb.query.sql.executor.QueryAdmissionGate;
@@ -95,6 +96,13 @@ public final class PoolMetrics implements MeterBinder {
     bindPool(registry, "sparse_vector", "SparseVectorScoringPool top-K fan-out pool", svsp::getPoolStats);
     bindSparseVectorSplit(registry, svsp);
 
+    // The dense LSM_VECTOR per-bucket search fan-out. queries.fan_out vs queries.serial says whether multi-bucket searches
+    // are actually splitting: a serial count that grows alone means the gate keeps them on their callers (a transaction
+    // with uncommitted changes, REPEATABLE_READ, cold graphs, or enough concurrent searches to keep the pool busy)
+    final VectorSearchPool vsp = VectorSearchPool.getInstance();
+    bindPool(registry, "dense_vector", "VectorSearchPool per-bucket k-NN fan-out pool", vsp::getPoolStats);
+    bindDenseVectorFanOut(registry, vsp);
+
     // Dedicated pool for the BLOCKING parallel-scan producers (issues #4948/#4950): unbounded task queue by
     // design (backpressure comes from each query's bounded result queue), so callerRunFallbacks is always 0
     // and queueCapacityRemaining reports -1 (not applicable); queue_depth is the signal to watch.
@@ -156,6 +164,25 @@ public final class PoolMetrics implements MeterBinder {
             + "how many ranges - and width is what explains the tail-latency band the default shows at moderate concurrency, "
             + "where some queries claim a wide split and others get none. A distribution of granted partition counts is the "
             + "gauge that would show it; this one cannot.")
+        .tags(tags).register(registry);
+  }
+
+  /**
+   * Three extra gauges on the {@code dense_vector} row that explain whether multi-bucket searches fan out, since a search
+   * that stays on its caller's thread never touches the pool: {@code queries.in_flight} is what the load gate compares
+   * against the pool size, {@code queries.fan_out} and {@code queries.serial} the cumulative outcomes of the decision.
+   */
+  private static void bindDenseVectorFanOut(final MeterRegistry registry, final VectorSearchPool pool) {
+    final Tags tags = Tags.of(Tag.of("pool", "dense_vector"));
+    Gauge.builder("arcadedb.executor.queries.in_flight", () -> pool.getInFlightSearches())
+        .description("Dense vector search: multi-bucket k-NN searches executing right now, fanned out or serial - the number "
+            + "the fan-out gate compares against the pool size").tags(tags).register(registry);
+    Gauge.builder("arcadedb.executor.queries.fan_out", () -> pool.getFanOutCount())
+        .description("Dense vector search: cumulative multi-bucket k-NN searches whose buckets were searched in parallel")
+        .tags(tags).register(registry);
+    Gauge.builder("arcadedb.executor.queries.serial", () -> pool.getSerialSearchCount())
+        .description("Dense vector search: cumulative multi-bucket k-NN searches kept on the caller's thread by the fan-out "
+            + "gate (uncommitted changes, REPEATABLE_READ, cold graphs, fan-out disabled, or enough concurrent searches)")
         .tags(tags).register(registry);
   }
 

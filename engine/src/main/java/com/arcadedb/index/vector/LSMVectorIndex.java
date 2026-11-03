@@ -128,7 +128,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -169,9 +168,13 @@ public class LSMVectorIndex implements Index, IndexInternal {
   // first query to reach each of them after a reopen: see buildGraphFromScratchUnderRebuildPermit(). It is always
   // acquired BEFORE graphBuildLock, never after, because startAsyncGraphRebuild()'s thread holds it while waiting
   // for that lock.
-  private static final int       MAX_CONCURRENT_REBUILDS = GlobalConfiguration.VECTOR_INDEX_MAX_CONCURRENT_REBUILDS
+  //
+  // Each holder also reserves its estimated peak heap (rebuildHeapReservation), so a setting above one admits a second
+  // build only while the reservations of the running ones and its own fit rebuildHeapBudget(): see VectorRebuildPermits.
+  // At the default single permit it is the plain semaphore it replaced.
+  private static final int                  MAX_CONCURRENT_REBUILDS = GlobalConfiguration.VECTOR_INDEX_MAX_CONCURRENT_REBUILDS
       .getValueAsInteger();
-  private static final Semaphore REBUILD_SEMAPHORE       = new Semaphore(MAX_CONCURRENT_REBUILDS);
+  private static final VectorRebuildPermits REBUILD_SEMAPHORE       = new VectorRebuildPermits(MAX_CONCURRENT_REBUILDS);
 
   /**
    * Longest single park of a search waiting on something another thread holds - {@link #graphBuildLock}, a build another
@@ -1998,6 +2001,15 @@ public class LSMVectorIndex implements Index, IndexInternal {
   @Override
   public boolean isWarm() {
     return graphIndex != null;
+  }
+
+  /**
+   * Whether a search can start on this index without first loading or building its graph: the graph is resident, or there
+   * is none to load. The parallel bucket search ({@link VectorSearchPool}) fans out only over indexes that answer true, so
+   * the load or build the first search after an open pays stays on the caller's thread, where it always ran.
+   */
+  public boolean isGraphResolved() {
+    return !graphNotYetMaterialised();
   }
 
   /**
@@ -5881,6 +5893,8 @@ public class LSMVectorIndex implements Index, IndexInternal {
 
     asyncRebuildThread = new Thread(() -> {
       final boolean acquired;
+      // What this build reserves of the heap the concurrent builds share, for as long as it holds the permit
+      final long reservation = rebuildHeapReservation(asyncRebuildReservationScope());
       try {
         // Acquire a rebuild permit to limit concurrent rebuilds across all indexes (issue #3868).
         // This prevents multiple large graph rebuilds from running simultaneously and exhausting
@@ -5889,7 +5903,7 @@ public class LSMVectorIndex implements Index, IndexInternal {
         // not responding to shutdownNow()'s interrupt inside a tight JVector compute loop - see
         // releaseBackgroundResources()) would otherwise starve every OTHER vector index's rebuild,
         // process-wide, until restart - not just this index's.
-        acquired = REBUILD_SEMAPHORE.tryAcquire(
+        acquired = REBUILD_SEMAPHORE.tryAcquire(reservation, this::rebuildHeapBudget,
             GlobalConfiguration.VECTOR_INDEX_REBUILD_PERMIT_TIMEOUT_MS.getValueAsLong(), TimeUnit.MILLISECONDS);
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -5939,7 +5953,7 @@ public class LSMVectorIndex implements Index, IndexInternal {
               "Error during async graph rebuild for index %s: %s", indexName, e.getMessage());
         }
       } finally {
-        REBUILD_SEMAPHORE.release();
+        REBUILD_SEMAPHORE.release(reservation);
         asyncRebuildInProgress = false;
         asyncRebuildThread = null;
       }
@@ -6251,7 +6265,8 @@ public class LSMVectorIndex implements Index, IndexInternal {
    *                    what it just published would pay for the same corpus twice.
    */
   private void buildGraphFromScratchUnderRebuildPermit(final int scope, final BooleanSupplier stillNeeded) {
-    boolean acquired = REBUILD_SEMAPHORE.tryAcquire();
+    final long reservation = rebuildHeapReservation(scope);
+    boolean acquired = REBUILD_SEMAPHORE.tryAcquire(reservation, rebuildHeapBudget());
     // The wait this thread gave up on, or 0 if it never had to give up. Read past the recheck below, where
     // whether an unpermitted build actually happens is finally known.
     long timedOutMs = 0L;
@@ -6267,7 +6282,7 @@ public class LSMVectorIndex implements Index, IndexInternal {
             indexName, scope, timeoutMs, MAX_CONCURRENT_REBUILDS,
             GlobalConfiguration.VECTOR_INDEX_MAX_CONCURRENT_REBUILDS.getKey());
         try {
-          acquired = REBUILD_SEMAPHORE.tryAcquire(timeoutMs, TimeUnit.MILLISECONDS);
+          acquired = REBUILD_SEMAPHORE.tryAcquire(reservation, this::rebuildHeapBudget, timeoutMs, TimeUnit.MILLISECONDS);
         } catch (final InterruptedException e) {
           Thread.currentThread().interrupt();
           throw new IndexException(
@@ -6301,7 +6316,7 @@ public class LSMVectorIndex implements Index, IndexInternal {
       buildGraphFromScratch();
     } finally {
       if (acquired)
-        REBUILD_SEMAPHORE.release();
+        REBUILD_SEMAPHORE.release(reservation);
     }
   }
 
@@ -6327,6 +6342,40 @@ public class LSMVectorIndex implements Index, IndexInternal {
   private int rebuildScopeSize() {
     final long scope = (long) Math.max(vectorIndex().size(), 0) + Math.max(deltaVectors.size(), 0);
     return (int) Math.min(scope, Integer.MAX_VALUE);
+  }
+
+  /**
+   * The scope an async rebuild reserves heap for, measured without parsing the location index: that parse is O(index size)
+   * page reads, and the async thread must not pay it before it holds a permit. A rebuild is triggered by mutations, which
+   * have materialised the locations already; an index whose locations are still unparsed reserves its resident graph.
+   */
+  private int asyncRebuildReservationScope() {
+    if (locationsMaterialized)
+      return rebuildScopeSize();
+    final ImmutableGraphIndex resident = graphIndex;
+    return resident != null ? resident.size() : 0;
+  }
+
+  /**
+   * The heap a build over {@code scope} vectors reserves while it holds a rebuild permit: the graph it builds and its build
+   * cache, the OFFLINE estimate. A graph kept resident during an online rebuild is live heap already, which the budget it is
+   * compared against ({@link #rebuildHeapBudget()}) has counted, so it is not charged again.
+   */
+  private long rebuildHeapReservation(final int scope) {
+    if (scope <= 0)
+      return 0L;
+    return VectorHeapBudget.estimateRebuildHeapBytes(scope, metadata.dimensions, computeGraphBuildCacheCapacity(scope), false);
+  }
+
+  /**
+   * The heap the builds running side by side may reserve together: {@code VECTOR_INDEX_REBUILD_MAX_HEAP_PERCENT} of the
+   * available heap, or {@link VectorRebuildPermits#HEAP_GATE_DISABLED} when that gate is off. Only read when a build is
+   * already running, so it costs a lone build nothing.
+   */
+  private long rebuildHeapBudget() {
+    final int percent = getDatabase().getConfiguration()
+        .getValueAsInteger(GlobalConfiguration.VECTOR_INDEX_REBUILD_MAX_HEAP_PERCENT);
+    return percent <= 0 ? VectorRebuildPermits.HEAP_GATE_DISABLED : VectorHeapBudget.budgetBytes(percent);
   }
 
   /**
@@ -14398,12 +14447,12 @@ public class LSMVectorIndex implements Index, IndexInternal {
    * window the first had already let a rebuild run in, so the guarantee this hook exists to give would be gone.
    */
   static void acquireAllRebuildPermitsForTest() {
-    REBUILD_SEMAPHORE.acquireUninterruptibly(MAX_CONCURRENT_REBUILDS);
+    REBUILD_SEMAPHORE.acquireAllUninterruptibly();
   }
 
   /** Test-only hook: releases the permits taken by {@link #acquireAllRebuildPermitsForTest()}. */
   static void releaseAllRebuildPermitsForTest() {
-    REBUILD_SEMAPHORE.release(MAX_CONCURRENT_REBUILDS);
+    REBUILD_SEMAPHORE.releaseAll();
   }
 
   /**
@@ -14734,7 +14783,8 @@ public class LSMVectorIndex implements Index, IndexInternal {
       // Use tryAcquire to avoid blocking the timer thread indefinitely.
       // If another rebuild holds the permit, re-arm the timer so this index
       // retries at the next interval rather than staying stuck with pending mutations.
-      if (REBUILD_SEMAPHORE.tryAcquire()) {
+      final long reservation = rebuildHeapReservation(inactivityRebuildScopeSize());
+      if (REBUILD_SEMAPHORE.tryAcquire(reservation, rebuildHeapBudget())) {
         try {
           // Asked again right before the build, not only at the top: a retirement landing in between would
           // otherwise still pay for one full build on the retired instance (issue #8310). What is left after this
@@ -14742,7 +14792,7 @@ public class LSMVectorIndex implements Index, IndexInternal {
           if (!superseded)
             buildGraphFromScratch();
         } finally {
-          REBUILD_SEMAPHORE.release();
+          REBUILD_SEMAPHORE.release(reservation);
         }
       } else {
         LogManager.instance().log(this, Level.FINE,

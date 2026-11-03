@@ -34,7 +34,9 @@ import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.vector.GroupAdmissionState;
 import com.arcadedb.index.vector.GroupedTopUpPlanner;
 import com.arcadedb.index.vector.LSMVectorIndex;
+import com.arcadedb.index.vector.NeighborMerge;
 import com.arcadedb.index.vector.VectorQuantizationType;
+import com.arcadedb.index.vector.VectorSearchPool;
 import com.arcadedb.index.vector.VectorUtils;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.ResultSet;
@@ -49,7 +51,6 @@ import com.arcadedb.utility.Pair;
 import com.arcadedb.utility.RidHashSet;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -336,20 +337,20 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
     // Per-bucket fetch cap. The non-grouped path asks each bucket for {@code fetchK} candidates; the grouped path uses
     // {@code fetchK} as the distinct-group budget on each bucket (with {@code fetchGroupSize} members each) and relies on
     // the SQL-layer global GroupAdmissionState to reduce cross-bucket overlap.
-    final List<Pair<RID, Float>> allNeighbors = new ArrayList<>();
+    //
+    // The buckets are searched in parallel when a worker reads what this thread reads, and one after the other otherwise
+    // (VectorSearchPool); the answers come back in index order either way, so everything below is unchanged by it.
+    final List<List<Pair<RID, Float>>> perIndex = VectorSearchPool.searchAll(vectorIndexes, groupBy == null ?
+        // A PRODUCT index walks its graph on the PQ codes and scores only the best candidates on the stored vectors, as BINARY
+        // does (issue #10514); `rerank` absent is the rerankOversample of the index
+        lsmIndex -> lsmIndex.findNeighbors(queryVector, fetchK, efSearch, rerank, allowedRIDs, guard) :
+        lsmIndex -> lsmIndex.findNeighborsFromVectorGrouped(queryVector, fetchK, fetchGroupSize, efSearch, allowedRIDs,
+            groupKeyResolver, guard));
+    final List<List<Pair<RID, Float>>> sources = new ArrayList<>(perIndex);
 
     final GroupedTopUpPlanner planner =
         groupBy != null && vectorIndexes.size() > 1 ? new GroupedTopUpPlanner(fetchK, fetchGroupSize) : null;
-    for (final LSMVectorIndex lsmIndex : vectorIndexes) {
-      final List<Pair<RID, Float>> neighbors;
-      if (groupBy == null)
-        // A PRODUCT index walks its graph on the PQ codes and scores only the best candidates on the stored vectors, as BINARY
-        // does (issue #10514); `rerank` absent is the rerankOversample of the index
-        neighbors = lsmIndex.findNeighbors(queryVector, fetchK, efSearch, rerank, allowedRIDs, guard);
-      else
-        neighbors = lsmIndex.findNeighborsFromVectorGrouped(queryVector, fetchK, fetchGroupSize, efSearch, allowedRIDs,
-            groupKeyResolver, guard);
-      allNeighbors.addAll(neighbors);
+    for (final List<Pair<RID, Float>> neighbors : perIndex) {
       if (saturated != null && neighbors.size() >= fetchK)
         saturated[0] = true;
       if (planner != null) {
@@ -372,12 +373,13 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
     // and beyond what distance nothing they hold could matter; it asks none in the common case.
     if (planner != null)
       for (final GroupedTopUpPlanner.TopUp topUp : planner.plan())
-        allNeighbors.addAll(vectorIndexes.get(topUp.source())
+        sources.add(vectorIndexes.get(topUp.source())
             .findNeighborsFromVectorForGroups(queryVector, topUp.groupKeys(), fetchGroupSize, efSearch, allowedRIDs,
                 groupKeyResolver, -topUp.floor(), guard));
 
-    // Sort by distance (ascending - closer is better for similarity search)
-    allNeighbors.sort(Comparator.comparing(Pair::getSecond));
+    // Read by distance (ascending - closer is better for similarity search): the merge of the sorted per-index answers is
+    // the stable sort of their concatenation, without sorting it
+    final NeighborMerge allNeighbors = NeighborMerge.of(sources);
 
     final ArrayList<Object> result = new ArrayList<>();
     final GroupAdmissionState groups = groupBy != null ? new GroupAdmissionState(limit, groupSize) : null;

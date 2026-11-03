@@ -32,6 +32,8 @@ import com.arcadedb.index.MultiIndexCursor;
 import com.arcadedb.index.TempIndexCursor;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.vector.LSMVectorIndex;
+import com.arcadedb.index.vector.NeighborMerge;
+import com.arcadedb.index.vector.VectorSearchPool;
 import com.arcadedb.index.vector.VectorUtils;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.query.sql.executor.SelectExecutionPlanner;
@@ -334,6 +336,15 @@ public class SelectExecutor {
     return results;
   }
 
+  /** THE SEARCH OF ONE BUCKET INDEX OF A {@code nearestTo()} QUERY, AS THE SELECT ASKS FOR IT. */
+  private List<Pair<RID, Float>> searchOneIndex(final LSMVectorIndex lsmIndex, final int fetchK, final WorkGuard guard) {
+    if (select.vectorApproximate)
+      // approximate(true) is the PQ scores alone unless rerank() says otherwise
+      return lsmIndex.findNeighborsFromVectorApproximate(select.vectorQuery, fetchK, -1, Math.max(0, select.vectorRerankOversample),
+          null, guard);
+    return lsmIndex.findNeighbors(select.vectorQuery, fetchK, -1, select.vectorRerankOversample, null, guard);
+  }
+
   /**
    * #9858: ONE PASS OF THE VECTOR SEARCH - ASKS EVERY INDEX FOR {@code fetchK} CANDIDATES AND LOADS THE NEAREST
    * {@code vectorK} DISTINCT LIVE RECORDS, COUNTING THE CANDIDATES WHOSE RECORD IS GONE. AN EXPIRED DEADLINE ENDS THE PASS
@@ -343,39 +354,40 @@ public class SelectExecutor {
   @SuppressWarnings("unchecked")
   private <T extends Document> List<SelectVectorResult<T>> loadNearestLive(final List<LSMVectorIndex> vectorIndexes,
       final int fetchK, final WorkGuard guard, final int[] staleSkipped, final boolean[] saturated) {
-    final List<Pair<RID, Float>> allNeighbors = new ArrayList<>();
-    for (final LSMVectorIndex lsmIndex : vectorIndexes) {
-      // #6873: THE COARSEST OF THE THREE CHECKPOINTS - ONE PER BUCKET INDEX, SINCE THE SEARCH INSIDE ONE INDEX IS NOT
-      // INTERRUPTIBLE FROM HERE. WHAT THE INDEXES SEARCHED SO FAR PUT IN allNeighbors IS *NOT* A PARTIAL ANSWER: IT IS
-      // RIDs AND DISTANCES, AND TURNING ANY OF IT INTO A RESULT MEANS LOADING RECORDS AND RUNNING THE POST-FILTER
-      // WHERE - MORE WORK, PAST A DEADLINE THAT HAS ALREADY GONE. SO A NON-THROWING EXPIRY ANYWHERE BEFORE THE
-      // ASSEMBLY LOOP ANSWERS WITH AN EMPTY LIST, WHICH IS THE SAME RULE THE OTHER PATHS FOLLOW: KEEP WHAT WAS
-      // ALREADY *PRODUCED* (RECORDS YIELDED BY SelectIterator, THE TALLY IN executeCount()), NEVER PRODUCE MORE
-      if (checkForTimeout()) {
-        saturated[0] = false;
-        return new ArrayList<>();
-      }
+    final List<List<Pair<RID, Float>>> perIndex;
+    if (timeoutDeadline == Long.MAX_VALUE) {
+      // NO DEADLINE, SO EVERY CHECKPOINT BELOW IS A NO-OP AND NONE OF THEM HAS TO SIT BETWEEN TWO INDEX SEARCHES: THE BUCKETS
+      // ARE SEARCHED SIDE BY SIDE WHEN A WORKER READS WHAT THIS THREAD READS (VectorSearchPool), ONE AFTER THE OTHER OTHERWISE
+      perIndex = VectorSearchPool.searchAll(vectorIndexes, lsmIndex -> searchOneIndex(lsmIndex, fetchK, guard));
+    } else {
+      perIndex = new ArrayList<>(vectorIndexes.size());
+      for (final LSMVectorIndex lsmIndex : vectorIndexes) {
+        // #6873: THE COARSEST OF THE THREE CHECKPOINTS - ONE PER BUCKET INDEX, SINCE THE SEARCH INSIDE ONE INDEX IS NOT
+        // INTERRUPTIBLE FROM HERE. WHAT THE INDEXES SEARCHED SO FAR PUT IN perIndex IS *NOT* A PARTIAL ANSWER: IT IS
+        // RIDs AND DISTANCES, AND TURNING ANY OF IT INTO A RESULT MEANS LOADING RECORDS AND RUNNING THE POST-FILTER
+        // WHERE - MORE WORK, PAST A DEADLINE THAT HAS ALREADY GONE. SO A NON-THROWING EXPIRY ANYWHERE BEFORE THE
+        // ASSEMBLY LOOP ANSWERS WITH AN EMPTY LIST, WHICH IS THE SAME RULE THE OTHER PATHS FOLLOW: KEEP WHAT WAS
+        // ALREADY *PRODUCED* (RECORDS YIELDED BY SelectIterator, THE TALLY IN executeCount()), NEVER PRODUCE MORE
+        if (checkForTimeout()) {
+          saturated[0] = false;
+          return new ArrayList<>();
+        }
 
-      final List<Pair<RID, Float>> neighbors;
-      try {
-        if (select.vectorApproximate)
-          // approximate(true) is the PQ scores alone unless rerank() says otherwise
-          neighbors = lsmIndex.findNeighborsFromVectorApproximate(select.vectorQuery, fetchK, -1,
-              Math.max(0, select.vectorRerankOversample), null, guard);
-        else
-          neighbors = lsmIndex.findNeighbors(select.vectorQuery, fetchK, -1, select.vectorRerankOversample, null, guard);
-      } catch (final TimeoutException e) {
-        // #9896: THE DEADLINE WENT INSIDE THE SEARCH. THE SAME ANSWER THE CHECKPOINT ABOVE GIVES: THROWN WHEN ASKED FOR, AN
-        // EMPTY LIST OTHERWISE
-        if (select.exceptionOnTimeout)
-          throw e;
-        saturated[0] = false;
-        return new ArrayList<>();
+        try {
+          perIndex.add(searchOneIndex(lsmIndex, fetchK, guard));
+        } catch (final TimeoutException e) {
+          // #9896: THE DEADLINE WENT INSIDE THE SEARCH. THE SAME ANSWER THE CHECKPOINT ABOVE GIVES: THROWN WHEN ASKED FOR, AN
+          // EMPTY LIST OTHERWISE
+          if (select.exceptionOnTimeout)
+            throw e;
+          saturated[0] = false;
+          return new ArrayList<>();
+        }
       }
-      allNeighbors.addAll(neighbors);
+    }
+    for (final List<Pair<RID, Float>> neighbors : perIndex)
       if (neighbors.size() >= fetchK)
         saturated[0] = true;
-    }
 
     // #6873: THE DEADLINE CAN ONLY EXPIRE INSIDE AN INDEX'S OWN (UNINTERRUPTIBLE) SEARCH, AND WHEN THAT IS THE *LAST*
     // INDEX THE LOOP ENDS ON ITS BOUND RATHER THAN ON THE CHECKPOINT ABOVE - SO WITHOUT A CHECKPOINT HERE THE SORT OF
@@ -388,7 +400,8 @@ public class SelectExecutor {
       return new ArrayList<>();
     }
 
-    allNeighbors.sort(Comparator.comparing(Pair::getSecond));
+    // READ BY DISTANCE: THE MERGE OF THE SORTED PER-INDEX ANSWERS IS THE STABLE SORT OF THEIR CONCATENATION
+    final NeighborMerge allNeighbors = NeighborMerge.of(perIndex);
 
     final int resultCount = Math.min(select.vectorK, allNeighbors.size());
     final List<SelectVectorResult<T>> results = new ArrayList<>(resultCount);
