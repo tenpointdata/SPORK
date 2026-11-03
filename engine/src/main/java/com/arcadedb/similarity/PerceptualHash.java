@@ -38,15 +38,14 @@ import java.util.Locale;
  *   <li>{@link Method#AHASH} (64 bits): 8x8 area-averaged luminance above its mean</li>
  *   <li>{@link Method#DHASH} (64 bits): 9x8 luminance, each pixel brighter than its left neighbour</li>
  *   <li>{@link Method#PHASH} (64 bits): 32x32 luminance, the 8x8 lowest DCT-II frequencies above their median</li>
- *   <li>{@link Method#PDQ} (256 bits): the PDQ construction (Facebook's published algorithm): luminance, two passes of a
- *   box (Jarosz) filter sized to the image, decimation to 64x64, the 16x16 lowest DCT frequencies after the DC term above
- *   their median, packed and printed as the reference prints it</li>
+ *   <li>{@link Method#PDQ} (256 bits): Meta's PDQ, bit for bit the reference's ({@link PdqHasher})</li>
  * </ul>
  * Images are decoded with the JDK's ImageIO (JPEG, PNG, GIF, BMP, WBMP), from memory only (no cache file), refused above
- * a pixel budget read from the header before any pixel is decoded, and subsampled while decoding so the short side stays
- * at least 512 pixels: every method downsamples to 64x64 or less, so the rest of a large photo costs decode time and no
- * accuracy. A hash is only comparable with hashes of the same method computed by this class: bit parity with other
- * libraries (Python imagehash, the PDQ reference) is not promised, because their resampling filters differ.
+ * a pixel budget read from the header before any pixel is decoded. For the 64-bit methods they are subsampled while
+ * decoding so the short side stays at least 512 pixels: those methods downsample to 32x32 or less, so the rest of a large
+ * photo costs decode time and no accuracy. Their hashes are only comparable with hashes of the same method computed by
+ * this class: bit parity with Python imagehash is not promised, because the resampling filters differ. PDQ decodes at full
+ * resolution, as the reference does, so its hashes match the reference's and hash lists made with it.
  * <p>
  * Thread safe; the DCT tables are shared and immutable.
  * </p>
@@ -84,17 +83,24 @@ public final class PerceptualHash {
   }
 
   private static final double[][] PHASH_DCT = dctMatrix(8, 32, 0, 1.0);
-  private static final double[][] PDQ_DCT   = dctMatrix(16, 64, 1, Math.sqrt(2.0 / 64));
 
   private PerceptualHash() {
   }
 
   public static long[] hash(final byte[] image, final Method method) {
+    if (method == Method.PDQ)
+      return PdqHasher.hashImage(image).hash();
     return hash(decode(image, DEFAULT_MAX_PIXELS), method);
   }
 
-  /** The hashes of the 8 dihedral transforms (rotations and mirrors) of the image; the first is {@link #hash}. */
+  /**
+   * The hashes of the 8 dihedral transforms (rotations and mirrors) of the image; the first is {@link #hash}. For PDQ they
+   * are the reference's, in its order ({@link PdqHasher.Dihedral}); for the 64-bit methods: identity, rotations by 90, 180
+   * and 270 degrees clockwise, mirror left-right, mirror top-bottom, transpose, anti-transpose.
+   */
   public static long[][] dihedral(final byte[] image, final Method method) {
+    if (method == Method.PDQ)
+      return PdqHasher.dihedralImage(image).hashes();
     return dihedral(decode(image, DEFAULT_MAX_PIXELS), method);
   }
 
@@ -104,19 +110,22 @@ public final class PerceptualHash {
    * so a link must never rest on a low-quality hash (the PDQ guidance is to discard below 50).
    */
   public static int quality(final byte[] image) {
-    return quality(decode(image, DEFAULT_MAX_PIXELS));
+    return PdqHasher.hashImage(image).quality();
   }
 
+  /** The hash of a luminance image; PDQ runs the reference pipeline on it, which matches the reference only when the luminance does. */
   public static long[] hash(final Luma luma, final Method method) {
     return switch (method) {
       case AHASH -> aHash(luma);
       case DHASH -> dHash(luma);
       case PHASH -> pHash(luma);
-      case PDQ -> pdq(luma);
+      case PDQ -> new PdqHasher().hash(luma.values(), luma.width(), luma.height()).hash();
     };
   }
 
   public static long[][] dihedral(final Luma luma, final Method method) {
+    if (method == Method.PDQ)
+      return new PdqHasher().dihedral(luma.values(), luma.width(), luma.height()).hashes();
     final long[][] hashes = new long[8][];
     for (int t = 0; t < 8; t++)
       hashes[t] = hash(transform(luma, t), method);
@@ -124,19 +133,20 @@ public final class PerceptualHash {
   }
 
   public static int quality(final Luma luma) {
-    final float[] grid = pdqGrid(luma);
-    int gradientSum = 0;
-    for (int i = 0; i < 63; i++)
-      for (int j = 0; j < 64; j++)
-        gradientSum += Math.abs((int) ((grid[i * 64 + j] - grid[(i + 1) * 64 + j]) * 100 / 255));
-    for (int i = 0; i < 64; i++)
-      for (int j = 0; j < 63; j++)
-        gradientSum += Math.abs((int) ((grid[i * 64 + j] - grid[i * 64 + j + 1]) * 100 / 255));
-    return Math.min(100, gradientSum / 90);
+    return new PdqHasher().hash(luma.values(), luma.width(), luma.height()).quality();
   }
 
   /** Decodes an image into its luminance, refusing more than {@code maxPixels} pixels and anything ImageIO cannot read. */
   public static Luma decode(final byte[] image, final long maxPixels) {
+    return luma(decodeImage(image, maxPixels, DECODE_SHORT_SIDE));
+  }
+
+  /**
+   * Decodes an image, refusing more than {@code maxPixels} declared pixels (read from the header, before any pixel is
+   * decoded) and anything ImageIO cannot read. With {@code shortSide > 0} the decoder subsamples so the short side stays at
+   * least that long; with 0 it decodes at full resolution, as {@code ImageIO.read} does.
+   */
+  public static BufferedImage decodeImage(final byte[] image, final long maxPixels, final int shortSide) {
     if (image == null || image.length == 0)
       throw new IllegalArgumentException("An image cannot be null or empty");
     try (final ImageInputStream in = new MemoryCacheImageInputStream(new ByteArrayInputStream(image))) {
@@ -152,10 +162,10 @@ public final class PerceptualHash {
           throw new IllegalArgumentException(
               "The image declares " + width + " x " + height + " pixels, more than the " + maxPixels + " pixels allowed");
         final ImageReadParam param = reader.getDefaultReadParam();
-        final int step = Math.max(1, Math.min(width, height) / DECODE_SHORT_SIDE);
+        final int step = shortSide > 0 ? Math.max(1, Math.min(width, height) / shortSide) : 1;
         if (step > 1)
           param.setSourceSubsampling(step, step, 0, 0);
-        return luma(reader.read(0, param));
+        return reader.read(0, param);
       } finally {
         reader.dispose();
       }
@@ -213,41 +223,6 @@ public final class PerceptualHash {
     for (final double c : coefficients)
       h = (h << 1) | (c > median ? 1 : 0);
     return new long[] { h };
-  }
-
-  private static long[] pdq(final Luma luma) {
-    final double[] coefficients = dct2(pdqGrid(luma), 64, PDQ_DCT);
-    final double[] sorted = coefficients.clone();
-    Arrays.sort(sorted);
-    final double median = sorted[127];
-    // PDQ packs bit (i, j) as bit j of 16-bit word i and prints the words from 15 down to 0
-    final long[] hash = new long[4];
-    for (int i = 0; i < 16; i++)
-      for (int j = 0; j < 16; j++)
-        if (coefficients[i * 16 + j] > median)
-          hash[(15 - i) >> 2] |= 1L << (48 - 16 * ((15 - i) & 3) + j);
-    return hash;
-  }
-
-  /** PDQ's 64x64 image: two passes of a box filter of about half the decimation step in each direction, then decimation. */
-  private static float[] pdqGrid(final Luma luma) {
-    final int w = luma.width();
-    final int h = luma.height();
-    final int windowX = (w + 2 * 64 - 1) / (2 * 64);
-    final int windowY = (h + 2 * 64 - 1) / (2 * 64);
-    float[] buffer = luma.values().clone();
-    float[] scratch = new float[buffer.length];
-    for (int pass = 0; pass < 2; pass++) {
-      boxRows(buffer, scratch, w, h, windowX);
-      boxColumns(scratch, buffer, w, h, windowY);
-    }
-    final float[] grid = new float[64 * 64];
-    for (int i = 0; i < 64; i++) {
-      final int y = Math.min(h - 1, (int) ((i + 0.5) * h / 64));
-      for (int j = 0; j < 64; j++)
-        grid[i * 64 + j] = buffer[y * w + Math.min(w - 1, (int) ((j + 0.5) * w / 64))];
-    }
-    return grid;
   }
 
   // ---- signal helpers ----
@@ -314,60 +289,6 @@ public final class PerceptualHash {
       }
     }
     return out;
-  }
-
-  /** A centred running-mean box filter along each row, averaging only the pixels inside the image at the edges. */
-  private static void boxRows(final float[] in, final float[] out, final int w, final int h, final int window) {
-    final int before = (window - 1) / 2;
-    final int after = window / 2;
-    for (int y = 0; y < h; y++) {
-      final int base = y * w;
-      double sum = 0;
-      int count = 0;
-      for (int i = 0; i < Math.min(w, after); i++) {
-        sum += in[base + i];
-        count++;
-      }
-      for (int x = 0; x < w; x++) {
-        final int enter = x + after;
-        if (enter < w) {
-          sum += in[base + enter];
-          count++;
-        }
-        final int leave = x - before - 1;
-        if (leave >= 0) {
-          sum -= in[base + leave];
-          count--;
-        }
-        out[base + x] = (float) (sum / count);
-      }
-    }
-  }
-
-  private static void boxColumns(final float[] in, final float[] out, final int w, final int h, final int window) {
-    final int before = (window - 1) / 2;
-    final int after = window / 2;
-    for (int x = 0; x < w; x++) {
-      double sum = 0;
-      int count = 0;
-      for (int i = 0; i < Math.min(h, after); i++) {
-        sum += in[i * w + x];
-        count++;
-      }
-      for (int y = 0; y < h; y++) {
-        final int enter = y + after;
-        if (enter < h) {
-          sum += in[enter * w + x];
-          count++;
-        }
-        final int leave = y - before - 1;
-        if (leave >= 0) {
-          sum -= in[leave * w + x];
-          count--;
-        }
-        out[y * w + x] = (float) (sum / count);
-      }
-    }
   }
 
   /**

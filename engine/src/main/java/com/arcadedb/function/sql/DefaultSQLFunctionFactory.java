@@ -109,6 +109,7 @@ import com.arcadedb.function.sql.misc.SQLFunctionVersion;
 import com.arcadedb.function.sql.similarity.SQLFunctionHammingBandKeys;
 import com.arcadedb.function.sql.similarity.SQLFunctionHammingDistance;
 import com.arcadedb.function.sql.similarity.SQLFunctionHammingProbeKeys;
+import com.arcadedb.function.sql.similarity.SQLFunctionImagePdq;
 import com.arcadedb.function.sql.similarity.SQLFunctionImagePerceptualHash;
 import com.arcadedb.function.sql.similarity.SQLFunctionImageQuality;
 import com.arcadedb.function.sql.similarity.SQLFunctionStyleFingerprint;
@@ -415,6 +416,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionStyleSimilarity.NAME, new SQLFunctionStyleSimilarity());
     register(SQLFunctionImagePerceptualHash.NAME, new SQLFunctionImagePerceptualHash());
     register(SQLFunctionImageQuality.NAME, new SQLFunctionImageQuality());
+    register(SQLFunctionImagePdq.NAME, new SQLFunctionImagePdq());
     register(SQLFunctionHammingDistance.NAME, new SQLFunctionHammingDistance());
     register(SQLFunctionHammingBandKeys.NAME, new SQLFunctionHammingBandKeys());
     register(SQLFunctionHammingProbeKeys.NAME, new SQLFunctionHammingProbeKeys());

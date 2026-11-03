@@ -23,6 +23,8 @@ import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultSet;
 import com.arcadedb.similarity.BitHash;
 import com.arcadedb.similarity.HammingBands;
+import com.arcadedb.similarity.PdqHasher;
+import com.arcadedb.similarity.PdqHasherTest;
 import com.arcadedb.similarity.PerceptualHash;
 import com.arcadedb.similarity.PerceptualHash.Method;
 import com.arcadedb.similarity.Stylometry;
@@ -87,6 +89,37 @@ class SimilaritySQLFunctionsTest extends TestHelper {
     assertThatThrownBy(() -> one("SELECT image.perceptualHash(:img) AS h", Map.of("img", new byte[] { 1, 2, 3 })))
         .hasMessageContaining("not a decodable image");
     assertThatThrownBy(() -> one("SELECT image.perceptualHash(:img, 'md5') AS h", Map.of("img", png))).hasMessageContaining("ahash");
+  }
+
+  @Test
+  void imagePdqReturnsTheReferenceHashAndQuality() {
+    final byte[] photo = PdqHasherTest.resource("bridge-1-original.jpg");
+    final byte[] flipped = PdqHasherTest.resource("bridge-5-flipx.jpg");
+    final Result r = one("SELECT image.pdq(:img) AS p, image.pdq(:img, true) AS all8, image.pdq(null) AS none, "
+        + "hamming.distance(image.pdq(:img).hash, image.pdq(:flip).hash) AS d, "
+        + "hamming.distance(image.pdq(:img, true).hashes, image.pdq(:flip).hash) AS dihedral", Map.of("img", photo, "flip", flipped));
+    final Map<String, Object> p = r.getProperty("p");
+    assertThat(p).containsEntry("hash", "f8f8f0cee0f4a84f06370a22038f63f0b36e2ed596621e1d33e6b39c4e9c9b22").containsEntry("quality", 100);
+    final Map<String, Object> all8 = r.getProperty("all8");
+    assertThat(all8).containsEntry("hash", p.get("hash")).containsEntry("quality", 100);
+    assertThat((List<String>) all8.get("hashes")).hasSize(8).first().isEqualTo(p.get("hash"));
+    assertThat(r.<Object>getProperty("none")).isNull();
+    // a mirrored re-post is far from the plain hash and near one of the dihedral hashes
+    assertThat(r.<Integer>getProperty("d")).isGreaterThan(PdqHasher.NEAR_DUPLICATE_DISTANCE);
+    assertThat(r.<Integer>getProperty("dihedral")).isLessThanOrEqualTo(PdqHasher.NEAR_DUPLICATE_DISTANCE);
+
+    // stored as 32 bytes, compared and banded as stored
+    final Result stored = one("SELECT hamming.distance(:bytes, image.pdq(:img).hash) AS d, hamming.bandKeys(:bytes, 8) AS keys",
+        Map.of("img", photo, "bytes", BitHash.toBytes(BitHash.parseHex((String) p.get("hash")))));
+    assertThat(stored.<Integer>getProperty("d")).isEqualTo(0);
+    assertThat(stored.<List<Long>>getProperty("keys")).hasSize(8);
+
+    assertThatThrownBy(() -> one("SELECT image.pdq(:img) AS h", Map.of("img", new byte[] { 1, 2, 3 })))
+        .hasMessageContaining("not a decodable image");
+    assertThatThrownBy(() -> one("SELECT image.pdq(:img, 'yes') AS h", Map.of("img", photo))).hasMessageContaining("boolean");
+    try (final ResultSet rs = database.query("opencypher", "RETURN image.pdq($img).quality AS q", Map.of("img", photo))) {
+      assertThat(((Number) rs.next().getProperty("q")).intValue()).isEqualTo(100);
+    }
   }
 
   @Test
