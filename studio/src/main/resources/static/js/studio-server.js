@@ -360,7 +360,9 @@ function displayMetrics() {
   // (SparseVectorScoringPool) and "parallel_scan" (ParallelScanProducerPool). Each pool's gauges
   // are: pool.size, pool.active, queue.depth, queue.capacity_remaining, tasks.completed,
   // tasks.caller_run_fallbacks, tasks.reclaimed. The sparse-vector pool adds pool.reserved, queries.in_flight and
-  // queries.split, which explain its per-query decision to parallelise or not (#4085). The per-server pools
+  // queries.split, which explain its per-query decision to parallelise or not (#4085). "dense_vector" (VectorSearchPool)
+  // searches the buckets of one LSM_VECTOR index in parallel and adds queries.in_flight, queries.fan_out and queries.serial
+  // for the same reason. The per-server pools
   // (security_refresh, and on an HA node security_seed and security_catch_up) add tasks.coalesced (#7856). The
   // other HA per-instance pools (#8856) add tasks.rejected where they refuse work (snapshot_install,
   // channel_recovery) and tasks.coalesced where they skip work already queued (channel_recovery).
@@ -368,6 +370,7 @@ function displayMetrics() {
   // arcadedb.queryMaxConcurrent, Queue Depth the waiting ones, Rejected the ones refused with a 503.
   var ex = serverData.metrics.executors || {};
   var executorRowLabels = { "query": "Query Parallelism", "sparse_vector": "Sparse Vector Scoring",
+      "dense_vector": "Dense Vector Search",
       "parallel_scan": "Parallel Scan Producers", "async_command": "Async DDL Commands",
       "security_refresh": "Security Permission Refresh", "security_seed": "HA Security Seed",
       "security_catch_up": "HA Security Catch-Up", "snapshot_install": "HA Snapshot Install",

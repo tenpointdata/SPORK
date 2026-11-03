@@ -30,6 +30,8 @@ import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexInternal;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.vector.LSMVectorIndex;
+import com.arcadedb.index.vector.NeighborMerge;
+import com.arcadedb.index.vector.VectorSearchPool;
 import com.arcadedb.index.vector.VectorUtils;
 import com.arcadedb.query.opencypher.procedures.CypherProcedure;
 import com.arcadedb.query.sql.executor.CommandContext;
@@ -45,7 +47,6 @@ import io.github.jbellis.jvector.vector.VectorSimilarityFunction;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -224,19 +225,17 @@ public class DbIndexVectorQueryNodes implements CypherProcedure {
    */
   private static List<Result> searchAndLoad(final List<LSMVectorIndex> vectorIndexes, final float[] queryVector, final int limit,
       final int fetchK, final Set<RID> allowedRIDs, final WorkGuard guard, final int[] staleSkipped, final boolean[] saturated) {
-    // Search across all indexes and collect results
-    final List<Pair<RID, Float>> allNeighbors = new ArrayList<>();
-    for (final LSMVectorIndex lsmIndex : vectorIndexes) {
-      // The search vector.neighbors takes by default: a PRODUCT index walks on its PQ codes and re-ranks as its rerankOversample
-      // says (issue #10514), any other quantization walks exactly
-      final List<Pair<RID, Float>> neighbors = lsmIndex.findNeighbors(queryVector, fetchK, -1, -1, allowedRIDs, guard);
-      allNeighbors.addAll(neighbors);
+    // Search across all indexes, in parallel when a worker reads what this thread reads (VectorSearchPool), and collect
+    // results. The search vector.neighbors takes by default: a PRODUCT index walks on its PQ codes and re-ranks as its
+    // rerankOversample says (issue #10514), any other quantization walks exactly
+    final List<List<Pair<RID, Float>>> perIndex = VectorSearchPool.searchAll(vectorIndexes,
+        lsmIndex -> lsmIndex.findNeighbors(queryVector, fetchK, -1, -1, allowedRIDs, guard));
+    for (final List<Pair<RID, Float>> neighbors : perIndex)
       if (neighbors.size() >= fetchK)
         saturated[0] = true;
-    }
 
-    // Sort by distance (ascending - closer is better)
-    allNeighbors.sort(Comparator.comparing(Pair::getSecond));
+    // Read by distance (ascending - closer is better): the merge of the sorted per-index answers
+    final NeighborMerge allNeighbors = NeighborMerge.of(perIndex);
 
     // Take top k results, converting distance to score (similarity).
     // EUCLIDEAN distance is L2² in [0, ∞); map it back to a (0, 1] similarity so callers receive a comparable score.

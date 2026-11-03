@@ -43,7 +43,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -666,12 +665,12 @@ class LSMVectorIndexRebuildTest extends TestHelper {
 
       final Field semaphoreField = LSMVectorIndex.class.getDeclaredField("REBUILD_SEMAPHORE");
       semaphoreField.setAccessible(true);
-      final Semaphore semaphore = (Semaphore) semaphoreField.get(null);
+      final VectorRebuildPermits semaphore = (VectorRebuildPermits) semaphoreField.get(null);
       final String expectedIndexName = indexName(lsmIndex);
 
       // Simulate another vector index elsewhere in the JVM already holding the sole rebuild permit and never
       // giving it back - the scenario VECTOR_INDEX_REBUILD_PERMIT_TIMEOUT_MS exists to bound.
-      assertThat(semaphore.tryAcquire())
+      assertThat(semaphore.tryAcquire(0L, VectorRebuildPermits.HEAP_GATE_DISABLED))
           .as("test setup requires the sole JVM-wide rebuild permit to be free at the start")
           .isTrue();
       try {
@@ -705,7 +704,7 @@ class LSMVectorIndexRebuildTest extends TestHelper {
           logger.setLevel(prevLevel);
         }
       } finally {
-        semaphore.release();
+        semaphore.release(0L);
       }
     } finally {
       GlobalConfiguration.VECTOR_INDEX_REBUILD_PERMIT_TIMEOUT_MS.reset();

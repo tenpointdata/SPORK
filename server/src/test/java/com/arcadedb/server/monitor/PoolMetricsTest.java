@@ -93,7 +93,7 @@ class PoolMetricsTest {
     assertThat(registeredNames).as("every shared gauge should be registered (per-pool tagging adds duplicates)")
         .containsAll(EXPECTED_GAUGE_NAMES);
 
-    for (final String poolTag : new String[] { "query", "sparse_vector", "async_command" }) {
+    for (final String poolTag : new String[] { "query", "sparse_vector", "dense_vector", "async_command" }) {
       for (final String gaugeName : EXPECTED_GAUGE_NAMES) {
         final Meter meter = registry.find(gaugeName).tag("pool", poolTag).meter();
         assertThat(meter)
@@ -101,6 +101,12 @@ class PoolMetricsTest {
             .isNotNull();
       }
     }
+
+    // The dense-vector fan-out explains its own decision the same way (in flight, fanned out, kept serial)
+    for (final String gaugeName : new String[] { "arcadedb.executor.queries.in_flight", "arcadedb.executor.queries.fan_out",
+        "arcadedb.executor.queries.serial" })
+      assertThat(registry.find(gaugeName).tag("pool", "dense_vector").meter())
+          .as("fan-out gauge '%s' must be registered for the dense-vector pool", gaugeName).isNotNull();
 
     for (final String gaugeName : SPARSE_ONLY_GAUGE_NAMES) {
       assertThat(registry.find(gaugeName).tag("pool", "sparse_vector").meter())
@@ -160,7 +166,7 @@ class PoolMetricsTest {
     final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     new PoolMetrics().bindTo(registry);
 
-    for (final String poolTag : new String[] { "query", "sparse_vector", "async_command" }) {
+    for (final String poolTag : new String[] { "query", "sparse_vector", "dense_vector", "async_command" }) {
       for (final String gaugeName : EXPECTED_GAUGE_NAMES) {
         final double value = registry.find(gaugeName).tag("pool", poolTag).gauge().value();
         assertThat(value).as("%s pool=%s should report a finite, non-negative value", gaugeName, poolTag)
@@ -187,7 +193,7 @@ class PoolMetricsTest {
     final JSONObject executors =
         GetServerHandler.buildExecutorsJSON(registry);
 
-    for (final String poolTag : new String[] { "query", "sparse_vector", "async_command" }) {
+    for (final String poolTag : new String[] { "query", "sparse_vector", "dense_vector", "async_command" }) {
       assertThat(executors.has(poolTag))
           .as("executors JSON must have key '%s' (Studio dashboard reads this exact tag)", poolTag).isTrue();
       final JSONObject pool = executors.getJSONObject(poolTag);
