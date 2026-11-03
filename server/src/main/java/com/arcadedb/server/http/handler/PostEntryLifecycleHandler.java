@@ -18,6 +18,7 @@
  */
 package com.arcadedb.server.http.handler;
 
+import com.arcadedb.database.Database;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.ArcadeDBServer;
 import com.arcadedb.server.http.HttpServer;
@@ -76,11 +77,12 @@ public class PostEntryLifecycleHandler extends AbstractServerHttpHandler {
     if (exchange.getRequestContentLength() > MAX_DELIVERY_BYTES
         || (payload != null && payload.toString().getBytes(StandardCharsets.UTF_8).length > MAX_DELIVERY_BYTES))
       return error(413, "delivery_too_large");
-    if (!server.existsDatabase(config.getDatabase()))
+    final Database state = server.getSecurity().getEntryStateDatabase();
+    if (state == null)
       return error(503, "state_unavailable");
 
     try {
-      return new ExecutionResponse(200, receiver.receive(server.getDatabase(config.getDatabase()), payload).toString());
+      return new ExecutionResponse(200, receiver.receive(state, payload).toString());
     } catch (final EntryLifecycleException e) {
       return error(e.getHttpStatus(), e.getCode());
     }
