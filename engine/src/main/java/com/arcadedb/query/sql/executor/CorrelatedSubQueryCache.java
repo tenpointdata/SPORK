@@ -84,7 +84,7 @@ public final class CorrelatedSubQueryCache {
    * creates schema types and answers whether this call created them, so a second call answers differently.
    */
   static final Set<String> NON_REPEATABLE_FUNCTIONS = Set.of("randomint", "math_random", "uuid", "sysdate", "eval", "promql",
-      "ensurelabeltypes");
+      "ensurelabeltypes", "history.purge");
   /**
    * Built-in methods not trusted: {@code remove}/{@code removeAll} change a collection (today on a defensive copy, not
    * relied upon here), and {@code transform} resolves the methods it applies from its string arguments at run time,
