@@ -24,6 +24,7 @@ import com.arcadedb.database.Document;
 import com.arcadedb.database.MutableDocument;
 import com.arcadedb.database.RID;
 import com.arcadedb.database.async.AsyncQuiesce;
+import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.index.IndexCursor;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.query.sql.executor.ResultSet;
@@ -125,8 +126,9 @@ public final class SelectionStore {
     final Handle existing = find(name);
     final MutableDocument doc;
     if (existing != null) {
+      // A taken name is a conflict, never a malformed request: every wire answers this type as one (HTTP 409, #10153)
       if (!existing.isExpired(now) && !replace)
-        throw new IllegalArgumentException(
+        throw new AlreadyExistsException(AlreadyExistsException.Kind.SELECTION,
             owner + "(): a selection named '" + name + "' already exists, pass {replace: true} to overwrite it");
       doc = existing.rid().asDocument(true).modify();
     } else

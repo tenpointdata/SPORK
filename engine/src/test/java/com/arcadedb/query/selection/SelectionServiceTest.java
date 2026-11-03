@@ -20,6 +20,7 @@ package com.arcadedb.query.selection;
 
 import com.arcadedb.TestHelper;
 import com.arcadedb.database.RID;
+import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.graph.MutableVertex;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
@@ -155,6 +156,16 @@ class SelectionServiceTest extends TestHelper {
         .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("no selection named 'nope'");
     assertThatThrownBy(() -> SelectionService.compare(database, new JSONObject().put("selections", new JSONArray().put("g0"))))
         .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("selections must hold 2 to 8 lists");
+  }
+
+  @Test
+  void aTakenNameIsAnAlreadyExistsConflict() {
+    SelectionService.save(database, new JSONObject().put("name", "g0").put("members", rids("a1")));
+    // AlreadyExistsException, which every wire answers as a conflict (HTTP 409, gRPC ALREADY_EXISTS), as for any taken name
+    assertThatThrownBy(() -> SelectionService.save(database, new JSONObject().put("name", "g0").put("members", rids("a2"))))
+        .isInstanceOf(AlreadyExistsException.class)
+        .hasMessageContaining("a selection named 'g0' already exists")
+        .satisfies(e -> assertThat(((AlreadyExistsException) e).getKind()).isEqualTo(AlreadyExistsException.Kind.SELECTION));
   }
 
   @Test

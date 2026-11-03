@@ -19,6 +19,7 @@
 package com.arcadedb.mcp;
 
 import com.arcadedb.database.Database;
+import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.graph.MutableVertex;
 import com.arcadedb.mcp.tools.FullTextSearchTool;
 import com.arcadedb.mcp.tools.SelectionQueryTool;
@@ -142,6 +143,14 @@ public class SelectionMcpIT extends BaseGraphServerTest {
     config.setAllowInsert(false);
     config.setAllowUpdate(false);
     assertThat(query(new JSONObject().put("operation", "get").put("name", "x")).getLong("cardinality")).isEqualTo(3L);
+  }
+
+  @Test
+  void aTakenNameIsAnAlreadyExistsConflict() {
+    update(new JSONObject().put("operation", "save").put("name", "taken").put("members", new JSONArray(ads.subList(0, 1))));
+    assertThatThrownBy(() -> update(new JSONObject().put("operation", "save").put("name", "taken")
+        .put("members", new JSONArray(ads.subList(1, 2)))))
+        .isInstanceOf(AlreadyExistsException.class).hasMessageContaining("a selection named 'taken' already exists");
   }
 
   @Test

@@ -50,7 +50,9 @@ public class AlreadyExistsException extends SchemaException {
     CONTINUOUS_AGGREGATE("Continuous aggregate"),
     GRAPH_ANALYTICAL_VIEW("Graph analytical view"),
     FUNCTION("Function"),
-    FUNCTION_LIBRARY("Function library");
+    FUNCTION_LIBRARY("Function library"),
+    /** A saved selection (docs/spork/03-f1-selections-design.md): a named set of records, a record of its own type. */
+    SELECTION("Selection");
 
     private final String label;
 
