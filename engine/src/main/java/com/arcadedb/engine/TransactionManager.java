@@ -1290,7 +1290,7 @@ public class TransactionManager {
       applyLock.readLock().unlock();
     }
     // Pages written with no record event: the views that cover what they touched are told, after every lock is released, so a
-    // view's rebuild dispatch never runs under the apply lock (docs/spork/07-f3-csr-on-followers.md). A replay of an entry
+    // view's rebuild dispatch never runs under the apply lock (docs/spork/09-f3-csr-on-followers.md). A replay of an entry
     // already applied changes nothing and tells nobody
     if (changed)
       GraphAnalyticalViewRegistry.onReplicatedChanges(database, tx);

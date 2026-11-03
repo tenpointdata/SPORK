@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * F3 step 1 (docs/spork/07-f3-csr-on-followers.md): a follower applies replicated commits as page deltas, which no record listener
+ * F3 step 1 (docs/spork/09-f3-csr-on-followers.md): a follower applies replicated commits as page deltas, which no record listener
  * sees, so the engine tells the views which files a replicated transaction touched. A view must stop serving when the transaction
  * touched a type it covers - a vertex type, its edge-list buckets, an edge type - and keep serving when it touched only what it
  * does not read. Views here are in UPDATE MODE OFF, where "told" is plainly STALE, with no background rebuild to race.

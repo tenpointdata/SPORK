@@ -175,7 +175,7 @@ public class GraphAnalyticalViewPersistence {
 
   /**
    * Brings the live views of a Raft follower in line with the definitions it just received in a replicated schema entry
-   * (docs/spork/07-f3-csr-on-followers.md, step 2). {@link #restoreAll} runs only when a database opens, so before this a view
+   * (docs/spork/09-f3-csr-on-followers.md, step 2). {@link #restoreAll} runs only when a database opens, so before this a view
    * created on the leader never reached a follower that was already running.
    * <p>
    * A definition with no live view is restored as at open: built from this node's files, persistence skipped. A live view whose

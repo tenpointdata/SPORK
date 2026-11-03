@@ -228,7 +228,7 @@ public class GraphAnalyticalViewRegistry {
 
   /**
    * Changes were applied to {@code database} as pages, with no record event: a Raft follower applying a replicated commit
-   * (docs/spork/07-f3-csr-on-followers.md). The listeners that keep a view current on the node where a transaction runs do not
+   * (docs/spork/09-f3-csr-on-followers.md). The listeners that keep a view current on the node where a transaction runs do not
    * fire here, so a view covering what {@code tx} touched is told the way an OFF view is told of a commit it did not collect
    * ({@link GraphAnalyticalView#onRelevantCommitCallback()}): it stops serving, and an incremental view rebuilds. Without this a
    * follower's view stayed READY over the graph as it stood at its build.

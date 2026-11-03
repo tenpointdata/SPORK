@@ -34,7 +34,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * F3 (docs/spork/07-f3-csr-on-followers.md): a graph analytical view on a Raft FOLLOWER. A follower applies replicated commits
+ * F3 (docs/spork/09-f3-csr-on-followers.md): a graph analytical view on a Raft FOLLOWER. A follower applies replicated commits
  * as page deltas, where the record listeners that keep a view current on the leader do not fire. Before F3 a view created after
  * a follower started never reached it, and after a follower restart its view stayed READY over the graph as it stood at the
  * restart: Cypher on the follower answered an edge count of 1 where its own records held 2.

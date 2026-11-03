@@ -4547,7 +4547,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
     }
 
     // A schema change may create or drop a graph analytical view, which a node restores only when it opens a database: bring this
-    // node's live views in line with the definitions it now holds (docs/spork/07-f3-csr-on-followers.md, step 2)
+    // node's live views in line with the definitions it now holds (docs/spork/09-f3-csr-on-followers.md, step 2)
     if (!sealedOnlyEntry && !deliveryOnlyEntry && !walOnlyEntry)
       reconcileGraphViews(db, decoded.databaseName());
 
