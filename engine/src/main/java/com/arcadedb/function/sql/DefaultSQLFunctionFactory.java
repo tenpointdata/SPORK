@@ -40,6 +40,10 @@ import com.arcadedb.function.sql.geo.SQLFunctionGeoCrosses;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoDisjoint;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoDistance;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoDWithin;
+import com.arcadedb.function.sql.geo.SQLFunctionGeoDWithinMeters;
+import com.arcadedb.function.sql.geo.SQLFunctionGeoHash;
+import com.arcadedb.function.sql.geo.SQLFunctionGeoHashCover;
+import com.arcadedb.function.sql.geo.SQLFunctionGeoNearest;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoEnvelope;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoEquals;
 import com.arcadedb.function.sql.geo.SQLFunctionGeoGeomFromText;
@@ -213,6 +217,9 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionGeoBuffer.NAME, new SQLFunctionGeoBuffer());
     register(SQLFunctionGeoEnvelope.NAME, new SQLFunctionGeoEnvelope());
     register(SQLFunctionGeoDistance.NAME, new SQLFunctionGeoDistance());
+    register(SQLFunctionGeoNearest.NAME, new SQLFunctionGeoNearest());
+    register(SQLFunctionGeoHash.NAME, new SQLFunctionGeoHash());
+    register(SQLFunctionGeoHashCover.NAME, new SQLFunctionGeoHashCover());
     register(SQLFunctionGeoArea.NAME, new SQLFunctionGeoArea());
     register(SQLFunctionGeoAsText.NAME, new SQLFunctionGeoAsText());
     register(SQLFunctionGeoAsGeoJson.NAME, new SQLFunctionGeoAsGeoJson());
@@ -224,6 +231,7 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionGeoCrosses.NAME, new SQLFunctionGeoCrosses());
     register(SQLFunctionGeoDisjoint.NAME, new SQLFunctionGeoDisjoint());
     register(SQLFunctionGeoDWithin.NAME, new SQLFunctionGeoDWithin());
+    register(SQLFunctionGeoDWithinMeters.NAME, new SQLFunctionGeoDWithinMeters());
     register(SQLFunctionGeoEquals.NAME, new SQLFunctionGeoEquals());
     register(SQLFunctionGeoIntersects.NAME, new SQLFunctionGeoIntersects());
     register(SQLFunctionGeoOverlaps.NAME, new SQLFunctionGeoOverlaps());

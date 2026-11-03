@@ -55,6 +55,11 @@ import java.util.Set;
  * Key Insight: Start from most selective node, expand outward
  */
 public class AnchorSelector {
+  /**
+   * The share of a type a geo seek is assumed to read: a radius or a box is usually a small area, more selective than an
+   * equality on a non-unique index (10%) and less than a unique one.
+   */
+  private static final double GEO_SEEK_SELECTIVITY = 0.01;
   private final StatisticsProvider statisticsProvider;
   private final CostModel costModel;
 
@@ -277,6 +282,9 @@ public class AnchorSelector {
           trySingleOrSeek(node, label, typeCount, orBranches, allPredicates) :
           tryUnionIndexSeek(node, label, typeCount, orBranches));
 
+    // point.distance(n.p, c) < r and point.withinBBox(n.p, ll, ur) on a GEOSPATIAL index: the cells covering the circle or the box
+    best = cheaper(best, tryGeoSeek(node, label, typeCount, plan));
+
     if (best != null)
       return best;
 
@@ -308,6 +316,30 @@ public class AnchorSelector {
         cost,
         typeCount
     );
+  }
+
+  /**
+   * Costs the first geo predicate of the node's WHERE that a GEOSPATIAL index can answer as a geo index seek.
+   *
+   * @return the geo seek anchor, or {@code null} when no conjunct is one or no index serves its property
+   */
+  private AnchorSelection tryGeoSeek(final LogicalNode node, final String label, final long typeCount, final LogicalPlan plan) {
+    if (plan.getWhereFilters() == null || plan.getWhereFilters().isEmpty())
+      return null;
+    final List<GeoSeekPredicate> predicates = new ArrayList<>();
+    for (final WhereClause whereClause : plan.getWhereFilters())
+      if (whereClause.getConditionExpression() != null)
+        GeoSeekPredicate.extract(node.getVariable(), whereClause.getConditionExpression(), predicates);
+
+    for (final GeoSeekPredicate predicate : predicates) {
+      final IndexStatistics index = statisticsProvider.findGeoIndexForProperty(label, predicate.getPropertyName());
+      if (index == null)
+        continue;
+      final long estimatedRows = Math.max(1, (long) (typeCount * GEO_SEEK_SELECTIVITY));
+      return new AnchorSelection(node.getVariable(), node, index, predicate,
+          costModel.estimateGeoIndexSeekCost(label, GEO_SEEK_SELECTIVITY), estimatedRows);
+    }
+    return null;
   }
 
   /** Whether one seek finds one row at most: a unique index whose every key column is bound */

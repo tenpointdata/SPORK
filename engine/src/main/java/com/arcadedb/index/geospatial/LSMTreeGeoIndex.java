@@ -22,15 +22,20 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.database.RID;
+import com.arcadedb.database.TransactionContext;
+import com.arcadedb.database.TransactionIndexContext;
 import com.arcadedb.engine.ComponentFile;
 import com.arcadedb.engine.PaginatedComponent;
 import com.arcadedb.function.sql.geo.GeoUtils;
 import com.arcadedb.index.EmptyIndexCursor;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexCursor;
+import com.arcadedb.index.IndexCursorEntry;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.IndexFactoryHandler;
 import com.arcadedb.index.IndexInternal;
+import com.arcadedb.index.MultiIndexCursor;
+import com.arcadedb.index.TempIndexCursor;
 import com.arcadedb.index.TypeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndexAbstract;
@@ -61,6 +66,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -313,8 +319,76 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
     // range scan instead of one lookup per descendant level. This is the site the ASCII invariant actually
     // protects - the bound is appended to THIS token - so assert it here as well as where tokens are written.
     assert isAsciiToken(token) : "a FRONTIER token must be ASCII for the prefix range scan bound to hold: " + token;
-    return underlyingIndex.range(true, new Object[] { token }, true,
+    final IndexCursor committed = underlyingIndex.range(true, new Object[] { token }, true,
         new Object[] { token + PREFIX_SCAN_UPPER_BOUND }, true);
+    // the range scan reads the committed pages only, where the exact lookup above merges the transaction's pending entries:
+    // a record written earlier in the transaction is a candidate too. GeoIndexCursor de-duplicates the RIDs
+    final IndexCursor pending = openNearestPendingRange(token);
+    if (pending == null)
+      return committed;
+    // a mutable list: the merged cursor releases each child as it closes it
+    final List<IndexCursor> children = new ArrayList<>(2);
+    children.add(committed);
+    children.add(pending);
+    return new MultiIndexCursor(children, -1, true, false);
+  }
+
+  /**
+   * Every entry of the cells at or below {@code token}, in key order, for the nearest-neighbour walk
+   * ({@link GeoNearestSearch}): one prefix range scan, whatever the layout. The legacy FULL layout stores the whole ancestor
+   * chain of each cell, so every record below the cell carries the cell's own plain token, which sorts first in the range:
+   * the scan starts after it, at the leaf form {@code token+}, and the records are met through their deeper cells instead.
+   */
+  IndexCursor openNearestCellRange(final String token) {
+    return underlyingIndex.range(true, new Object[] { nearestCellRangeStart(token) }, true,
+        new Object[] { token + PREFIX_SCAN_UPPER_BOUND }, true);
+  }
+
+  private String nearestCellRangeStart(final String token) {
+    return tokenization == GeoIndexMetadata.TOKENIZATION.FULL ? token + '+' : token;
+  }
+
+  /**
+   * The entries of the shapes whose decomposition stopped AT the cell {@code token}, which no cell below it holds: its plain
+   * token on the FRONTIER layout, its leaf form {@code token+} on the legacy FULL one.
+   */
+  IndexCursor openNearestCellOwnEntries(final String token) {
+    return underlyingIndex.get(new Object[] { tokenization == GeoIndexMetadata.TOKENIZATION.FULL ? token + '+' : token });
+  }
+
+  /**
+   * The entries the current transaction queued under the cells at or below {@code token}, not committed yet: the range
+   * scan of {@link #openNearestCellRange} reads the committed pages only, while an exact lookup merges them. Only the
+   * additions are needed: an entry the transaction removed belongs to a record it deleted or moved, which the walk measures
+   * from its current value when it loads it. Null when there are none.
+   */
+  IndexCursor openNearestPendingRange(final String token) {
+    final TransactionContext tx = underlyingIndex.getComponent().getDatabase().getTransactionIfExists();
+    if (tx == null || tx.getStatus() != TransactionContext.STATUS.BEGUN)
+      return null;
+    final TreeMap<TransactionIndexContext.ComparableKey, Map<TransactionIndexContext.IndexKey, TransactionIndexContext.IndexKey>> pending =
+        tx.getIndexChanges().getIndexKeys(underlyingIndex.getName());
+    if (pending == null || pending.isEmpty())
+      return null;
+
+    List<IndexCursorEntry> entries = null;
+    for (final Map<TransactionIndexContext.IndexKey, TransactionIndexContext.IndexKey> values : pending.subMap(
+        new TransactionIndexContext.ComparableKey(new Object[] { nearestCellRangeStart(token) }), true,
+        new TransactionIndexContext.ComparableKey(new Object[] { token + PREFIX_SCAN_UPPER_BOUND }), true).values())
+      for (final TransactionIndexContext.IndexKey value : values.values())
+        if (value != null && value.operation != TransactionIndexContext.IndexKey.IndexKeyOperation.REMOVE) {
+          if (entries == null)
+            entries = new ArrayList<>();
+          entries.add(new IndexCursorEntry(value.keyValues, value.rid, 1));
+        }
+    return entries == null ? null : new TempIndexCursor(entries);
+  }
+
+  /** Whether {@code key}, met in the range of {@link #openNearestCellRange}, is one of the cell's own entries. */
+  boolean isNearestCellOwnKey(final String key, final String token) {
+    if (tokenization != GeoIndexMetadata.TOKENIZATION.FULL)
+      return key.equals(token);
+    return key.length() == token.length() + 1 && key.charAt(token.length()) == '+' && key.startsWith(token);
   }
 
   @Override

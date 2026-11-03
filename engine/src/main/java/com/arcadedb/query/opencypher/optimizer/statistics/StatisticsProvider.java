@@ -20,6 +20,7 @@ package com.arcadedb.query.opencypher.optimizer.statistics;
 
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.RID;
+import com.arcadedb.function.sql.geo.SQLFunctionGeoPredicate;
 import com.arcadedb.graph.Edge;
 import com.arcadedb.graph.GraphTraversalProvider;
 import com.arcadedb.graph.GraphTraversalProviderRegistry;
@@ -60,6 +61,8 @@ public class StatisticsProvider {
   private final DatabaseInternal database;
   private final Map<String, TypeStatistics> typeStatsCache;
   private final Map<String, List<IndexStatistics>> indexStatsCache;
+  /** The GEOSPATIAL indexes a query can use, per type: they answer no key lookup, so they are kept apart from the others. */
+  private final Map<String, List<IndexStatistics>> geoIndexStatsCache;
   private final Map<String, Double> averageDegreeCache;
   private final Map<String, Double> meanEdgesPerConnectedPairCache;
   // Database-scoped, shared across every StatisticsProvider (i.e. every CypherOptimizer/query) on this
@@ -70,6 +73,7 @@ public class StatisticsProvider {
     this.database = database;
     this.typeStatsCache = new HashMap<>();
     this.indexStatsCache = new HashMap<>();
+    this.geoIndexStatsCache = new HashMap<>();
     this.averageDegreeCache = new HashMap<>();
     this.meanEdgesPerConnectedPairCache = new HashMap<>();
     // Some tests subclass StatisticsProvider with a null database, overriding every method that would
@@ -114,6 +118,7 @@ public class StatisticsProvider {
   private void collectIndexStatistics(final DocumentType type) {
     final String typeName = type.getName();
     final List<IndexStatistics> indexStatsList = new ArrayList<>();
+    List<IndexStatistics> geoIndexStatsList = null;
 
     // Polymorphic: an index declared on a supertype is inherited by this type and is just as seekable from
     // it, so leaving it out of the statistics is what made the planner fall back to a full label scan for a
@@ -123,6 +128,17 @@ public class StatisticsProvider {
     for (final TypeIndex index : TypeIndex.filterReadyForQueries(type.getAllIndexes(true))) {
       // Only a key index can anchor a seek or a range scan: a FULL_TEXT, vector or geospatial index handed an
       // equality answers by token or similarity, and misses what it cannot tokenize (issue #8439)
+      // A GEOSPATIAL index anchors a geo seek instead, on a point.distance() or point.withinBBox() predicate. One built before
+      // shapes were read as written on the plane is not used by any query until it is rebuilt (issue #10210)
+      if (index.getType() == Schema.INDEX_TYPE.GEOSPATIAL) {
+        if (SQLFunctionGeoPredicate.isPlanar(index)) {
+          if (geoIndexStatsList == null)
+            geoIndexStatsList = new ArrayList<>(1);
+          geoIndexStatsList.add(new IndexStatistics(typeName, index.getPropertyNames(), false, index.getName(), false, false));
+        }
+        continue;
+      }
+
       final List<String> propertyNames = index.getPropertyNamesIfExactKeyLookup();
       if (propertyNames == null)
         continue;
@@ -141,6 +157,8 @@ public class StatisticsProvider {
     }
 
     indexStatsCache.put(typeName, indexStatsList);
+    if (geoIndexStatsList != null)
+      geoIndexStatsCache.put(typeName, geoIndexStatsList);
   }
 
   /**
@@ -161,6 +179,16 @@ public class StatisticsProvider {
    */
   public List<IndexStatistics> getIndexesForType(final String typeName) {
     return indexStatsCache.getOrDefault(typeName, new ArrayList<>());
+  }
+
+  /**
+   * The GEOSPATIAL index on a property of a type a geo seek can use (inherited from a supertype included), or null.
+   */
+  public IndexStatistics findGeoIndexForProperty(final String typeName, final String propertyName) {
+    for (final IndexStatistics index : geoIndexStatsCache.getOrDefault(typeName, List.of()))
+      if (index.canBeUsedForProperty(propertyName))
+        return index;
+    return null;
   }
 
   /**
@@ -510,6 +538,7 @@ public class StatisticsProvider {
   public void clear() {
     typeStatsCache.clear();
     indexStatsCache.clear();
+    geoIndexStatsCache.clear();
     averageDegreeCache.clear();
     meanEdgesPerConnectedPairCache.clear();
   }
