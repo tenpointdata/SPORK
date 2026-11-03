@@ -50,6 +50,7 @@ import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.utility.CollectionUtils;
 import com.arcadedb.utility.FileUtils;
+import com.arcadedb.versioning.RecordVersioning;
 
 import java.io.IOException;
 import java.util.*;
@@ -142,6 +143,8 @@ public class LocalDocumentType implements DocumentType {
   // changed by ALTER TYPE ... CUSTOM and read by toJSON() after the schema lock is released: copy-on-write, an unmodifiable
   // map replaced as a whole, so neither a reader nor a schema reload ever sees it half changed (#9989)
   protected volatile Map<String, Object>            custom                       = Collections.emptyMap();
+  // native record versioning, set by ALTER TYPE ... VERSIONED and read on every write of the type: see RecordVersioning
+  volatile boolean                                  versioned;
   // The four bucket lists are copy-on-write: reassigned under the schema mutation lock and read lock-free by query
   // planning through getBuckets(polymorphic)/getBucketIds(polymorphic), both branches of the ternary - the
   // non-polymorphic pair feeds SelectExecutionPlanner's partition pruning and FetchFromSchemaTypesStep exactly as the
@@ -2947,6 +2950,36 @@ public class LocalDocumentType implements DocumentType {
   }
 
   @Override
+  public boolean isVersioned() {
+    if (versioned)
+      return true;
+    for (final DocumentType superType : superTypes)
+      if (superType.isVersioned())
+        return true;
+    return false;
+  }
+
+  @Override
+  public DocumentType setVersioned(final boolean versioned) {
+    checkForSchemaMutation();
+    if (versioned) {
+      if (this instanceof LocalEdgeType edgeType && edgeType.isLightweight())
+        throw new SchemaException("Lightweight edge type '" + name + "' cannot be versioned: its edges have no record to version");
+      if (this instanceof LocalTimeSeriesType)
+        throw new SchemaException("Time series type '" + name + "' cannot be versioned");
+      if (RecordVersioning.HISTORY_TYPE.equals(name))
+        throw new SchemaException("The version history type cannot itself be versioned");
+      // outside the write frame below: it builds the history store's indexes, which waits for the asynchronous writers
+      RecordVersioning.prepareType(schema, this);
+    }
+    recordFileChanges(() -> {
+      this.versioned = versioned;
+      return null;
+    });
+    return this;
+  }
+
+  @Override
   public Object setCustomValue(final String key, final Object value) {
     checkForSchemaMutation();
     return recordFileChanges(() -> {
@@ -3040,6 +3073,10 @@ public class LocalDocumentType implements DocumentType {
     if (!RoundRobinBucketSelectionStrategy.NAME.equals(strategy.getName()))
       // WRITE ONLY IF NOT DEFAULT
       type.put("bucketSelectionStrategy", strategy.toJSON());
+
+    // Only when set, like the repartition flag below: an older engine reading this schema ignores the key
+    if (versioned)
+      type.put("versioned", true);
 
     // Persist the repartition flag only when set, so the default case adds nothing to schema.json.
     // Loaded back in LocalSchema after the strategy itself is restored.

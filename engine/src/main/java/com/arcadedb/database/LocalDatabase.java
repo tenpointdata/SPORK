@@ -120,6 +120,7 @@ import com.arcadedb.utility.MultiIterator;
 import com.arcadedb.utility.RWLockContext;
 import com.arcadedb.utility.RetryBackoff;
 import com.arcadedb.utility.VectorApiSupport;
+import com.arcadedb.versioning.RecordVersioning;
 
 import java.io.File;
 import java.io.IOException;
@@ -339,6 +340,7 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
   private            FileChannel                               lockFileIOChannel;
   private            FileLock                                  lockFileLock;
   private final      RecordEventsRegistry                      events                    = new RecordEventsRegistry();
+  private final      RecordVersioning                          versioning                = new RecordVersioning(this);
   private final      ConcurrentHashMap<String, QueryEngine>    reusableQueryEngines      = new ConcurrentHashMap<>();
   private final      ConcurrentHashMap<String, Object>         globalVariables           = new ConcurrentHashMap<>();
   private            TRANSACTION_ISOLATION_LEVEL               transactionIsolationLevel = TRANSACTION_ISOLATION_LEVEL.READ_COMMITTED;
@@ -1336,6 +1338,11 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
     });
   }
 
+  /** Native record versioning: the history of the records of versioned types. */
+  public RecordVersioning getVersioning() {
+    return versioning;
+  }
+
   @Override
   public GraphEngine getGraphEngine() {
     return graphEngine;
@@ -1479,11 +1486,14 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
               "Bucket '" + bucketName + "' is internal (purpose=" + bucket.getPurpose() + ") and cannot be written to directly");
       }
 
+      versioning.onCreate(record);
+
       ((RecordInternal) record).setIdentity(bucket.createRecord(record, discardRecordAfter));
 
       final TransactionContext transaction = getTransaction();
       transaction.updateRecordInCache(record);
       transaction.updateBucketRecordDelta(bucket.getFileId(), +1);
+      versioning.afterCreate(record);
 
       // A brand-new edge chunk cannot be edge-append rebased: the committed version of its page does not contain
       // this chunk yet, so replaying appends against it would target the wrong bytes. Exclude the whole page
@@ -1857,6 +1867,11 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
         if (!tx.addUpdatedRecord(record))
           return false;
 
+        // NATIVE VERSIONING: keep the committed image and stamp the new version BEFORE the indexes see the new values. Only the
+        // user-visible path: the engine's own bookkeeping (fireEvents false) is not a new version of the record
+        if (fireEvents)
+          versioning.beforeUpdate(record);
+
         if (record instanceof Document document) {
           // UPDATE THE INDEX IN MEMORY BEFORE UPDATING THE PAGE
           final List<IndexInternal> indexes = indexer.getInvolvedIndexes(document);
@@ -1906,6 +1921,8 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
             "transaction", e);
       }
     } else {
+      if (fireEvents)
+        versioning.beforeUpdate(record);
       updateRecordNoLock(record, discardRecordAfter);
       countCompletedUpdate(getTransaction(), record);
     }
@@ -2135,6 +2152,9 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
       // the #4932 retry signal, leaving the record undeletable. Scoped to the exact record the caller asked to delete.
       boolean forceBrokenChainDelete = false;
       final boolean tolerateBrokenChain = configuration.getValueAsBoolean(GlobalConfiguration.DELETE_TOLERATE_BROKEN_CHAIN);
+
+      // NATIVE VERSIONING: the committed image goes to the history store while it can still be read
+      versioning.beforeDelete(record);
 
       if (record instanceof Document document) {
         try {

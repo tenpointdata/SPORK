@@ -158,6 +158,11 @@ public class TransactionContext implements Transaction {
   // RID no longer exists, so the identity is reset to provisional (null) letting the same in-memory object be cleanly
   // re-inserted in a later transaction instead of being treated as an update of a missing record (issue #4562).
   private final List<Record>                         newRecords            = new ArrayList<>();
+  // Native record versioning (RecordVersioning): the one transaction-time stamp every versioned write of this transaction
+  // carries (0 until the first one asks), and per record the history entry already written for it, or the record itself
+  // when this transaction created it. A record whose entry lost its identity to a statement rollback is captured again.
+  private       long                                 versionStamp;
+  private       Map<RID, Record>                     versionedRecords;
   private final TransactionIndexContext              indexChanges;
   // #7931/#7933: what an index hands over so this transaction's CONCLUSION can be applied to the non-transactional
   // state its replay touched. The replay runs inside commit1stPhase BEFORE the page versions are validated, so a
@@ -4079,6 +4084,25 @@ public class TransactionContext implements Transaction {
     return unidirectionalEdgeChanges;
   }
 
+  public long getVersionStamp() {
+    return versionStamp;
+  }
+
+  public void setVersionStamp(final long versionStamp) {
+    this.versionStamp = versionStamp;
+  }
+
+  /** The history entry (or created record) this transaction already wrote for {@code rid}, or null. */
+  public Record getVersionedRecord(final RID rid) {
+    return versionedRecords == null ? null : versionedRecords.get(rid);
+  }
+
+  public void setVersionedRecord(final RID rid, final Record handledBy) {
+    if (versionedRecords == null)
+      versionedRecords = new HashMap<>();
+    versionedRecords.put(rid, handledBy);
+  }
+
   public void reset() {
     // The statement ends with the transaction it runs in (a script's own COMMIT, a batch boundary): nothing is left to take back
     if (statement != null) {
@@ -4089,6 +4113,8 @@ public class TransactionContext implements Transaction {
     unidirectionalEdgeTargets = null;
     unidirectionalScanEpoch = -1L;
     scannedBuckets = null;
+    versionStamp = 0L;
+    versionedRecords = null;
     indexesReconciled = null;
     bucketFirstWriteSequences = null;
     lastNotedBucket = -1;

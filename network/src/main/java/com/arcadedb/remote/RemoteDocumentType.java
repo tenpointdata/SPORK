@@ -570,6 +570,12 @@ public class RemoteDocumentType implements DocumentType {
   }
 
   @Override
+  public DocumentType setVersioned(final boolean versioned) {
+    remoteDatabase.command("sql", "alter type " + Identifier.quote(name) + " versioned " + versioned);
+    return this;
+  }
+
+  @Override
   public JSONObject toJSON() {
     throw new UnsupportedOperationException("toJSON() is not supported in remote database. Use SQL SELECT FROM schema:types instead.");
   }

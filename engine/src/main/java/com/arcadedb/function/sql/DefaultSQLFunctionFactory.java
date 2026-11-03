@@ -69,6 +69,10 @@ import com.arcadedb.function.sql.graph.SQLFunctionOutE;
 import com.arcadedb.function.sql.graph.SQLFunctionCypherRID;
 import com.arcadedb.function.sql.graph.SQLFunctionOutV;
 import com.arcadedb.function.sql.graph.SQLFunctionShortestPath;
+import com.arcadedb.function.sql.history.SQLFunctionHistoryAsOf;
+import com.arcadedb.function.sql.history.SQLFunctionHistoryEdges;
+import com.arcadedb.function.sql.history.SQLFunctionHistoryOf;
+import com.arcadedb.function.sql.history.SQLFunctionHistoryPurge;
 import com.arcadedb.function.sql.math.SQLFunctionAbsoluteValue;
 import com.arcadedb.function.sql.math.SQLFunctionAverage;
 import com.arcadedb.function.sql.math.SQLFunctionCount;
@@ -273,6 +277,12 @@ public final class DefaultSQLFunctionFactory extends SQLFunctionFactoryTemplate 
     register(SQLFunctionCoalesce.NAME, new SQLFunctionCoalesce());
     register(SQLFunctionDecode.NAME, new SQLFunctionDecode());
     register(SQLFunctionEncode.NAME, new SQLFunctionEncode());
+
+    // Native record versioning
+    register(SQLFunctionHistoryOf.NAME, new SQLFunctionHistoryOf());
+    register(SQLFunctionHistoryAsOf.NAME, new SQLFunctionHistoryAsOf());
+    register(SQLFunctionHistoryEdges.NAME, new SQLFunctionHistoryEdges());
+    register(SQLFunctionHistoryPurge.NAME, new SQLFunctionHistoryPurge());
     register(SQLFunctionIf.NAME, new SQLFunctionIf());
     register(SQLFunctionIfEmpty.NAME, new SQLFunctionIfEmpty());
     register(SQLFunctionIfNull.NAME, new SQLFunctionIfNull());

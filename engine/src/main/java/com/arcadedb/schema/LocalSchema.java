@@ -4086,6 +4086,7 @@ public class LocalSchema implements Schema {
         type.custom = schemaType.has("custom") ?
             Collections.unmodifiableMap(new HashMap<>(schemaType.getJSONObject("custom").toMap())) :
             Collections.emptyMap();
+        type.versioned = schemaType.getBoolean("versioned", false);
       }
 
       // CREATE THE PROPERTIES AFTER ALL THE TYPES HAVE BEEN CREATED TO FIND ALL THE REFERENCES LINKED WITH `TO`
