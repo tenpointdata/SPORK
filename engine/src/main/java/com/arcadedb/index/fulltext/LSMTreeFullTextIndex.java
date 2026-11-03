@@ -2402,13 +2402,23 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
       return false;
     try {
       // A compaction already running (an automatic one) asks for the sidecar when it completes: wait for it rather than snapshot
-      // an index whose compacted part is being written. Bounded: past it, the sidecar is left to that compaction
+      // an index whose compacted part is being written. Bounded: past it, the sidecar is left to that compaction.
+      // The automatic compaction the last commit queued can also claim the index after the wait and before the compaction below:
+      // that one then does not run, and the sidecar used to be written while the other was still merging, from the compacted part
+      // as it was before it (none at all on a first compaction), so the build answered false. Waited for again until the compaction
+      // here ran, or nothing compacts
       final long deadline = System.currentTimeMillis() + 60_000L;
-      while (underlyingIndex.isCompacting() && System.currentTimeMillis() < deadline)
-        Thread.sleep(10L);
-      // Scheduled by the automatic trigger but not started yet: compact() runs it here
-      underlyingIndex.scheduleCompaction();
-      compactExplicitly();
+      while (true) {
+        while (underlyingIndex.isCompacting() && System.currentTimeMillis() < deadline)
+          Thread.sleep(10L);
+        final Runnable probe = blockMaxCompactionProbe;
+        if (probe != null)
+          probe.run();
+        // Scheduled by the automatic trigger but not started yet: compact() runs it here
+        underlyingIndex.scheduleCompaction();
+        if (compactExplicitly() || !underlyingIndex.isCompacting() || System.currentTimeMillis() >= deadline)
+          break;
+      }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       return isBlockMaxCurrent();
@@ -2448,6 +2458,11 @@ public class LSMTreeFullTextIndex implements Index, IndexInternal {
    * Test hook: run by the build after each term it writes, outside every index lock. Null outside tests.
    */
   static volatile Runnable blockMaxBuildProbe;
+
+  /**
+   * Test hook: run by {@link #buildBlockMax()} after it waited for a running compaction and before it compacts. Null outside tests.
+   */
+  static volatile Runnable blockMaxCompactionProbe;
 
   /**
    * The build, under {@link #blockMaxBuildLock}. It holds the LSM-Tree lock only to take its snapshot: the compacted file, the
