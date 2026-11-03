@@ -28,20 +28,22 @@ import com.arcadedb.schema.DocumentType;
 import com.arcadedb.utility.ResettableIterator;
 
 import java.util.ConcurrentModificationException;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 public abstract class ResettableIteratorBase<T> implements ResettableIterator<T> {
   protected final DatabaseInternal database;
   private final   EdgeSegment      initialContainer;
   protected       EdgeSegment      currentContainer;
-  protected final AtomicInteger    currentPosition = new AtomicInteger(MutableEdgeSegment.CONTENT_START_POSITION);
+  // THE POSITION OF THE NEXT ENTRY IN currentContainer: A PLAIN int, READ AND WRITTEN BY THIS THREAD ONLY (S6)
+  protected       int              currentPosition;
+  // SCRATCH FOR THE FOUR NUMBERS OF AN ENTRY, SEE EdgeSegment.nextEntry(): ONE PER ITERATOR, NOT ONE PER ENTRY
+  protected final long[]           entry           = new long[4];
   protected       int              browsed         = 0;
   private         int              neighborBucketId = -1;
   private         long             neighborPosition = -1;
   private         boolean          neighborFiltered = false;
   private         ChainCycleGuard  cycleGuard;
-  // THE ENTRY THE LAST next() RETURNED, SEE entryReturned()
+  // THE ENTRY THE LAST next() RETURNED, SEE entryReturned(): ITS RIDS ARE DECODED ONLY WHEN remove() NEEDS THEM
   private         EdgeSegment      returnedContainer;
   private         int              returnedBegin;
   private         int              returnedEnd;
@@ -52,6 +54,8 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
   private         int              lastEntryPosition;
   // SET WHEN THE WALKED LIST WAS CHANGED BY SOMETHING ELSE DURING A remove(): THE ITERATOR'S VIEW OF IT IS STALE
   private         boolean          invalidated;
+  // SET ONCE AN UNLINK MOVED THE WALK ONTO THE TRANSACTION'S OWN COPY OF THE SEGMENT, SEE entryReturned(EdgeSegment, int, int)
+  private         boolean          walkingWrittenCopy;
   // THE LIST THIS ITERATION READS, WHICH COUNTS THE TWINS OF ITS LIGHTWEIGHT EDGES WHEN ASKED (ISSUE #10008)
   private         EdgeLinkedList   censusSource;
 
@@ -61,6 +65,7 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     this.database = database;
     this.initialContainer = current;
     this.currentContainer = walkable(current);
+    this.currentPosition = MutableEdgeSegment.CONTENT_START_POSITION;
   }
 
   /**
@@ -81,11 +86,16 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
    * reads the list as it stood when it got there.
    */
   private static EdgeSegment walkable(final EdgeSegment segment) {
-    final RID rid = segment != null ? segment.getIdentity() : null;
+    return segment != null && isTransactionsWrittenRecord(segment) ? segment.copy() : segment;
+  }
+
+  /** Tells whether {@code segment} is the very instance the transaction holds as its written copy of the chunk. */
+  private static boolean isTransactionsWrittenRecord(final EdgeSegment segment) {
+    final RID rid = segment.getIdentity();
     if (rid == null)
-      return segment;
+      return false;
     final TransactionContext tx = ((DatabaseInternal) segment.getDatabase()).getTransactionIfExists();
-    return tx != null && tx.getWrittenRecord(rid) == segment ? segment.copy() : segment;
+    return tx != null && tx.hasWrittenRecords() && tx.getWrittenRecord(rid) == segment;
   }
 
   final void setCensusSource(final EdgeLinkedList list) {
@@ -121,11 +131,17 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
         || (neighbor != null && neighbor.getBucketId() == neighborBucketId && neighbor.getPosition() == neighborPosition);
   }
 
+  /** {@link #matchesNeighborFilter(RID)} on the two numbers of the neighbour pointer, before any RID is built for it. */
+  protected final boolean matchesNeighborFilter(final long bucketId, final long position) {
+    return !neighborFiltered || (bucketId == neighborBucketId && position == neighborPosition);
+  }
+
   @Override
   public void reset() {
     this.currentContainer = walkable(initialContainer);
     cycleGuard = null;
-    currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
+    currentPosition = MutableEdgeSegment.CONTENT_START_POSITION;
+    walkingWrittenCopy = false;
     browsed = 0;
     returnedContainer = null;
     lastEntryContainer = null;
@@ -145,7 +161,8 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
   protected final RID lastEntryEdgeRID() {
     if (lastEntryContainer == null)
       throw new IllegalStateException("No entry: next() has not returned one yet");
-    return lastEntryContainer.getRID(new AtomicInteger(lastEntryPosition));
+    lastEntryContainer.nextEntry(lastEntryPosition, entry);
+    return RID.create(lastEntryContainer.getDatabase(), (int) entry[0], entry[1]);
   }
 
   /**
@@ -159,6 +176,48 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     returnedEnd = end;
     returnedEdge = edge;
     returnedVertex = vertex;
+  }
+
+  /**
+   * {@link #entryReturned(EdgeSegment, int, int, RID, RID)} for a walk that did not build the entry's RIDs: they are decoded
+   * from {@code container} at {@code begin} if and when {@link #removeReturnedEntry} asks for them (S6). The bytes there do not
+   * move in the meantime when the container is this walk's private view or copy, whose only writer is the unlink itself. When it
+   * is the transaction's own written copy of the chunk, which the transaction can shift before {@code remove()}, they are decoded
+   * now.
+   */
+  protected final void entryReturned(final EdgeSegment container, final int begin, final int end) {
+    entryReturned(container, begin, end, null, null);
+    // ON THE TRANSACTION'S LIVE COPY OF THE CHUNK (WHERE AN UNLINK MOVES THE WALK, OR A CHUNK THE CALLER HANDED IN THAT THE
+    // TRANSACTION WROTE SINCE) THE TRANSACTION ITSELF CAN SHIFT THE ENTRIES BETWEEN next() AND remove(): THERE THE RIDS ARE CAPTURED
+    // NOW, SO THAT remove() CAN TELL THE ENTRY MOVED INSTEAD OF DELETING WHATEVER SITS AT ITS OLD POSITION. THE FLAG ALONE IS NOT
+    // TRUSTED, THE INSTANCE IS ASKED; A PAGE VIEW IS NEVER WRITTEN, SO A WALK OVER VIEWS SKIPS THE TRANSACTION LOOKUP
+    if (container == currentContainer && (walkingWrittenCopy || (!isReadOnlyView(container) && isTransactionsWrittenRecord(
+        container))))
+      decodeReturnedEntry();
+  }
+
+  private static boolean isReadOnlyView(final EdgeSegment segment) {
+    return segment instanceof MutableEdgeSegment mutable && mutable.isReadOnlyView();
+  }
+
+  /** The edge RID of the returned entry, decoded on first use. */
+  private RID returnedEdgeRID() {
+    if (returnedEdge == null)
+      decodeReturnedEntry();
+    return returnedEdge;
+  }
+
+  /** The vertex RID of the returned entry, decoded on first use. */
+  private RID returnedVertexRID() {
+    if (returnedVertex == null)
+      decodeReturnedEntry();
+    return returnedVertex;
+  }
+
+  private void decodeReturnedEntry() {
+    returnedContainer.nextEntry(returnedBegin, entry);
+    returnedEdge = RID.create(returnedContainer.getDatabase(), (int) entry[0], entry[1]);
+    returnedVertex = RID.create(returnedContainer.getDatabase(), (int) entry[2], entry[3]);
   }
 
   /**
@@ -222,7 +281,16 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     checkNotInvalidated();
     if (returnedContainer == null)
       throw new IllegalStateException("No entry to remove: next() has not been called since the last remove()");
-    unlinkReturnedEntry(returnedContainer);
+    // THE TRANSACTION'S COPY, NOT THE WALKED ONE, WHICH IS A READ-ONLY VIEW OF ITS PAGE (S7) OR A PRIVATE COPY (see walkable());
+    // AND BY POSITION ONLY IF THAT COPY STILL HOLDS THE ENTRY THERE, AS removeReturnedEntry() DOES
+    final DatabaseInternal database = (DatabaseInternal) returnedContainer.getDatabase();
+    final EdgeSegment current = (EdgeSegment) database.lookupByRID(returnedContainer.getIdentity(), true);
+    if (holdsReturnedEntryAt(current))
+      unlinkReturnedEntry(current);
+    else {
+      removeReturnedEntryByIdentity(current);
+      invalidated = true;
+    }
   }
 
   /** Throws when a {@code remove()} found the walked list changed under it, see {@link #removeReturnedEntry}. */
@@ -246,9 +314,10 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     if (container == currentContainer) {
       // GO ON ON THE COPY THAT WAS WRITTEN
       currentContainer = target;
+      walkingWrittenCopy = true;
       // THE ENTRIES AFTER THE REMOVED ONE SHIFTED BACK, THE CURSOR AND ANY ENTRY ALREADY PEEKED WITH THEM
       final int removed = returnedEnd - returnedBegin;
-      currentPosition.addAndGet(-removed);
+      currentPosition -= removed;
       entriesShiftedBack(removed);
     }
   }
@@ -256,22 +325,26 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
   private boolean holdsReturnedEntryAt(final EdgeSegment segment) {
     if (returnedEnd > segment.getUsed())
       return false;
-    final AtomicInteger position = new AtomicInteger(returnedBegin);
-    return returnedEdge.equals(segment.getRID(position)) && returnedVertex.equals(segment.getRID(position))
-        && position.get() == returnedEnd;
+    final RID edge = returnedEdgeRID();
+    final RID vertex = returnedVertexRID();
+    final int end = segment.nextEntry(returnedBegin, entry);
+    return end == returnedEnd && entry[0] == edge.getBucketId() && entry[1] == edge.getPosition()
+        && entry[2] == vertex.getBucketId() && entry[3] == vertex.getPosition();
   }
 
   /** The returned entry wherever it now is in {@code segment}: entries never move to another segment. */
   private void removeReturnedEntryByIdentity(final EdgeSegment segment) {
+    final RID edge = returnedEdgeRID();
+    final RID vertex = returnedVertexRID();
     returnedContainer = null;
     final int used = segment.getUsed();
-    final AtomicInteger position = new AtomicInteger(MutableEdgeSegment.CONTENT_START_POSITION);
-    while (position.get() < used) {
-      final int begin = position.get();
-      final RID edge = segment.getRID(position);
-      final RID vertex = segment.getRID(position);
-      if (returnedEdge.equals(edge) && returnedVertex.equals(vertex)) {
-        segment.removeEntry(begin, position.get());
+    int position = MutableEdgeSegment.CONTENT_START_POSITION;
+    while (position < used) {
+      final int begin = position;
+      position = segment.nextEntry(position, entry);
+      if (entry[0] == edge.getBucketId() && entry[1] == edge.getPosition() && entry[2] == vertex.getBucketId()
+          && entry[3] == vertex.getPosition()) {
+        segment.removeEntry(begin, position);
         // THE LISTENER THAT SENT THE REMOVAL HERE MAY HAVE APPENDED TO THIS VERY SEGMENT: SEE unlinkReturnedEntry (#10375)
         EdgeLinkedList.updateRewrittenSegment((DatabaseInternal) segment.getDatabase(), segment);
         return;
@@ -290,6 +363,8 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
 
   /** @return false when a before-delete listener vetoed the delete, true when the entry is to be taken out */
   private boolean deleteEdgeOfEntry(final DatabaseInternal database, final RID listOwner, final Vertex.DIRECTION listDirection) {
+    final RID returnedEdge = returnedEdgeRID();
+    final RID returnedVertex = returnedVertexRID();
     if (returnedEdge.getPosition() < 0) {
       final DocumentType edgeType = database.getSchema().getTypeByBucketId(returnedEdge.getBucketId());
       if (edgeType == null) {
@@ -328,8 +403,8 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
   }
 
   /**
-   * Hops {@link #currentContainer} to the previous chunk in the edge list, exhausted-entry positioning left to the
-   * caller. Guards against a chunk whose {@code previous} pointer names itself: {@code EdgeLinkedList.containsEdge},
+   * Hops {@link #currentContainer} to the previous chunk in the edge list and sets {@link #currentPosition} on its first
+   * entry. Guards against a chunk whose {@code previous} pointer names itself: {@code EdgeLinkedList.containsEdge},
    * {@code containsVertex}, {@code containsLightEdge} and {@code getFirstEdgeConnectedToVertex} have always broken
    * out of such a chain, and so, since #6276, has {@link EdgeVertexIterator}. This is that same guard, lifted here
    * so every chunk-hopping iterator gets it once instead of drifting copies (#6278) - {@link EdgeIterator},
@@ -342,23 +417,30 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
    * On such a chain the corruption ENDS the walk silently, matching every other consumer of this guard: none of
    * them logs, so a self-loop is reported by {@code CHECK DATABASE} - which is what a corrupted database calls for
    * a diagnosis - rather than by an ordinary traversal.
+   * <p>
+   * The chunk is read as a view of its cached page, not as a copy of it, through {@link EdgeLinkedList#readChunkForWalk}
+   * (S7): a walk reads and never writes the chunks it hops to.
    *
    * @return the new {@link #currentContainer}, or {@code null} when the walk has reached the head of the list or
-   * ended early on a self-referencing chunk. Callers must not reset {@link #currentPosition} unless this returns
-   * non-null.
+   * ended early on a self-referencing chunk
    */
   protected final EdgeSegment moveToPreviousChunk() {
     final RID currentIdentity = currentContainer.getIdentity();
     if (cycleGuard == null)
       cycleGuard = new ChainCycleGuard(initialContainer.getIdentity());
-    currentContainer = walkable(currentContainer.getPrevious());
-    if (currentContainer != null) {
-      final RID previousIdentity = currentContainer.getIdentity();
-      // THE CHUNK'S "previous" POINTER NAMES ITSELF, OR THE CHAIN CLOSES ON A CHUNK ALREADY WALKED: STOP INSTEAD OF LOOPING FOREVER
-      if ((currentIdentity != null && currentIdentity.equals(previousIdentity))
-          || (previousIdentity != null && cycleGuard.revisits(previousIdentity)))
-        currentContainer = null;
+    final RID previousRID = currentContainer.getPreviousRID();
+    if (previousRID == null) {
+      currentContainer = null;
+      return null;
     }
+    // THE CHUNK'S "previous" POINTER NAMES ITSELF, OR THE CHAIN CLOSES ON A CHUNK ALREADY WALKED: STOP INSTEAD OF LOOPING FOREVER
+    if ((currentIdentity != null && currentIdentity.equals(previousRID)) || cycleGuard.revisits(previousRID)) {
+      currentContainer = null;
+      return null;
+    }
+    currentContainer = walkable(currentContainer.previousForWalk());
+    currentPosition = MutableEdgeSegment.CONTENT_START_POSITION;
+    walkingWrittenCopy = false;
     return currentContainer;
   }
 
@@ -367,9 +449,11 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     long total = browsed;
 
     final EdgeSegment savedContainer = currentContainer;
-    final int savedCurrentPosition = currentPosition.get();
+    final int savedCurrentPosition = currentPosition;
     final int savedBrowsed = browsed;
     final ChainCycleGuard savedGuard = cycleGuard == null ? null : cycleGuard.copy();
+    // THE COUNT'S CHUNK HOPS CLEAR IT, AND THE CURSOR GOES BACK ON THE CHUNK IT DESCRIBES
+    final boolean savedWalkingWrittenCopy = walkingWrittenCopy;
     // THE COUNT WALKS THROUGH next(): THE ENTRY A FOLLOWING remove() IS ABOUT MUST SURVIVE IT
     final EdgeSegment savedReturnedContainer = returnedContainer;
     final int savedReturnedBegin = returnedBegin;
@@ -385,9 +469,10 @@ public abstract class ResettableIteratorBase<T> implements ResettableIterator<T>
     } finally {
       // RESTORE SAVED POSITION
       currentContainer = savedContainer;
-      currentPosition.set(savedCurrentPosition);
+      currentPosition = savedCurrentPosition;
       browsed = savedBrowsed;
       cycleGuard = savedGuard;
+      walkingWrittenCopy = savedWalkingWrittenCopy;
       returnedContainer = savedReturnedContainer;
       returnedBegin = savedReturnedBegin;
       returnedEnd = savedReturnedEnd;

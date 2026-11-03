@@ -284,6 +284,15 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
     if (searchShape == null)
       return new EmptyIndexCursor();
 
+    // ADJACENT FRONTIER CELLS SHARE ONE RANGE SCAN (S12), WHICH THE FULL LAYOUT CANNOT DO: ITS FRONTIER CELLS ARE EXACT LOOKUPS
+    return newCursor(keys, searchShape, tokenization != GeoIndexMetadata.TOKENIZATION.FULL);
+  }
+
+  /**
+   * The lazy cursor over the covering cells of {@code searchShape}, see {@link #get(Object[], int)}. Package-private so the
+   * coalescing of adjacent frontier cells can be measured against one scan per cell on the same index.
+   */
+  GeoIndexCursor newCursor(final Object[] keys, final Shape searchShape, final boolean coalesceFrontierRuns) {
     // Determine the detail level for the query (same heuristic as RecursivePrefixTreeStrategy)
     final SpatialArgs args = new SpatialArgs(SpatialOperation.Intersects, searchShape);
     final double distErr = args.resolveDistErr(GeoUtils.getSpatialContext(), strategy.getDistErrPct());
@@ -296,8 +305,21 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
     // that the SQL geo.* predicate re-checks, so truncating it here would drop rows that would have survived the
     // filter - silently, and only on some queries. The caller applies the limit to the FILTERED rows instead, which
     // now stops this cursor at the right place rather than after the fact.
-    return new GeoIndexCursor(keys, newCoveringCellWalk(searchShape, detailLevel), this::openCellCursor);
+    return new GeoIndexCursor(keys, newCoveringCellWalk(searchShape, detailLevel), cellCursors, coalesceFrontierRuns);
   }
+
+  /** The scans {@link GeoIndexCursor} opens on this index: one cell, or one run of adjacent frontier cells. */
+  private final GeoIndexCursor.CellCursorFactory cellCursors = new GeoIndexCursor.CellCursorFactory() {
+    @Override
+    public IndexCursor open(final String token, final boolean frontier) {
+      return openCellCursor(token, frontier);
+    }
+
+    @Override
+    public IndexCursor openFrontierRun(final String firstToken, final String lastToken) {
+      return openFrontierRunCursor(firstToken, lastToken);
+    }
+  };
 
   /**
    * Opens the underlying scan answering one covering cell. Package-private: the only caller is {@link GeoIndexCursor},
@@ -312,9 +334,19 @@ public class LSMTreeGeoIndex implements Index, IndexInternal {
     // Frontier cell: every indexed cell at or below it starts with its token, which on a sorted store is one
     // range scan instead of one lookup per descendant level. This is the site the ASCII invariant actually
     // protects - the bound is appended to THIS token - so assert it here as well as where tokens are written.
-    assert isAsciiToken(token) : "a FRONTIER token must be ASCII for the prefix range scan bound to hold: " + token;
-    return underlyingIndex.range(true, new Object[] { token }, true,
-        new Object[] { token + PREFIX_SCAN_UPPER_BOUND }, true);
+    return openFrontierRunCursor(token, token);
+  }
+
+  /**
+   * One prefix range scan from {@code firstToken} to the upper bound of {@code lastToken}: the scan of a frontier cell when the
+   * two are the same token, the scan of a run of adjacent frontier siblings otherwise (see
+   * {@link GeoIndexCursor#adjacentSiblings}: nothing sits between them in key order, so the range answers exactly the run).
+   */
+  IndexCursor openFrontierRunCursor(final String firstToken, final String lastToken) {
+    assert isAsciiToken(firstToken) && isAsciiToken(lastToken) :
+        "a FRONTIER token must be ASCII for the prefix range scan bound to hold: " + firstToken + ", " + lastToken;
+    return underlyingIndex.range(true, new Object[] { firstToken }, true,
+        new Object[] { lastToken + PREFIX_SCAN_UPPER_BOUND }, true);
   }
 
   @Override

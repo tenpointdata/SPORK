@@ -22,11 +22,10 @@ import com.arcadedb.database.Identifiable;
 import com.arcadedb.database.RID;
 import com.arcadedb.index.IndexCursor;
 import com.arcadedb.serializer.BinaryComparator;
+import com.arcadedb.utility.RidHashSet;
 
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Set;
 
 /**
  * Lazy cursor over the GeoHash cells covering a search shape (#5601).
@@ -38,13 +37,22 @@ import java.util.Set;
  * even when the query only needed the first page of results. This cursor opens ONE underlying scan at a time, closes
  * it as soon as it is drained, and never touches a cell the consumer did not ask to reach.
  * <p>
+ * ADJACENT FRONTIER CELLS SHARE ONE SCAN (retrieval speed, S12). The walk is a pre-order over the cell tree, so the frontier
+ * cells of one parent come out one after the other in GeoHash order, and two siblings whose last characters are consecutive
+ * in the GeoHash alphabet have no cell between them in the index's key order: the prefix range of the first and the prefix
+ * range of the second are contiguous, and ONE range from the first token to the last token's upper bound covers exactly the
+ * run of them. A wide radius decomposes into mostly such runs (a 200 km circle at the default precision is about 200 cells,
+ * of which the interior ones come in runs of siblings), and every run saved is a cursor open saved: on a live LSM index that
+ * is one seek per mutable page and per compacted series. Coalescing is off for the FULL layout, whose frontier cells are
+ * exact lookups rather than prefix scans, and for a factory that does not open runs.
+ * <p>
  * Deduplication is still needed and is still a set of RIDs: the covering cells of a query are disjoint, but a single
  * record is not indexed under a single cell - a polygon or a line decomposes into many - so the same RID can be reached
  * through several of them. What the set no longer costs is a second, parallel copy of the same information: it holds
  * only what has actually been EMITTED, so a consumer that stops early (a {@code LIMIT} applied after the geo.*
  * predicate re-check) never pays for the candidates it did not read. On the legacy {@code FULL} layout, which stores
  * the whole ancestor chain of every cell, the set additionally absorbs the same record being found under a cell and
- * under one of its ancestors.
+ * under one of its ancestors. The set is a {@link RidHashSet}: two primitive arrays, no boxed RID per candidate.
  * <p>
  * {@link #hasNext()} is exact: the lookahead needed to skip already-seen RIDs also makes it honest, so {@link #next()}
  * never answers null and throws {@link NoSuchElementException} when exhausted, per the {@link Iterator} contract. Since
@@ -61,14 +69,27 @@ class GeoIndexCursor implements IndexCursor {
   /** Shared: {@link #getBinaryKeyTypes()} is on the cursor surface, so it must not allocate per call. */
   private static final byte[] NO_KEY_TYPES = new byte[0];
 
+  /**
+   * The GeoHash alphabet, in the order the cells of one parent sort in: it is also ASCII order, which is what makes a run of
+   * consecutive siblings one contiguous key range (no indexed token uses a character outside it).
+   */
+  static final String GEOHASH_ALPHABET = "0123456789bcdefghjkmnpqrstuvwxyz";
+
   private final Object[]            keys;
   private final GeoCoveringCellWalk walk;
   private final CellCursorFactory   cellCursorFactory;
-  private final Set<RID>            seen = new HashSet<>();
+  private final boolean             coalesceFrontierRuns;
+  private final RidHashSet          seen = new RidHashSet();
   private       IndexCursor         cellCursor;
   private       RID                 nextRID;
   private       RID                 currentRID;
   private       boolean             closed;
+  // THE CELL THE RUN DETECTION READ PAST: THE FIRST CELL OF THE NEXT SCAN, SEE openNextScan()
+  private       String              pendingToken;
+  private       boolean             pendingFrontier;
+  // THE RUNS OPENED AND THE CELLS THEY SAVED, FOR THE TESTS AND THE BENCHMARK OF THE COALESCING
+  private       int                 scansOpened;
+  private       int                 cellsCoalesced;
 
   /**
    * Opens the underlying scan that answers one covering cell. Kept as a factory rather than a direct call into
@@ -77,12 +98,31 @@ class GeoIndexCursor implements IndexCursor {
   @FunctionalInterface
   interface CellCursorFactory {
     IndexCursor open(String token, boolean frontier);
+
+    /**
+     * Opens ONE scan over the run of adjacent frontier cells from {@code firstToken} to {@code lastToken} inclusive, both of
+     * the same level and the same parent: the prefix range from the first token to the upper bound of the last. A factory
+     * that cannot (an exact-lookup layout) leaves the default, and the cursor must then be built without coalescing.
+     */
+    default IndexCursor openFrontierRun(final String firstToken, final String lastToken) {
+      throw new UnsupportedOperationException("This cell cursor factory opens one cell at a time");
+    }
   }
 
   GeoIndexCursor(final Object[] keys, final GeoCoveringCellWalk walk, final CellCursorFactory cellCursorFactory) {
+    this(keys, walk, cellCursorFactory, false);
+  }
+
+  /**
+   * @param coalesceFrontierRuns true to answer a run of adjacent frontier cells with one scan through
+   *                             {@link CellCursorFactory#openFrontierRun}, false to open every cell on its own
+   */
+  GeoIndexCursor(final Object[] keys, final GeoCoveringCellWalk walk, final CellCursorFactory cellCursorFactory,
+      final boolean coalesceFrontierRuns) {
     this.keys = keys;
     this.walk = walk;
     this.cellCursorFactory = cellCursorFactory;
+    this.coalesceFrontierRuns = coalesceFrontierRuns;
   }
 
   @Override
@@ -127,7 +167,7 @@ class GeoIndexCursor implements IndexCursor {
         cellCursor = null;
       }
 
-      if (!walk.advance()) {
+      if (!openNextScan()) {
         // The walk is over, so nothing more can be emitted and the seen-set has no reader left. Release it here rather
         // than waiting for close(): on a wide-area query it holds one entry per candidate, and a cursor that empties
         // itself on exhaustion does not depend on every caller remembering to close a fully drained scan.
@@ -135,9 +175,70 @@ class GeoIndexCursor implements IndexCursor {
         seen.clear();
         return;
       }
-
-      cellCursor = cellCursorFactory.open(walk.getToken(), walk.isFrontier());
     }
+  }
+
+  /**
+   * Opens the scan of the next covering cell - or of the run of adjacent frontier cells it begins, when coalescing - into
+   * {@link #cellCursor}. False when the walk has no cell left.
+   */
+  private boolean openNextScan() {
+    if (!nextCell())
+      return false;
+    final String first = pendingToken;
+    final boolean frontier = pendingFrontier;
+    pendingToken = null;
+
+    if (!frontier || !coalesceFrontierRuns) {
+      cellCursor = cellCursorFactory.open(first, frontier);
+      ++scansOpened;
+      return true;
+    }
+
+    // EXTEND THE RUN WHILE THE NEXT CELL IS THE FRONTIER SIBLING RIGHT AFTER THE LAST ONE; THE CELL THAT ENDS IT IS KEPT FOR
+    // THE NEXT SCAN
+    String last = first;
+    while (walk.advance()) {
+      if (walk.isFrontier() && adjacentSiblings(last, walk.getToken())) {
+        last = walk.getToken();
+        ++cellsCoalesced;
+      } else {
+        pendingToken = walk.getToken();
+        pendingFrontier = walk.isFrontier();
+        break;
+      }
+    }
+
+    cellCursor = last.equals(first) ? cellCursorFactory.open(first, true) : cellCursorFactory.openFrontierRun(first, last);
+    ++scansOpened;
+    return true;
+  }
+
+  /** Puts the next covering cell into the pending slot: the one the run detection read past, or the walk's next. */
+  private boolean nextCell() {
+    if (pendingToken != null)
+      return true;
+    if (!walk.advance())
+      return false;
+    pendingToken = walk.getToken();
+    pendingFrontier = walk.isFrontier();
+    return true;
+  }
+
+  /**
+   * Whether {@code next} is the sibling cell right after {@code previous} in GeoHash order: same level, same parent, last
+   * characters consecutive in {@link #GEOHASH_ALPHABET}. Only then is the key range from one to the other free of any other
+   * cell, so a range over both answers exactly the two of them.
+   */
+  static boolean adjacentSiblings(final String previous, final String next) {
+    final int length = previous.length();
+    if (length == 0 || next.length() != length)
+      return false;
+    for (int i = 0; i < length - 1; i++)
+      if (previous.charAt(i) != next.charAt(i))
+        return false;
+    final int before = GEOHASH_ALPHABET.indexOf(previous.charAt(length - 1));
+    return before >= 0 && before + 1 < GEOHASH_ALPHABET.length() && GEOHASH_ALPHABET.charAt(before + 1) == next.charAt(length - 1);
   }
 
   /**
@@ -147,6 +248,16 @@ class GeoIndexCursor implements IndexCursor {
    */
   int seenSize() {
     return seen.size();
+  }
+
+  /** How many underlying scans this cursor opened so far: one per cell, or one per run of adjacent frontier cells. */
+  int scansOpened() {
+    return scansOpened;
+  }
+
+  /** How many covering cells were answered by the scan of the run they belong to instead of a scan of their own. */
+  int cellsCoalesced() {
+    return cellsCoalesced;
   }
 
   @Override

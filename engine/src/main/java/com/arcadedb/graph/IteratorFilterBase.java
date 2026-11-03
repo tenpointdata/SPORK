@@ -26,7 +26,7 @@ import com.arcadedb.log.LogManager;
 import java.util.logging.Level;
 
 public abstract class IteratorFilterBase<T> extends ResettableIteratorBase<T> {
-  private         int          lastElementPosition   = currentPosition.get();
+  private         int          lastElementPosition   = currentPosition;
   protected       RID          nextEdge;
   protected       RID          nextVertex;
   protected       RID          next;
@@ -67,30 +67,31 @@ public abstract class IteratorFilterBase<T> extends ResettableIteratorBase<T> {
 
     while (true) {
       final int used = currentContainer.getUsed();
-      int position = currentPosition.get();
+      int position = currentPosition;
       if (position < used)
         // SKIP THE ENTRIES OF THE OTHER EDGE TYPES ON THEIR RAW BUCKET NUMBER, WITHOUT DECODING THEM (#8417)
         position = currentContainer.nextEntryInBuckets(position, validBuckets);
 
       if (position < used) {
         lastElementPosition = position;
-        currentPosition.set(position);
-
-        nextEdge = currentContainer.getRID(currentPosition);
-        nextVertex = currentContainer.getRID(currentPosition);
+        // THE FOUR NUMBERS FIRST: THE NEIGHBOUR FILTER DECIDES ON THEM, SO AN ENTRY IT REJECTS COSTS NO RID (S6)
+        currentPosition = currentContainer.nextEntry(position, entry);
         // THE RECORD OF AN ENTRY SKIPPED BELOW MUST NOT STAY REACHABLE UNTIL THE NEXT ONE IS VALIDATED
         validatedRecord = null;
 
         // THE NEIGHBOUR CHECK IS SHARED WITH THE VERTEX ITERATOR BELOW (edge == false). NO CALLER ARMS THE FILTER
         // ON A VERTEX ITERATOR TODAY, SO IT IS INERT THERE; IT IS LEFT SHARED BECAUSE THE ENTRY IT FILTERS ON IS
         // THE SAME PAIR EITHER WAY, SO A FUTURE "VERTICES CONNECTED TO X" WOULD BEHAVE IDENTICALLY
-        if (!matchesNeighborFilter(nextVertex)) {
+        if (!matchesNeighborFilter(entry[2], entry[3])) {
           // FILTER IT OUT. THE CHECK RUNS ON THE POINTERS READ FROM THE SEGMENT, BEFORE ANY RECORD IS TOUCHED
           nextEdge = null;
           nextVertex = null;
           next = null;
           continue;
         }
+
+        nextEdge = RID.create(database, (int) entry[0], entry[1]);
+        nextVertex = RID.create(database, (int) entry[2], entry[3]);
 
         if (edge) {
           next = nextEdge;
@@ -123,10 +124,9 @@ public abstract class IteratorFilterBase<T> extends ResettableIteratorBase<T> {
 
       } else {
         // FETCH NEXT CHUNK
-        if (moveToPreviousChunk() != null) {
-          currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
-          lastElementPosition = currentPosition.get();
-        } else
+        if (moveToPreviousChunk() != null)
+          lastElementPosition = currentPosition;
+        else
           // END (also reached when the chunk's "previous" pointer names itself - see moveToPreviousChunk())
           break;
       }
@@ -145,7 +145,7 @@ public abstract class IteratorFilterBase<T> extends ResettableIteratorBase<T> {
 
   /** To call from {@code next()} once {@code hasNext()} has stopped on the entry it hands out. */
   protected final void entryReturned() {
-    entryReturned(currentContainer, lastElementPosition, currentPosition.get(), nextEdge, nextVertex);
+    entryReturned(currentContainer, lastElementPosition, currentPosition, nextEdge, nextVertex);
   }
 
   /**
@@ -169,7 +169,7 @@ public abstract class IteratorFilterBase<T> extends ResettableIteratorBase<T> {
     nextEdge = null;
     nextVertex = null;
     validatedRecord = null;
-    lastElementPosition = currentPosition.get();
+    lastElementPosition = currentPosition;
   }
 
   @Override

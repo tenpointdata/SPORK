@@ -44,13 +44,11 @@ public class VertexIterator extends ResettableIteratorBase<Vertex> {
       return false;
 
     while (true) {
-      if (currentPosition.get() < currentContainer.getUsed())
+      if (currentPosition < currentContainer.getUsed())
         return true;
 
       if (moveToPreviousChunk() == null)
         break;
-
-      currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
     }
 
     return false;
@@ -62,16 +60,19 @@ public class VertexIterator extends ResettableIteratorBase<Vertex> {
       if (!hasNext())
         throw new NoSuchElementException();
 
-      final int begin = currentPosition.get();
-      final RID edgeRID = currentContainer.getRID(currentPosition);
-      final RID rid = currentContainer.getRID(currentPosition);
+      // THE ENTRY IS DECODED TO ITS FOUR NUMBERS AND ONLY THE VERTEX GETS A RID: THE EDGE POINTER IS DECODED BY remove() IF
+      // IT IS EVER CALLED (S6)
+      final int begin = currentPosition;
+      final int end = currentContainer.nextEntry(begin, entry);
+      currentPosition = end;
+      final RID rid = RID.create(database, (int) entry[2], entry[3]);
 
       ++browsed;
 
       try {
         // LAZY LOAD THE CONTENT TO IMPROVE PERFORMANCE WITH TRAVERSAL. NOTE: THE RECORD NOT FOUND WILL NEVER BE TRIGGERED HERE ANYMORE
         final Vertex result = (Vertex) database.lookupByRID(rid, false);
-        entryReturned(currentContainer, begin, currentPosition.get(), edgeRID, rid);
+        entryReturned(currentContainer, begin, end);
         return result;
       } catch (final RecordNotFoundException e) {
         // SKIP

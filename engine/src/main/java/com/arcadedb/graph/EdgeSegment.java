@@ -87,8 +87,18 @@ public interface EdgeSegment extends Record {
 
   EdgeSegment getPrevious();
 
+  /**
+   * {@link #getPrevious()} for a walk that reads the chain and never writes it: the previous chunk as a READ-ONLY VIEW of its
+   * page (see {@link EdgeLinkedList#readChunkForWalk}) instead of a copy, or {@code null} at the tail. Every chunk-hopping
+   * iterator goes through here.
+   */
+  EdgeSegment previousForWalk();
+
   /** Returns the RID of the previous chunk in the list without loading it, or {@code null} if this is the tail. */
   RID getPreviousRID();
+
+  /** Whether a previous chunk exists, read off the two numbers of the pointer without building its RID. */
+  boolean hasPrevious();
 
   void setPrevious(EdgeSegment next);
 
@@ -97,6 +107,17 @@ public interface EdgeSegment extends Record {
   int getUsed();
 
   RID getRID(AtomicInteger currentPosition);
+
+  /**
+   * Decodes the entry at {@code position} into {@code entry} as the four numbers it is stored as - edge bucket, edge position,
+   * vertex bucket, vertex position - and returns the position of the entry after it. Allocation-free and without moving the
+   * buffer's position, so it is the primitive every walk steps on (retrieval speed, S6): a RID is built only for the number
+   * the caller needs, not for both of every entry read.
+   *
+   * @param position the position of an entry boundary, as kept by the iterators
+   * @param entry    a scratch array of at least 4 elements
+   */
+  int nextEntry(int position, long[] entry);
 
   /**
    * Returns the position of the first entry at or after {@code position} whose edge bucket {@code bucketMask}

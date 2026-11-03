@@ -42,13 +42,11 @@ public class EdgeVertexIterator extends ResettableIteratorBase<Pair<RID, RID>> {
     // A SEGMENT CAN BE EMPTY ANYWHERE IN THE CHAIN (A DELETE EMPTIES THE HEAD, A GRAPHBATCH THEN PREPENDS A NEW ONE OVER IT):
     // STEP OVER IT INSTEAD OF ENDING THE WALK THERE (#9715)
     while (true) {
-      if (currentPosition.get() < currentContainer.getUsed())
+      if (currentPosition < currentContainer.getUsed())
         return true;
 
       if (moveToPreviousChunk() == null)
         return false;
-
-      currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
     }
   }
 
@@ -59,10 +57,11 @@ public class EdgeVertexIterator extends ResettableIteratorBase<Pair<RID, RID>> {
 
     // THE SEGMENT AND BOUNDS OF THE ENTRY ARE RECORDED: a hasNext() in between may already have moved the cursor to
     // another segment, over empty ones too (#9715), and remove() must take the entry out of the segment it came from
-    final int begin = currentPosition.get();
-    final RID edgeRID = currentContainer.getRID(currentPosition);
-    final RID vertexRID = currentContainer.getRID(currentPosition);
-    entryReturned(currentContainer, begin, currentPosition.get(), edgeRID, vertexRID);
+    final int begin = currentPosition;
+    currentPosition = currentContainer.nextEntry(begin, entry);
+    final RID edgeRID = RID.create(currentContainer.getDatabase(), (int) entry[0], entry[1]);
+    final RID vertexRID = RID.create(currentContainer.getDatabase(), (int) entry[2], entry[3]);
+    entryReturned(currentContainer, begin, currentPosition, edgeRID, vertexRID);
 
     ++browsed;
     return new Pair<>(edgeRID, vertexRID);

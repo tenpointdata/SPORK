@@ -51,23 +51,21 @@ public class RIDIteratorFilter extends ResettableIteratorBase<RID> implements Ed
 
     while (true) {
       final int used = currentContainer.getUsed();
-      int position = currentPosition.get();
+      int position = currentPosition;
       if (position < used)
         // SKIP THE ENTRIES OF THE OTHER EDGE TYPES ON THEIR RAW BUCKET NUMBER, WITHOUT DECODING THEM (#8417)
         position = currentContainer.nextEntryInBuckets(position, validBuckets);
 
       if (position < used) {
-        currentPosition.set(position);
         nextContainer = currentContainer;
         nextBegin = position;
-        currentContainer.skipRID(currentPosition); // THE EDGE: ITS BUCKET ALREADY MATCHED, NOTHING ELSE OF IT IS NEEDED
-        next = currentContainer.getRID(currentPosition);
+        // THE EDGE: ITS BUCKET ALREADY MATCHED, NOTHING ELSE OF IT IS NEEDED. ONLY THE VERTEX GETS A RID (S6)
+        currentPosition = currentContainer.nextEntry(position, entry);
+        next = RID.create(currentContainer.getDatabase(), (int) entry[2], entry[3]);
         return true;
       } else {
         // Guarded hop: a chunk whose previous pointer names itself ends the walk instead of looping (issue #8568)
-        if (moveToPreviousChunk() != null)
-          currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
-        else
+        if (moveToPreviousChunk() == null)
           break;
       }
     }

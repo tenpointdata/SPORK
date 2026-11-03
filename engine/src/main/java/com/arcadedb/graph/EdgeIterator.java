@@ -28,7 +28,7 @@ import java.util.NoSuchElementException;
 public class EdgeIterator extends ResettableIteratorBase<Edge> {
   private final RID              vertex;
   private final Vertex.DIRECTION direction;
-  private       int              lastElementPosition = currentPosition.get();
+  private       int              lastElementPosition = currentPosition;
   private       RID              nextEdgeRID;
   private       RID              nextVertexRID;
   // The record handle the look-up in hasNext() produced, handed out by next() instead of looking it up a second time
@@ -61,18 +61,21 @@ public class EdgeIterator extends ResettableIteratorBase<Edge> {
       return false;
 
     while (true) {
-      if (currentPosition.get() < currentContainer.getUsed()) {
-        lastElementPosition = currentPosition.get();
+      if (currentPosition < currentContainer.getUsed()) {
+        lastElementPosition = currentPosition;
 
-        nextEdgeRID = currentContainer.getRID(currentPosition);
-        nextVertexRID = currentContainer.getRID(currentPosition);
+        // THE FOUR NUMBERS FIRST: THE NEIGHBOUR FILTER DECIDES ON THEM, SO AN ENTRY IT REJECTS COSTS NO RID (S6)
+        currentPosition = currentContainer.nextEntry(lastElementPosition, entry);
 
-        if (!matchesNeighborFilter(nextVertexRID)) {
+        if (!matchesNeighborFilter(entry[2], entry[3])) {
           // FILTER IT OUT ON THE POINTER READ FROM THE SEGMENT, BEFORE ANY RECORD IS TOUCHED
           nextEdgeRID = null;
           nextVertexRID = null;
           continue;
         }
+
+        nextEdgeRID = RID.create(currentContainer.getDatabase(), (int) entry[0], entry[1]);
+        nextVertexRID = RID.create(currentContainer.getDatabase(), (int) entry[2], entry[3]);
 
         if (deletedSelfLoops != null && nextVertexRID.getBucketId() == vertex.getBucketId()
             && nextVertexRID.getPosition() == vertex.getPosition() && deletedSelfLoops.consume(nextEdgeRID)) {
@@ -103,8 +106,6 @@ public class EdgeIterator extends ResettableIteratorBase<Edge> {
 
       if (moveToPreviousChunk() == null)
         break;
-
-      currentPosition.set(MutableEdgeSegment.CONTENT_START_POSITION);
     }
 
     return false;
@@ -128,7 +129,7 @@ public class EdgeIterator extends ResettableIteratorBase<Edge> {
       throw new NoSuchElementException();
 
     pending = false;
-    entryReturned(currentContainer, lastElementPosition, currentPosition.get(), nextEdgeRID, nextVertexRID);
+    entryReturned(currentContainer, lastElementPosition, currentPosition, nextEdgeRID, nextVertexRID);
 
     if (nextEdgeRID.getPosition() < 0) {
       // CREATE LIGHTWEIGHT EDGE
@@ -163,7 +164,7 @@ public class EdgeIterator extends ResettableIteratorBase<Edge> {
     nextEdgeRID = null;
     nextVertexRID = null;
     nextEdgeRecord = null;
-    lastElementPosition = currentPosition.get();
+    lastElementPosition = currentPosition;
   }
 
   /** See {@link ResettableIteratorBase#removeReturnedEntry}: the refusal of the delete reaches the caller (#9779). */
