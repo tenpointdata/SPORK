@@ -1,0 +1,123 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "rec": {
+    "Phone": [
+     {
+      "phone_number": "(713) 555-0142"
+     },
+     {
+      "phone_number_original": "713.555.0143"
+     },
+     {
+      "number": "5550144"
+     },
+     {
+      "phone": ""
+     },
+     {
+      "area_code": "832",
+      "line": "555-0145"
+     },
+     {}
+    ],
+    "Email": [
+     {
+      "email_address": "A@B.com"
+     },
+     {
+      "email": "c@d.org"
+     },
+     {
+      "address": "e@f.net"
+     },
+     {}
+    ],
+    "Social": [
+     {
+      "social_platform": "instagram",
+      "username": "@Jane"
+     },
+     {
+      "platform": "snapchat",
+      "handle": "jd"
+     },
+     {
+      "value": "bare"
+     },
+     {
+      "platform": "x"
+     }
+    ],
+    "Business": [
+     {
+      "business_name": "Velvet Lounge"
+     },
+     {
+      "name": "Night Owl"
+     },
+     {}
+    ],
+    "File": [
+     {
+      "mime_type": "image/jpeg",
+      "hash": "AbC123"
+     },
+     {
+      "mime_type": "meta_path",
+      "hash": "skip"
+     },
+     {
+      "sha256": "deadbeef"
+     },
+     {
+      "mime_type": "image/png"
+     }
+    ],
+    "Location": [
+     {
+      "city": "Houston",
+      "state": "TX"
+     }
+    ]
+   },
+   "recon": {
+    "phones": [
+     "(713) 555-0142",
+     "713.555.0143",
+     "5550144",
+     "(832) 555-0145"
+    ],
+    "emails": [
+     "A@B.com",
+     "c@d.org",
+     "e@f.net"
+    ],
+    "socials": [
+     {
+      "platform": "instagram",
+      "handle": "@Jane"
+     },
+     {
+      "platform": "snapchat",
+      "handle": "jd"
+     },
+     {
+      "platform": "social",
+      "handle": "bare"
+     }
+    ],
+    "businessNames": [
+     "Velvet Lounge",
+     "Night Owl"
+    ],
+    "imageHashes": [
+     "AbC123",
+     "deadbeef"
+    ]
+   }
+  }
+ ]
+}

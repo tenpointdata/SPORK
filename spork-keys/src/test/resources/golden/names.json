@@ -1,0 +1,126 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "José García",
+   "spork": {
+    "key": "nm:jose garcia"
+   }
+  },
+  {
+   "input": "JOSE GARCIA",
+   "spork": {
+    "key": "nm:jose garcia"
+   }
+  },
+  {
+   "input": "  jose   garcia  ",
+   "spork": {
+    "key": "nm:jose garcia"
+   }
+  },
+  {
+   "input": "O'Brien",
+   "spork": {
+    "key": "nm:obrien"
+   }
+  },
+  {
+   "input": "Mary-Jane Watson",
+   "spork": {
+    "key": "nm:maryjane watson"
+   }
+  },
+  {
+   "input": "Zoë Saldaña",
+   "spork": {
+    "key": "nm:zoe saldana"
+   }
+  },
+  {
+   "input": "Ǆenan",
+   "spork": {
+    "key": "nm:dzenan"
+   }
+  },
+  {
+   "input": "ﬁona",
+   "spork": {
+    "key": "nm:fiona"
+   }
+  },
+  {
+   "input": "Ⅻ Smith",
+   "spork": {
+    "key": "nm:xii smith"
+   }
+  },
+  {
+   "input": "Smith 3rd",
+   "spork": {
+    "key": "nm:smith rd"
+   }
+  },
+  {
+   "input": "Łukasz Żółć",
+   "spork": {
+    "key": "nm:łukasz zołc"
+   }
+  },
+  {
+   "input": "Øyvind",
+   "spork": {
+    "key": "nm:øyvind"
+   }
+  },
+  {
+   "input": "straße",
+   "spork": {
+    "key": "nm:straße"
+   }
+  },
+  {
+   "input": "Иван Петров",
+   "spork": {
+    "key": "nm:иван петров"
+   }
+  },
+  {
+   "input": "李小龙",
+   "spork": {
+    "key": "nm:李小龙"
+   }
+  },
+  {
+   "input": "محمد",
+   "spork": {
+    "key": "nm:محمد"
+   }
+  },
+  {
+   "input": "",
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "123",
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "İlkay",
+   "spork": {
+    "key": "nm:ilkay"
+   }
+  },
+  {
+   "input": "Ångström\tOne\nTwo",
+   "spork": {
+    "key": "nm:angstrom one two"
+   }
+  }
+ ]
+}

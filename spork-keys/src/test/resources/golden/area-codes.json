@@ -1,0 +1,39 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "areaCodeToPlace": {
+    "210": "San Antonio, TX",
+    "213": "Los Angeles, CA",
+    "214": "Dallas, TX",
+    "281": "Houston, TX",
+    "305": "Miami, FL",
+    "323": "Los Angeles, CA",
+    "404": "Atlanta, GA",
+    "469": "Dallas, TX",
+    "470": "Atlanta, GA",
+    "504": "New Orleans, LA",
+    "512": "Austin, TX",
+    "602": "Phoenix, AZ",
+    "702": "Las Vegas, NV",
+    "713": "Houston, TX",
+    "786": "Miami, FL",
+    "832": "Houston, TX",
+    "972": "Dallas, TX"
+   },
+   "placeToArea": {
+    "San Antonio, TX": "210",
+    "Los Angeles, CA": "213",
+    "Dallas, TX": "214",
+    "Houston, TX": "281",
+    "Miami, FL": "305",
+    "Atlanta, GA": "404",
+    "New Orleans, LA": "504",
+    "Austin, TX": "512",
+    "Phoenix, AZ": "602",
+    "Las Vegas, NV": "702"
+   }
+  }
+ ]
+}

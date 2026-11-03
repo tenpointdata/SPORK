@@ -1,0 +1,55 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "title": "",
+   "body": "",
+   "spork": {
+    "textHash": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119"
+   }
+  },
+  {
+   "title": "Hi",
+   "body": "there",
+   "spork": {
+    "textHash": "96c94e3ae8dac9de065a25b1200ebb04d3a5200477dfac8748d0414078a5cadd"
+   }
+  },
+  {
+   "title": "Hit",
+   "body": "here",
+   "spork": {
+    "textHash": "08c1ffa3ac889b5d867b4b71c5ba7f9f25cad616867aab89e2763ff41864d043"
+   }
+  },
+  {
+   "title": "Hithere",
+   "body": "",
+   "spork": {
+    "textHash": "a2511b0c0d1b1a6e1969ca0fc73e724a45030eff1e8ca35647056ad41bbd405a"
+   }
+  },
+  {
+   "title": "NEW in town",
+   "body": "Call me now... 😘",
+   "spork": {
+    "textHash": "92ca11599fda84451ed833f774f48bf1978822bb29e17d48270f38f33af70d0d"
+   }
+  },
+  {
+   "title": "Ünïcödé",
+   "body": "body\r\nwith CRLF ",
+   "spork": {
+    "textHash": "d3c3a0b10ce0b1cca9381100d9ab791800d354604eb4af6ceb81f308cfc82428"
+   }
+  },
+  {
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "body": "y",
+   "spork": {
+    "textHash": "2a43eea94675d57c997f94810a0638da5f93d70cafb8b22644256b285774614b"
+   }
+  }
+ ]
+}

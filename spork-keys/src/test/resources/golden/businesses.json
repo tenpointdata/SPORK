@@ -1,0 +1,162 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "Velvet Lounge",
+   "recon": {
+    "engineLinkKey": "velvet lounge",
+    "engineClusterKey": "velvetlounge",
+    "boardNormalizeAnchor": "velvet lounge",
+    "dossierIdentKey": "businessName:velvetlounge"
+   },
+   "spork": {
+    "key": "bz:velvetlounge"
+   }
+  },
+  {
+   "input": "VELVET-LOUNGE!",
+   "recon": {
+    "engineLinkKey": "velvet-lounge!",
+    "engineClusterKey": "velvetlounge",
+    "boardNormalizeAnchor": "velvet-lounge!",
+    "dossierIdentKey": "businessName:velvetlounge"
+   },
+   "spork": {
+    "key": "bz:velvetlounge"
+   }
+  },
+  {
+   "input": "velvet lounge llc",
+   "recon": {
+    "engineLinkKey": "velvet lounge llc",
+    "engineClusterKey": "velvetloungellc",
+    "boardNormalizeAnchor": "velvet lounge llc",
+    "dossierIdentKey": "businessName:velvetloungellc"
+   },
+   "spork": {
+    "key": "bz:velvetloungellc"
+   }
+  },
+  {
+   "input": "  Spa 24/7  ",
+   "recon": {
+    "engineLinkKey": "  spa 24/7  ",
+    "engineClusterKey": "spa247",
+    "boardNormalizeAnchor": "spa 24/7",
+    "dossierIdentKey": "businessName:spa247"
+   },
+   "spork": {
+    "key": "bz:spa247"
+   }
+  },
+  {
+   "input": "Café Olé",
+   "recon": {
+    "engineLinkKey": "café olé",
+    "engineClusterKey": "cafol",
+    "boardNormalizeAnchor": "café olé",
+    "dossierIdentKey": "businessName:cafol"
+   },
+   "spork": {
+    "key": "bz:cafol"
+   }
+  },
+  {
+   "input": "ÆON Spa",
+   "recon": {
+    "engineLinkKey": "æon spa",
+    "engineClusterKey": "onspa",
+    "boardNormalizeAnchor": "æon spa",
+    "dossierIdentKey": "businessName:onspa"
+   },
+   "spork": {
+    "key": "bz:onspa"
+   }
+  },
+  {
+   "input": "",
+   "recon": {
+    "engineLinkKey": "",
+    "engineClusterKey": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "businessName:"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "***",
+   "recon": {
+    "engineLinkKey": "***",
+    "engineClusterKey": "",
+    "boardNormalizeAnchor": "***",
+    "dossierIdentKey": "businessName:"
+   },
+   "spork": {
+    "key": null
+   }
+  },
+  {
+   "input": "Spa 2",
+   "recon": {
+    "engineLinkKey": "spa 2",
+    "engineClusterKey": "spa2",
+    "boardNormalizeAnchor": "spa 2",
+    "dossierIdentKey": "businessName:spa2"
+   },
+   "spork": {
+    "key": "bz:spa2"
+   }
+  },
+  {
+   "input": "Spa  2",
+   "recon": {
+    "engineLinkKey": "spa  2",
+    "engineClusterKey": "spa2",
+    "boardNormalizeAnchor": "spa 2",
+    "dossierIdentKey": "businessName:spa2"
+   },
+   "spork": {
+    "key": "bz:spa2"
+   }
+  },
+  {
+   "input": "İnci Spa",
+   "recon": {
+    "engineLinkKey": "i̇nci spa",
+    "engineClusterKey": "incispa",
+    "boardNormalizeAnchor": "i̇nci spa",
+    "dossierIdentKey": "businessName:incispa"
+   },
+   "spork": {
+    "key": "bz:incispa"
+   }
+  },
+  {
+   "input": "Massage & Spa, Inc.",
+   "recon": {
+    "engineLinkKey": "massage & spa, inc.",
+    "engineClusterKey": "massagespainc",
+    "boardNormalizeAnchor": "massage & spa, inc.",
+    "dossierIdentKey": "businessName:massagespainc"
+   },
+   "spork": {
+    "key": "bz:massagespainc"
+   }
+  },
+  {
+   "input": " Night Owl ",
+   "recon": {
+    "engineLinkKey": " night owl ",
+    "engineClusterKey": "nightowl",
+    "boardNormalizeAnchor": "night owl",
+    "dossierIdentKey": "businessName:nightowl"
+   },
+   "spork": {
+    "key": "bz:nightowl"
+   }
+  }
+ ]
+}

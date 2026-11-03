@@ -1,0 +1,7101 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "(713) 555-0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713) 555-0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 713-555-0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713.555.0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "7135550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "17135550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "17135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-713-555-0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 (713) 555-0142 ",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 713-555-0142 ",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550142",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550142",
+    "digits": "2815550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2145550142",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2145550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2145550142",
+    "digits": "2145550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5125550142",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5125550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5125550142",
+    "digits": "5125550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "555-0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2135550142",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2135550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2135550142",
+    "digits": "2135550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "5550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550142",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550142",
+    "digits": "2815550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2145550142",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2145550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2145550142",
+    "digits": "2145550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5125550142",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5125550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5125550142",
+    "digits": "5125550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "5550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2135550142",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2135550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2135550142",
+    "digits": "2135550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550142",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550142",
+    "digits": "2815550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2145550142",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2145550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2145550142",
+    "digits": "2145550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5125550142",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5125550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5125550142",
+    "digits": "5125550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": " 555 0142 ",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2135550142",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2135550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2135550142",
+    "digits": "2135550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "21234567890",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "21234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "21234567890",
+    "auditIntakeSubject": "21234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "11234567890",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567890",
+    "engineAreaCodeOf": "123",
+    "engineClusterKey": "1234567890",
+    "engineNormPhone": "1234567890",
+    "compareNormPhone": "1234567890",
+    "boardNormalizeAnchor": "1234567890",
+    "dossierIdentKey": "phone:1234567890",
+    "feedPhoneKey": "1234567890",
+    "auditIntakeSubject": "11234567890",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567890",
+    "digits": "1234567890",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "12345678",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "12345678",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "12345678",
+    "engineNormPhone": "12345678",
+    "compareNormPhone": "12345678",
+    "boardNormalizeAnchor": "12345678",
+    "dossierIdentKey": "phone:12345678",
+    "feedPhoneKey": "12345678",
+    "auditIntakeSubject": "12345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:12345678",
+    "digits": "12345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456789",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "123456789",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456789",
+    "engineNormPhone": "123456789",
+    "compareNormPhone": "123456789",
+    "boardNormalizeAnchor": "123456789",
+    "dossierIdentKey": "phone:123456789",
+    "feedPhoneKey": "123456789",
+    "auditIntakeSubject": "123456789",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:123456789",
+    "digits": "123456789",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123456",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "123456",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123456",
+    "engineNormPhone": "123456",
+    "compareNormPhone": "123456",
+    "boardNormalizeAnchor": "123456",
+    "dossierIdentKey": "phone:123456",
+    "feedPhoneKey": "123456",
+    "auditIntakeSubject": "123456",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123456",
+    "digits": "123456",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "123",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "123",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "123",
+    "engineNormPhone": "123",
+    "compareNormPhone": "123",
+    "boardNormalizeAnchor": "123",
+    "dossierIdentKey": "phone:123",
+    "feedPhoneKey": "123",
+    "auditIntakeSubject": "123",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:123",
+    "digits": "123",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "   ",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "",
+    "dossierIdentKey": "phone:",
+    "feedPhoneKey": "",
+    "auditIntakeSubject": "",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "abc",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "abc",
+    "dossierIdentKey": "phone:abc",
+    "feedPhoneKey": "abc",
+    "auditIntakeSubject": "abc",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "call me",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "call me",
+    "dossierIdentKey": "phone:call me",
+    "feedPhoneKey": "call me",
+    "auditIntakeSubject": "call me",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1-800-FLOWERS",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "1800",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1800",
+    "engineNormPhone": "1800",
+    "compareNormPhone": "1800",
+    "boardNormalizeAnchor": "1800",
+    "dossierIdentKey": "phone:1-800-flowers",
+    "feedPhoneKey": "1-800-flowers",
+    "auditIntakeSubject": "1-800-flowers",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:1800",
+    "digits": "1800",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713 555 0142 ext 99",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "3555014299",
+    "engineAreaCodeOf": "355",
+    "engineClusterKey": "3555014299",
+    "engineNormPhone": "3555014299",
+    "compareNormPhone": "3555014299",
+    "boardNormalizeAnchor": "713555014299",
+    "dossierIdentKey": "phone:3555014299",
+    "feedPhoneKey": "713555014299",
+    "auditIntakeSubject": "713 555 0142 ext 99",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:3555014299",
+    "digits": "3555014299",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(713)5550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 (832) 555 1234",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "8325551234",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325551234",
+    "engineNormPhone": "8325551234",
+    "compareNormPhone": "8325551234",
+    "boardNormalizeAnchor": "8325551234",
+    "dossierIdentKey": "phone:8325551234",
+    "feedPhoneKey": "8325551234",
+    "auditIntakeSubject": "8325551234",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:8325551234",
+    "digits": "8325551234",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+44 20 7946 0958",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2079460958",
+    "engineAreaCodeOf": "207",
+    "engineClusterKey": "2079460958",
+    "engineNormPhone": "2079460958",
+    "compareNormPhone": "2079460958",
+    "boardNormalizeAnchor": "442079460958",
+    "dossierIdentKey": "phone:2079460958",
+    "feedPhoneKey": "442079460958",
+    "auditIntakeSubject": "442079460958",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2079460958",
+    "digits": "2079460958",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+52 1 55 1234 5678",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "5512345678",
+    "engineAreaCodeOf": "551",
+    "engineClusterKey": "5512345678",
+    "engineNormPhone": "5512345678",
+    "compareNormPhone": "5512345678",
+    "boardNormalizeAnchor": "5215512345678",
+    "dossierIdentKey": "phone:5512345678",
+    "feedPhoneKey": "5215512345678",
+    "auditIntakeSubject": "5215512345678",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5512345678",
+    "digits": "5512345678",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "٧١٣٥٥٥٠١٤٢",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "٧١٣٥٥٥٠١٤٢",
+    "dossierIdentKey": "phone:٧١٣٥٥٥٠١٤٢",
+    "feedPhoneKey": "٧١٣٥٥٥٠١٤٢",
+    "auditIntakeSubject": "٧١٣٥٥٥٠١٤٢",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "７１３５５５０１４２",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "",
+    "engineNormPhone": "",
+    "compareNormPhone": "",
+    "boardNormalizeAnchor": "７１３５５５０１４２",
+    "dossierIdentKey": "phone:７１３５５５０１４２",
+    "feedPhoneKey": "７１３５５５０１４２",
+    "auditIntakeSubject": "７１３５５５０１４２",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": null,
+    "digits": "",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-0142, 832-555-9999",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "8325559999",
+    "engineAreaCodeOf": "832",
+    "engineClusterKey": "8325559999",
+    "engineNormPhone": "8325559999",
+    "compareNormPhone": "8325559999",
+    "boardNormalizeAnchor": "71355501428325559999",
+    "dossierIdentKey": "phone:8325559999",
+    "feedPhoneKey": "71355501428325559999",
+    "auditIntakeSubject": "713-555-0142, 832-555-9999",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:8325559999",
+    "digits": "8325559999",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "#7135550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "#7135550142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1.713.555.0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(281) 555-0000",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550000",
+    "engineNormPhone": "2815550000",
+    "compareNormPhone": "2815550000",
+    "boardNormalizeAnchor": "2815550000",
+    "dossierIdentKey": "phone:2815550000",
+    "feedPhoneKey": "2815550000",
+    "auditIntakeSubject": "2815550000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550000",
+    "digits": "2815550000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "0000000",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "0000000",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "0000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:0000000",
+    "digits": "0000000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2810000000",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2810000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2810000000",
+    "digits": "2810000000",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2140000000",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2140000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2140000000",
+    "digits": "2140000000",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5120000000",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5120000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5120000000",
+    "digits": "5120000000",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "0000000",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "0000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:0000000",
+    "digits": "0000000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "0000000",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "0000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:0000000",
+    "digits": "0000000",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "0000000",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2130000000",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2130000000",
+    "engineNormPhone": "0000000",
+    "compareNormPhone": "0000000",
+    "boardNormalizeAnchor": "0000000",
+    "dossierIdentKey": "phone:0000000",
+    "feedPhoneKey": "0000000",
+    "auditIntakeSubject": "0000000",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2130000000",
+    "digits": "2130000000",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "1234567",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "1234567",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567",
+    "digits": "1234567",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2811234567",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2811234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2811234567",
+    "digits": "2811234567",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2141234567",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2141234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2141234567",
+    "digits": "2141234567",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5121234567",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5121234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5121234567",
+    "digits": "5121234567",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567",
+    "digits": "1234567",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "1234567",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "1234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:1234567",
+    "digits": "1234567",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1234567",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2131234567",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2131234567",
+    "engineNormPhone": "1234567",
+    "compareNormPhone": "1234567",
+    "boardNormalizeAnchor": "1234567",
+    "dossierIdentKey": "phone:1234567",
+    "feedPhoneKey": "1234567",
+    "auditIntakeSubject": "1234567",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2131234567",
+    "digits": "2131234567",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "+1 555 0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "1 555 0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "15550142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "15550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "15550142",
+    "engineNormPhone": "15550142",
+    "compareNormPhone": "15550142",
+    "boardNormalizeAnchor": "15550142",
+    "dossierIdentKey": "phone:15550142",
+    "feedPhoneKey": "15550142",
+    "auditIntakeSubject": "15550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:15550142",
+    "digits": "15550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2815550142",
+    "engineAreaCodeOf": "281",
+    "engineClusterKey": "2815550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2815550142",
+    "digits": "2815550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "2145550142",
+    "engineAreaCodeOf": "214",
+    "engineClusterKey": "2145550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2145550142",
+    "digits": "2145550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "5125550142",
+    "engineAreaCodeOf": "512",
+    "engineClusterKey": "5125550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5125550142",
+    "digits": "5125550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "5550142",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "5550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:5550142",
+    "digits": "5550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "(555) 0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "2135550142",
+    "engineAreaCodeOf": "213",
+    "engineClusterKey": "2135550142",
+    "engineNormPhone": "5550142",
+    "compareNormPhone": "5550142",
+    "boardNormalizeAnchor": "5550142",
+    "dossierIdentKey": "phone:5550142",
+    "feedPhoneKey": "5550142",
+    "auditIntakeSubject": "5550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:2135550142",
+    "digits": "2135550142",
+    "inferredAreaCode": true
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713-555-014",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "713555014",
+    "engineAreaCodeOf": "",
+    "engineClusterKey": "713555014",
+    "engineNormPhone": "713555014",
+    "compareNormPhone": "713555014",
+    "boardNormalizeAnchor": "713555014",
+    "dossierIdentKey": "phone:713555014",
+    "feedPhoneKey": "713555014",
+    "auditIntakeSubject": "713555014",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:713555014",
+    "digits": "713555014",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "Text 713 555 0142!!",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "text 713 555 0142!!",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "\t7135550142\n",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "7135550142",
+    "classifySource": "phone"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": null,
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "Houston",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "Dallas",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "Austin",
+    "state": "TX"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "houston",
+    "state": "tx"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "Boise",
+    "state": "ID"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  },
+  {
+   "input": "713‑555‑0142",
+   "place": {
+    "city": "Los Angeles",
+    "state": "CA"
+   },
+   "recon": {
+    "engineCanonPhone": "7135550142",
+    "engineAreaCodeOf": "713",
+    "engineClusterKey": "7135550142",
+    "engineNormPhone": "7135550142",
+    "compareNormPhone": "7135550142",
+    "boardNormalizeAnchor": "7135550142",
+    "dossierIdentKey": "phone:7135550142",
+    "feedPhoneKey": "7135550142",
+    "auditIntakeSubject": "713‑555‑0142",
+    "classifySource": "social"
+   },
+   "spork": {
+    "key": "ph:7135550142",
+    "digits": "7135550142",
+    "inferredAreaCode": false
+   }
+  }
+ ]
+}

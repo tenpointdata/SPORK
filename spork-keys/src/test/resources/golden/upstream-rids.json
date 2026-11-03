@@ -1,0 +1,72 @@
+{
+ "generator": "spork-keys/golden/generate-golden.ts",
+ "reconCommit": "7815426ad409d107900e88dd8211cfed921e9330",
+ "cases": [
+  {
+   "input": "168:8",
+   "spork": {
+    "upstreamRid": "184717953466376"
+   }
+  },
+  {
+   "input": "#168:8",
+   "spork": {
+    "upstreamRid": "184717953466376"
+   }
+  },
+  {
+   "input": "0:0",
+   "spork": {
+    "upstreamRid": "0"
+   }
+  },
+  {
+   "input": "8388607:1099511627775",
+   "spork": {
+    "upstreamRid": "9223372036854775807"
+   }
+  },
+  {
+   "input": "8388608:0",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "1:1099511627776",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "12:34:56",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "abc",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "-1:5",
+   "spork": {
+    "upstreamRid": null
+   }
+  },
+  {
+   "input": "#12:",
+   "spork": {
+    "upstreamRid": null
+   }
+  }
+ ]
+}
