@@ -498,6 +498,11 @@ CREATE PROPERTY Record.batchId IF NOT EXISTS STRING;
 CREATE INDEX IF NOT EXISTS ON Record (record_id) UNIQUE_HASH;
 CREATE INDEX IF NOT EXISTS ON Record (upstreamRid) UNIQUE_HASH NULL_STRATEGY SKIP;
 CREATE INDEX IF NOT EXISTS ON Record (tenantId, importedId) UNIQUE_HASH NULL_STRATEGY SKIP;   -- 2.5 analyst imports
+-- The records a search count may have to hide (WS3 P4, 01 5.3): marked records and analyst imports. Sparse because unmarked
+-- records leave markings null and upstream records have no tenantId, so the plugin walks them per request instead of reading
+-- a Record per counted entry.
+CREATE INDEX IF NOT EXISTS ON Record (markings) NOTUNIQUE NULL_STRATEGY SKIP;
+CREATE INDEX IF NOT EXISTS ON Record (tenantId) NOTUNIQUE NULL_STRATEGY SKIP;
 CREATE INDEX IF NOT EXISTS ON Record (textHash) NOTUNIQUE_HASH;                -- text to records
 CREATE INDEX IF NOT EXISTS ON Record (imageHashes BY ITEM) NOTUNIQUE_HASH;     -- P0a verifies BY ITEM on HASH
 -- Range composites (02-retrieval-speed.md 2.4 to 2.6), plain LSM NOTUNIQUE at 64 KB from indexDefaultPageSize.

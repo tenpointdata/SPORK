@@ -164,7 +164,7 @@ final class HydrateService {
   /** The per-request state the chunks share: read-only inputs, per-index output slots and the resolved database handles. */
   private final class Request {
     private final ServerSecurityUser  user;
-    private final long                heldMarkings;
+    private final RecordVisibility    visibility;
     private final String              tenant;
     private final RecordProjection[]  fields;
     private final String[]            ids;
@@ -177,7 +177,7 @@ final class HydrateService {
     Request(final ServerSecurityUser user, final long heldMarkings, final String tenant, final RecordProjection[] fields,
         final List<String> ids, final int count) {
       this.user = user;
-      this.heldMarkings = heldMarkings;
+      this.visibility = new RecordVisibility(tenant, heldMarkings);
       this.tenant = tenant;
       this.fields = fields;
       this.ids = ids.toArray(new String[count]);
@@ -187,7 +187,7 @@ final class HydrateService {
     }
 
     void run(final int from, final int to) {
-      final Binding binding = new Binding(user);
+      final EngineUserBinding binding = new EngineUserBinding(user);
       try {
         for (int i = from; i < to; i++)
           resolve(i, binding);
@@ -196,7 +196,7 @@ final class HydrateService {
       }
     }
 
-    private void resolve(final int i, final Binding binding) {
+    private void resolve(final int i, final EngineUserBinding binding) {
       final RecordRef ref = RecordRef.parse(ids[i]);
       if (ref == null) {
         status[i] = INVALID;
@@ -240,7 +240,7 @@ final class HydrateService {
         }
       }
       }
-      if (record == null || !visible(record)) {
+      if (record == null || !visibility.accepts(record)) {
         status[i] = MISSING;
         return;
       }
@@ -256,15 +256,6 @@ final class HydrateService {
       records[i] = out;
       recordIds[i] = recordId;
       status[i] = FOUND;
-    }
-
-    /** Markings the person does not hold, or another tenant's import: absent (01-architecture 5.3). */
-    private boolean visible(final Document record) {
-      final String owner = record.getString("tenantId");
-      if (owner != null && !owner.equals(tenant))
-        return false;
-      final long markings = record.get("markings") instanceof Number n ? n.longValue() : 0L;
-      return (markings & ~heldMarkings) == 0L;
     }
 
     /** The open database of that name, or null when this node does not hold it (the response is then partial). */
@@ -322,54 +313,5 @@ final class HydrateService {
       return false;
     final DocumentType type = schema.getType(RECORD_TYPE);
     return type.getPolymorphicIndexByProperties("tenantId", "importedId") != null;
-  }
-
-  /**
-   * The person bound as the engine user on this thread, per database, for as long as one chunk runs: grants are checked before the
-   * first read of each database, and every binding is undone afterwards so nothing leaks onto a pooled worker or back onto the
-   * request thread.
-   */
-  private static final class Binding {
-    private final ServerSecurityUser                 user;
-    private final Map<DatabaseInternal, SecurityDatabaseUser> previous = new HashMap<>(4);
-    private final Set<DatabaseInternal>              created  = new HashSet<>(4);
-
-    Binding(final ServerSecurityUser user) {
-      this.user = user;
-    }
-
-    Database bind(final Database database) {
-      if (database == null)
-        return null;
-      final DatabaseInternal internal = (DatabaseInternal) database;
-      if (previous.containsKey(internal) || created.contains(internal))
-        return database;
-      if (!user.canAccessToDatabase(database.getName()))
-        throw new SecurityException("User '" + user.getName() + "' is not allowed to access database '" + database.getName() + "'");
-      DatabaseContext.DatabaseContextTL context = DatabaseContext.INSTANCE.getContextIfExists(internal.getDatabasePath());
-      if (context == null) {
-        context = DatabaseContext.INSTANCE.init(internal);
-        created.add(internal);
-      } else
-        previous.put(internal, context.getCurrentUser());
-      context.setCurrentUser(user.getDatabaseUser(database));
-      return database;
-    }
-
-    void release() {
-      for (final Map.Entry<DatabaseInternal, SecurityDatabaseUser> entry : previous.entrySet()) {
-        final DatabaseContext.DatabaseContextTL context = DatabaseContext.INSTANCE.getContextIfExists(entry.getKey().getDatabasePath());
-        if (context != null)
-          context.setCurrentUser(entry.getValue());
-      }
-      for (final DatabaseInternal database : created) {
-        final DatabaseContext.DatabaseContextTL context = DatabaseContext.INSTANCE.getContextIfExists(database.getDatabasePath());
-        if (context != null) {
-          context.setCurrentUser(null);
-          if (!context.hasActiveTransaction())
-            DatabaseContext.INSTANCE.removeContext(database.getDatabasePath());
-        }
-      }
-    }
   }
 }

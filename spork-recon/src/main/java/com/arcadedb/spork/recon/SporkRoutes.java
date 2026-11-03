@@ -25,7 +25,7 @@ import java.util.List;
  * The purpose gate as data (01-architecture 5.1): every route the plugin serves, one row each. Changing who may call what is an
  * edit of this table, and the OpenAPI document Recon's client is generated from changes with it.
  * <p>
- * The gates are the architecture's proposal, pending owner question 10. Routes of later slices (intake, search, pivot, partial,
+ * The gates are the architecture's proposal, pending owner question 10. Routes of later slices (intake, pivot, partial,
  * group-by, timeline, feed, board, deconfliction) join here with their own rows.
  */
 public final class SporkRoutes {
@@ -36,7 +36,11 @@ public final class SporkRoutes {
       DataClass.RECORD_PROJECTION, DataClass.RECORD_PROJECTION.purposes(), "Hydrate up to 5,000 records by id", "HydrateRequest",
       "HydrateAnswer");
 
-  private static final List<SporkRoute> ALL = List.of(CONTEXT, HYDRATE);
+  public static final SporkRoute SEARCH = new SporkRoute("POST", "search", "searchRecords", "records.search",
+      DataClass.RECORD_PROJECTION, DataClass.RECORD_PROJECTION.purposes(), "Structured search: a page of up to 500 and a capped count",
+      "SearchRequest", "SearchAnswer");
+
+  private static final List<SporkRoute> ALL = List.of(CONTEXT, HYDRATE, SEARCH);
 
   private SporkRoutes() {
   }

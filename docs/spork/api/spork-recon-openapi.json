@@ -49,7 +49,7 @@
             }
           },
           "400" : {
-            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid",
+            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid, searchInvalid, filterUnsupported",
             "content" : {
               "application/json" : {
                 "schema" : {
@@ -167,7 +167,125 @@
             }
           },
           "400" : {
-            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid",
+            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid, searchInvalid, filterUnsupported",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "401" : {
+            "description" : "No credential, or one Entry rejects",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "403" : {
+            "description" : "purposeDenied (the declared purpose may not call this route), analystMismatch (the context names another account), or the person holds no grant on a database the request reads",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "404" : {
+            "description" : "notFound or unknownTenant",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "405" : {
+            "description" : "The path exists with another method; Allow lists it",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "428" : {
+            "description" : "contextRequired (no X-Spork-Context) or contextInvalid (unreadable)",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          },
+          "503" : {
+            "description" : "auditUnavailable: the release could not be recorded, so nothing was released",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SporkError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/spork/v1/{tenant}/search" : {
+      "post" : {
+        "tags" : [ "Recon" ],
+        "summary" : "Structured search: a page of up to 500 and a capped count",
+        "description" : "Recon's structured search over every partition: the filters are ANDed, the page is up to 500 records (50 by default) in posted_desc, posted_asc or views_desc order. Served on direct cursors over the (facet, tsPosted, views) composites, the smallest filter driving; partial is true when a read cap stopped the page itself. The total is an ESTIMATE by default: the count reads a bounded number of index entries (so the request stays inside its latency budget) and totalExact says whether it reached the end. When totalExact is false, total is a lower bound (show it as \"N+\") and totalEstimate, when present, the count scaled from the driving filter's size (show it as \"about N\"); totalEstimate is left out when a posted window makes that scaling unreliable. exactTotal: true asks for the exact count up to 10,000 (totalCapped when more match), at the cost of reading up to every match. Records the person may not see are neither returned nor counted. phone, email, business and q (substring and full text) are refused with filterUnsupported for now. A title in the projection is read from the record's text partition through its textHash, and needs a grant on it.\n\nPurposes allowed: victim_identification, investigative_lead, network_disruption. Audit: one 'records.search' entry on the chain, committed before the response is released.",
+        "operationId" : "searchRecords",
+        "parameters" : [ {
+          "name" : "tenant",
+          "in" : "path",
+          "description" : "The tenant, one of the installation's configured tenants",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "X-Spork-Context",
+          "in" : "header",
+          "description" : "base64url of the JSON Operating Context {caseRef?, purpose} (component SporkContext). Never identity, role or markings.",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "description" : "The request",
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "Released, and recorded on the audit chain",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SearchAnswer"
+                }
+              }
+            }
+          },
+          "400" : {
+            "description" : "The body is invalid: idsRequired, tooManyIds, projectionInvalid, searchInvalid, filterUnsupported",
             "content" : {
               "application/json" : {
                 "schema" : {
@@ -252,7 +370,7 @@
           },
           "code" : {
             "type" : "string",
-            "description" : "Stable, for clients: contextRequired, contextInvalid, purposeDenied, analystMismatch, unknownTenant, notFound, idsRequired, tooManyIds, projectionInvalid, auditUnavailable"
+            "description" : "Stable, for clients: contextRequired, contextInvalid, purposeDenied, analystMismatch, unknownTenant, notFound, idsRequired, tooManyIds, projectionInvalid, searchInvalid, filterUnsupported, auditUnavailable"
           }
         },
         "description" : "A refusal"
@@ -495,6 +613,284 @@
           }
         },
         "description" : "One record; a field the record lacks is absent"
+      },
+      "SearchRequest" : {
+        "type" : "object",
+        "properties" : {
+          "state" : {
+            "type" : "string",
+            "description" : "Two-letter state code, matched on stateCode"
+          },
+          "country" : {
+            "type" : "string",
+            "description" : "Country code, matched on countryCode"
+          },
+          "city" : {
+            "type" : "string",
+            "description" : "City, matched on its normalized form (cityNorm)"
+          },
+          "areaCode" : {
+            "type" : "string",
+            "description" : "One of the record's area codes"
+          },
+          "service" : {
+            "type" : "string",
+            "description" : "One of the record's services"
+          },
+          "hasImages" : {
+            "type" : "boolean",
+            "description" : "Only records with (or without) images"
+          },
+          "website" : {
+            "type" : "string",
+            "description" : "The source website"
+          },
+          "aggregator" : {
+            "type" : "string",
+            "description" : "The aggregator"
+          },
+          "ageMin" : {
+            "type" : "integer",
+            "description" : "Inclusive lower bound of age"
+          },
+          "ageMax" : {
+            "type" : "integer",
+            "description" : "Inclusive upper bound of age"
+          },
+          "postedFrom" : {
+            "type" : "string",
+            "description" : "Inclusive start of the posted window, ISO-8601 (epoch ms accepted)"
+          },
+          "postedTo" : {
+            "type" : "string",
+            "description" : "Inclusive end of the posted window, ISO-8601 (epoch ms accepted)"
+          },
+          "sort" : {
+            "type" : "string",
+            "description" : "posted_desc by default",
+            "enum" : [ "posted_desc", "posted_asc", "views_desc" ]
+          },
+          "limit" : {
+            "maximum" : 500,
+            "minimum" : 1,
+            "type" : "integer",
+            "description" : "Rows on the page, 1 to 500, 50 by default"
+          },
+          "projection" : {
+            "type" : "array",
+            "description" : "The fields to return; every field but styleVec and title when absent. title is read from the text partition and needs a grant on it (403 otherwise)",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "phones", "emails", "socials", "businessNames", "imageHashes", "lat", "lon", "city", "state", "country", "postedAt", "collectedAt", "age", "services", "paymentTypes", "clientele", "source", "viewCount", "hasImages", "style", "styleVec", "textHash", "priorityScore", "markings", "title" ]
+            }
+          },
+          "exactTotal" : {
+            "type" : "boolean",
+            "description" : "Count every match up to 10,000 instead of estimating the total; false by default"
+          }
+        },
+        "description" : "POST search: every filter is optional and they are ANDed"
+      },
+      "SearchedRecord" : {
+        "required" : [ "recordId" ],
+        "type" : "object",
+        "properties" : {
+          "recordId" : {
+            "type" : "string",
+            "description" : "The SPORK record_id, unsigned decimal"
+          },
+          "upstreamRid" : {
+            "type" : "string",
+            "description" : "The upstream RID cluster:position; absent for imports"
+          },
+          "phones" : {
+            "type" : "array",
+            "description" : "phones",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "emails" : {
+            "type" : "array",
+            "description" : "emails",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "socials" : {
+            "type" : "array",
+            "description" : "socials",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "businessNames" : {
+            "type" : "array",
+            "description" : "businessNames",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "imageHashes" : {
+            "type" : "array",
+            "description" : "imageHashes",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "lat" : {
+            "type" : "number",
+            "description" : "lat"
+          },
+          "lon" : {
+            "type" : "number",
+            "description" : "lon"
+          },
+          "city" : {
+            "type" : "string",
+            "description" : "city"
+          },
+          "state" : {
+            "type" : "string",
+            "description" : "state"
+          },
+          "country" : {
+            "type" : "string",
+            "description" : "country"
+          },
+          "postedAt" : {
+            "type" : "string",
+            "description" : "tsPosted, ISO-8601 UTC with milliseconds",
+            "format" : "date-time"
+          },
+          "collectedAt" : {
+            "type" : "string",
+            "description" : "tsCollected, ISO-8601 UTC with milliseconds",
+            "format" : "date-time"
+          },
+          "age" : {
+            "type" : "integer",
+            "description" : "age"
+          },
+          "services" : {
+            "type" : "array",
+            "description" : "services",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "paymentTypes" : {
+            "type" : "array",
+            "description" : "paymentTypes",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "clientele" : {
+            "type" : "array",
+            "description" : "clientele",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "source" : {
+            "type" : "string",
+            "description" : "source"
+          },
+          "viewCount" : {
+            "type" : "integer",
+            "description" : "views"
+          },
+          "hasImages" : {
+            "type" : "boolean",
+            "description" : "hasImages"
+          },
+          "style" : {
+            "type" : "string",
+            "description" : "style"
+          },
+          "styleVec" : {
+            "type" : "array",
+            "description" : "24 float32 values",
+            "items" : {
+              "type" : "number"
+            }
+          },
+          "textHash" : {
+            "type" : "string",
+            "description" : "SHA-256 (32 bytes) of the 4-byte title length, title and body, lowercase hex"
+          },
+          "priorityScore" : {
+            "type" : "number",
+            "description" : "priorityScore"
+          },
+          "markings" : {
+            "type" : "array",
+            "description" : "The marking bits the record carries",
+            "items" : {
+              "type" : "integer"
+            }
+          },
+          "title" : {
+            "type" : "string",
+            "description" : "The ad title, when asked for and the text is on this node"
+          }
+        },
+        "description" : "One record of the page; a field the record lacks is absent"
+      },
+      "SearchAnswer" : {
+        "required" : [ "auditSeq", "consistencyBookmark", "partial", "records", "requestId", "servedBy", "total", "totalCapped", "totalExact" ],
+        "type" : "object",
+        "properties" : {
+          "records" : {
+            "type" : "array",
+            "description" : "In the requested order",
+            "items" : {
+              "$ref" : "#/components/schemas/SearchedRecord"
+            }
+          },
+          "total" : {
+            "type" : "integer",
+            "description" : "Matches counted, at most 10,000. Exact only when totalExact; otherwise an ESTIMATE's lower bound (\"N+\")",
+            "format" : "int64"
+          },
+          "totalExact" : {
+            "type" : "boolean",
+            "description" : "total counts every match (up to the cap). False by default once the count's read budget runs out: total is then a lower bound"
+          },
+          "totalCapped" : {
+            "type" : "boolean",
+            "description" : "More than 10,000 match"
+          },
+          "totalEstimate" : {
+            "type" : "integer",
+            "description" : "ESTIMATE, only when totalExact is false and no posted window applies: the count scaled from the driving filter's size (\"about N\"), at most 10,000",
+            "format" : "int64"
+          },
+          "requestId" : {
+            "type" : "string",
+            "description" : "This request; also in the audit entry's detail"
+          },
+          "auditSeq" : {
+            "type" : "integer",
+            "description" : "The seq of the audit entry that recorded the release",
+            "format" : "int64"
+          },
+          "servedBy" : {
+            "type" : "string",
+            "description" : "The server that answered"
+          },
+          "partial" : {
+            "type" : "boolean",
+            "description" : "True when part of the answer lives on databases this node does not hold"
+          },
+          "consistencyBookmark" : {
+            "type" : "string",
+            "description" : "The commit index to pass as X-ArcadeDB-Read-After for read-your-writes; null outside HA",
+            "nullable" : true
+          }
+        },
+        "description" : "A page and its total"
       },
       "HydrateAnswer" : {
         "required" : [ "auditSeq", "consistencyBookmark", "invalid", "missing", "partial", "records", "requestId", "servedBy" ],

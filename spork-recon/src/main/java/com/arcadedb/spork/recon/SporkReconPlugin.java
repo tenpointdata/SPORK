@@ -80,14 +80,16 @@ public class SporkReconPlugin implements ServerPlugin {
   @Override
   public void registerAPI(final HttpServer httpServer, final PluginRoutes routes) {
     HydrateService hydrate = null;
+    SearchService search = null;
     SporkAudit audit = null;
     if (config != null && pool == null)
       pool = new HydratePool(config.hydrateThreads(), config.hydrateQueue());
     if (config != null && server != null) {
       hydrate = new HydrateService(server, config, pool);
+      search = new SearchService(server, config);
       audit = new SporkAudit(server, config.auditDatabase());
     }
-    final SporkReconHandler handler = new SporkReconHandler(httpServer, server != null ? config : null, hydrate, audit);
+    final SporkReconHandler handler = new SporkReconHandler(httpServer, server != null ? config : null, hydrate, search, audit);
     routes.prefix(Methods.POST, SporkPath.PREFIX, handler);
     routes.prefix(Methods.GET, SporkPath.PREFIX, handler);
   }

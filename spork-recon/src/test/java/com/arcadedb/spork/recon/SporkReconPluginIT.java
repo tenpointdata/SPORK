@@ -58,6 +58,9 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
   private static final String CONSOLE        = "Bearer entry-console-session.0123456789";
   private static final String UNMARKED       = "Bearer entry-unmarked-session.0123456789";
   private static final String OPS            = "Bearer entry-ops-session.0123456789";
+  private static final String READER_USER    = "0b7c2f1e-5a4d-4c3b-9e8f-112233445599";
+  private static final String READER         = "Bearer entry-reader-session.0123456789";
+  private static final String TEXT           = "txt_1";
   private static final String PARTITION      = "rec_1";
   private static final String DIRECTORY      = "recdir";
   private static final int    RECORDS        = 2_000;
@@ -76,7 +79,8 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
         .put("auditDatabase", getDatabaseName())//
         .put("directoryDatabase", DIRECTORY)//
         .put("partitionPrefix", "rec_")//
-        .put("markings", new JSONObject().put("spork.marking.minor", 0));
+        .put("markings", new JSONObject().put("spork.marking.minor", 0))//
+        .put("searchEstimateBudget", 500);
   }
 
   @Override
@@ -86,12 +90,16 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
       entry = new StubEntry()//
           .person(CONSOLE.substring(7), CONSOLE_USER, "spork.console", "spork.marking.minor")//
           .person(UNMARKED.substring(7), UNMARKED_USER, "spork.console")//
-          .person(OPS.substring(7), OPS_USER, "spork.ops");
+          .person(OPS.substring(7), OPS_USER, "spork.ops")//
+          .person(READER.substring(7), READER_USER, "spork.reader");
       // spork.ops reaches the audit database and the directory, never the partition: the engine user binding refuses it
       writeConfig(server, EntryConfiguration.FILE_NAME, entry.configuration(getDatabaseName(), new JSONObject()//
           .put("spork.console", new JSONObject().put("*", new JSONArray().put("admin")))//
           .put("spork.ops", new JSONObject().put(getDatabaseName(), new JSONArray().put("admin"))
-              .put(DIRECTORY, new JSONArray().put("admin")))));
+              .put(DIRECTORY, new JSONArray().put("admin")))
+          // the partition but not its text: the console/ops boundary of 01-architecture 5.4
+          .put("spork.reader", new JSONObject().put(getDatabaseName(), new JSONArray().put("admin"))
+              .put(DIRECTORY, new JSONArray().put("admin")).put(PARTITION, new JSONArray().put("admin")))));
     } catch (final IOException e) {
       throw new RuntimeException(e);
     }
@@ -117,8 +125,17 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
 
   /** {@code recdir} and one partition, installed with schema v1 exactly as production installs them. */
   private static void createCorpus(final String databaseDirectory) {
-    for (final String name : new String[] { DIRECTORY, PARTITION })
+    for (final String name : new String[] { DIRECTORY, PARTITION, TEXT })
       FileUtils.deleteRecursively(new File(databaseDirectory, name));
+
+    try (final Database text = new DatabaseFactory(databaseDirectory + File.separator + TEXT).create()) {
+      SporkSchema.install(text);
+      text.transaction(() -> {
+        for (int n = RECORDS - 5; n <= RECORDS; n++)
+          text.newDocument("TextBody").set("textHash", textHash(n)).set("title", "title " + n).set("text", "title " + n + " body " + n)
+              .save();
+      });
+    }
 
     try (final Database recdir = new DatabaseFactory(databaseDirectory + File.separator + DIRECTORY).create()) {
       SporkSchema.install(recdir);
@@ -380,5 +397,125 @@ class SporkReconPluginIT extends SporkReconServerTestBase {
     assertThat(answer.status()).isEqualTo(200);
     assertThat(answer.body()).isEqualTo(SporkReconApiSpec.toJson());
     assertThat(call("GET", SporkPath.PREFIX + "/openapi.json", null, null, null).status()).isEqualTo(401);
+  }
+
+  private static List<Object> recordIds(final JSONArray records) {
+    final List<Object> ids = new ArrayList<>();
+    for (int i = 0; i < records.length(); i++)
+      ids.add(records.getJSONObject(i).getString("recordId"));
+    return ids;
+  }
+
+  @Test
+  void searchServesThePageAndTheCountOfWhatThePersonMaySee() throws Exception {
+    final Answer answer = post("search", CONSOLE, context("CASE-7", NETWORK),
+        new JSONObject().put("state", "tx").put("limit", 5).put("exactTotal", true).put("projection",
+            new JSONArray().put("phones").put("postedAt")));
+
+    assertThat(answer.status()).as(answer.body()).isEqualTo(200);
+    final JSONObject body = answer.json();
+    // newest first; the other tenant's import (the newest record) is absent, the person's own import and the marked record are not
+    assertThat(recordIds(body.getJSONArray("records"))).containsExactly(Long.toString(recordId(IMPORTED)),
+        Long.toString(recordId(MARKED)), Long.toString(recordId(RECORDS)), Long.toString(recordId(RECORDS - 1)),
+        Long.toString(recordId(RECORDS - 2)));
+    assertThat(body.getJSONArray("records").getJSONObject(2).keySet()).containsExactlyInAnyOrder("recordId", "upstreamRid", "phones",
+        "postedAt");
+    assertThat(body.getLong("total")).isEqualTo(RECORDS + 2L);
+    assertThat(body.getBoolean("totalExact")).isTrue();
+    assertThat(body.has("totalEstimate")).isFalse();
+    assertThat(body.getBoolean("totalCapped")).isFalse();
+    assertThat(body.getBoolean("partial")).isFalse();
+
+    final JSONObject entryBody = lastAuditBody();
+    assertThat(entryBody.getString("action")).isEqualTo("records.search");
+    assertThat(entryBody.getString("actor")).isEqualTo(CONSOLE_USER);
+    assertThat(entryBody.getJSONObject("detail").getLong("records")).isEqualTo(5L);
+    assertThat(entryBody.getJSONObject("detail").getString("filters")).isEqualTo("state");
+    assertThat(entryBody.getJSONObject("detail").getString("keysRoot")).isEqualTo(MerkleRoot.of(List.of(Long.toString(recordId(IMPORTED)),
+        Long.toString(recordId(MARKED)), Long.toString(recordId(RECORDS)), Long.toString(recordId(RECORDS - 1)),
+        Long.toString(recordId(RECORDS - 2)))));
+  }
+
+  @Test
+  void searchCountsLeaveOutUnheldMarkings() throws Exception {
+    final JSONObject body = post("search", UNMARKED, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 3)
+        .put("exactTotal", true)).json();
+
+    assertThat(recordIds(body.getJSONArray("records"))).containsExactly(Long.toString(recordId(IMPORTED)),
+        Long.toString(recordId(RECORDS)), Long.toString(recordId(RECORDS - 1)));
+    assertThat(body.getLong("total")).as("the marked record and the other tenant's import are not counted").isEqualTo(RECORDS + 1L);
+
+    // oldest first, the two hidden records (the newest) are met by the count, not by the page: counted from the hidden set
+    final JSONObject oldest = post("search", UNMARKED, context(null, NETWORK), new JSONObject().put("state", "TX").put("sort", "posted_asc")
+        .put("limit", 3).put("exactTotal", true)).json();
+    assertThat(recordIds(oldest.getJSONArray("records"))).containsExactly(Long.toString(recordId(1)), Long.toString(recordId(2)),
+        Long.toString(recordId(3)));
+    assertThat(oldest.getLong("total")).isEqualTo(RECORDS + 1L);
+  }
+
+  @Test
+  void byDefaultTheTotalIsAnEstimateWithinTheReadBudget() throws Exception {
+    // 2,002 visible TX records against this fixture's budget of 500 entries: the count stops short and says so
+    final JSONObject body = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 5)).json();
+
+    assertThat(body.getJSONArray("records").length()).isEqualTo(5);
+    assertThat(body.getBoolean("partial")).as("the page is complete").isFalse();
+    assertThat(body.getBoolean("totalExact")).isFalse();
+    assertThat(body.getLong("total")).as("a lower bound").isLessThan(RECORDS + 2L).isGreaterThanOrEqualTo(500L);
+    assertThat(body.getLong("totalEstimate")).as("scaled from the facet's size").isBetween(RECORDS - 10L, RECORDS + 10L);
+    assertThat(lastAuditBody().getJSONObject("detail").getBoolean("totalExact")).isFalse();
+
+    // a small result is counted to its end within the budget, so the default total is exact
+    final JSONObject small = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("state", "TX")
+        .put("postedFrom", POSTED + 10).put("postedTo", POSTED + 19)).json();
+    assertThat(small.getBoolean("totalExact")).isTrue();
+    assertThat(small.getLong("total")).isEqualTo(10L);
+  }
+
+  @Test
+  void searchServesViewsOrderAndAWindow() throws Exception {
+    final JSONObject body = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("state", "TX").put("sort", "views_desc")
+        .put("postedFrom", POSTED + 10).put("postedTo", POSTED + 19).put("limit", 3)).json();
+
+    // views = n in the fixture, so the most viewed of records 10 to 19 are 19, 18, 17
+    assertThat(recordIds(body.getJSONArray("records"))).containsExactly(Long.toString(recordId(19)), Long.toString(recordId(18)),
+        Long.toString(recordId(17)));
+    assertThat(body.getLong("total")).isEqualTo(10L);
+  }
+
+  @Test
+  void searchIsGatedLikeEveryRecordProjection() throws Exception {
+    final Answer denied = post("search", CONSOLE, context(null, "standing_monitoring"), new JSONObject().put("state", "TX"));
+    assertThat(denied.status()).isEqualTo(403);
+    assertThat(denied.json().getString("code")).isEqualTo("purposeDenied");
+
+    assertThat(post("search", CONSOLE, null, new JSONObject().put("state", "TX")).status()).isEqualTo(428);
+
+    final Answer substring = post("search", CONSOLE, context(null, NETWORK), new JSONObject().put("phone", "555"));
+    assertThat(substring.status()).isEqualTo(400);
+    assertThat(substring.json().getString("code")).isEqualTo("filterUnsupported");
+
+    assertThat(post("search", OPS, context(null, NETWORK), new JSONObject().put("state", "TX")).status())
+        .as("no grant on the partition").isEqualTo(403);
+    assertThat(auditEntries()).isZero();
+  }
+
+  @Test
+  void searchTitlesComeFromTheTextPartitionBehindItsGrant() throws Exception {
+    final JSONObject request = new JSONObject().put("state", "TX").put("limit", 4).put("projection", new JSONArray().put("title"));
+    final JSONArray records = post("search", CONSOLE, context(null, NETWORK), request).json().getJSONArray("records");
+
+    // newest first: the import and the marked record carry no text in the fixture, the next two do
+    assertThat(records.getJSONObject(0).has("title")).isFalse();
+    assertThat(records.getJSONObject(2).getString("title")).isEqualTo("title " + RECORDS);
+    assertThat(records.getJSONObject(3).getString("title")).isEqualTo("title " + (RECORDS - 1));
+    assertThat(records.getJSONObject(2).keySet()).containsExactlyInAnyOrder("recordId", "upstreamRid", "title");
+    assertThat(lastAuditBody().getJSONObject("detail").getBoolean("titles")).isTrue();
+
+    final long before = auditEntries();
+    assertThat(post("search", READER, context(null, NETWORK), request).status()).as("no grant on txt_1").isEqualTo(403);
+    assertThat(auditEntries()).isEqualTo(before);
+    assertThat(post("search", READER, context(null, NETWORK), new JSONObject().put("state", "TX").put("limit", 4)).status())
+        .as("the same search without titles").isEqualTo(200);
   }
 }

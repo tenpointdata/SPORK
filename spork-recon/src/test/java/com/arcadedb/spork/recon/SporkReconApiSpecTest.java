@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -90,6 +91,37 @@ class SporkReconApiSpecTest {
     final Schema<?> projection = (Schema<?>) openAPI.getComponents().getSchemas().get("HydrateRequest").getProperties()
         .get("projection");
     assertThat(projection.getItems().getEnum()).hasSize(RecordProjection.values().length);
+  }
+
+  /** Issue #7578's rule for the server's own document: a schema with no required list types every field optional in a client. */
+  @Test
+  void everyComponentSchemaSaysWhatItAlwaysSends() {
+    final OpenAPI openAPI = parse(SporkReconApiSpec.toJson()).getOpenAPI();
+    for (final Map.Entry<String, Schema> entry : openAPI.getComponents().getSchemas().entrySet()) {
+      if (entry.getKey().equals("SearchRequest"))
+        continue; // an empty body is a valid search: the newest 50 of everything
+      assertThat(entry.getValue().getRequired()).as(entry.getKey()).isNotEmpty();
+    }
+  }
+
+  @Test
+  void theSearchLimitIsInTheContract() {
+    final OpenAPI openAPI = parse(SporkReconApiSpec.toJson()).getOpenAPI();
+    final Schema<?> limit = (Schema<?>) openAPI.getComponents().getSchemas().get("SearchRequest").getProperties().get("limit");
+
+    assertThat(limit.getMaximum().intValue()).isEqualTo(SearchService.MAX_LIMIT).isEqualTo(500);
+  }
+
+  /** WS4 shows "about N" and "N+" from these: the contract has to say which fields are estimates and when. */
+  @Test
+  void theSearchTotalSaysWhenItIsAnEstimate() {
+    final OpenAPI openAPI = parse(SporkReconApiSpec.toJson()).getOpenAPI();
+    final Map<String, Schema> answer = openAPI.getComponents().getSchemas().get("SearchAnswer").getProperties();
+
+    assertThat(openAPI.getComponents().getSchemas().get("SearchAnswer").getRequired()).contains("total", "totalExact");
+    assertThat(answer.get("total").getDescription()).contains("ESTIMATE").contains("totalExact");
+    assertThat(answer.get("totalEstimate").getDescription()).contains("ESTIMATE");
+    assertThat(openAPI.getComponents().getSchemas().get("SearchRequest").getProperties()).containsKey("exactTotal");
   }
 
   @Test

@@ -1,8 +1,8 @@
 # Workstream: P4 structured-search core
 
 Status: implemented and tested on branch `claude/p4-structured-core`, 2026-11-03. Design: `../02-retrieval-speed.md` 2.4.
-Consumer: the `spork-recon` search route (WS3 slice 2, `ws3-recon-plugin.md`), which owns the route, the console/ops
-boundary, titles and the count; this is the walk underneath it.
+Consumer: the `spork-recon` search route (WS3 slice 2, `ws3-recon-plugin.md`), which owns the route, visibility, the
+console/ops boundary and titles; this is the walk underneath it, with the count and the rank order.
 
 ## Why
 
@@ -38,8 +38,26 @@ page.rows(); page.partial(); page.next();     // next page: query.after(page.nex
    `limit x overRead` index entries (default 40, as 2.4 specifies) with `partial = true` and a keyset that resumes after the
    last entry read.
 
-Not in it (the route's job): the exact `total` (2.4 "Count"), the views-sort arm, substring arms (P4s), residuals tested on
-the key bytes of a 3-column composite (saves the record load), titles from `txt_<p>`.
+Added by WS3 (2026-11-03, the owner's decision of one core with the plugin on top; tests in
+`StructuredSearchCountAndRankTest`, 10, against the same kind of full-scan oracle):
+
+4. **Count** (`count(cap)`, `countBudget(entries)`, default 20,000). After the page the same cursors are drained, in no
+   order, up to the cap: `total`, `totalCapped`. An entry is counted on the index alone when no facet is left to test and the
+   record filter does not ask for the record, so a single-facet count reads no record (2.4 "Count"). Past the budget the count
+   is a lower bound with `totalPartial` and a `totalEstimate` scaled from the walked facet's size. With `after`, the count covers
+   this page and what follows it.
+5. **Record filter** (`filter(RecordFilter)`): a per-record condition no index answers (the plugin's visibility rule), applied to
+   rows and counts. `RecordFilter.mustRead(rid)` says which entries it might reject; the others are counted unread. The default
+   reads every counted record.
+6. **Rank order** (`rankBy("views")`, 2.4 P4v): the `(facet, rank, sort)` composite descending (`(rank, sort)` with no
+   indexed facet), the window checked on each key's sort value, until the page or `rankScanCap` entries (default 10,000);
+   past that the window's matches come from the time arm up to `rankFallbackCap` (10,000), sorted by rank in memory, `partial`
+   when there are more. Ties: rank, then sort value, then RID, all descending. No keyset; newest-first only.
+7. The unfiltered walk takes the shortest index led by the sort property, `(tsPosted)` or `(tsPosted, views)` (schema v1 has
+   only the latter).
+
+Still not in it: substring arms (P4s), residuals tested on the key bytes of a 3-column composite (saves the record load),
+titles from `txt_<p>` (the route's).
 
 ## Measured (5M records, fixed workload, 1 thread, 12:56)
 
