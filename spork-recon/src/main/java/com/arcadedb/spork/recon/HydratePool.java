@@ -18,6 +18,7 @@
  */
 package com.arcadedb.spork.recon;
 
+import com.arcadedb.database.ProtocolContext;
 import com.arcadedb.utility.DedicatedThreadPool;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Meter;
@@ -38,6 +39,10 @@ import java.util.function.ToDoubleFunction;
  * instead of refusing it. The request thread waits through {@code GraphAlgorithms.awaitFutures} with this pool, which reclaims a
  * chunk no worker has started, so a hydrate never parks on work nobody runs. One pool per plugin instance, closed with it; its
  * gauges carry the same names as {@code PoolMetrics} with {@code pool=spork_hydrate}.
+ * <p>
+ * A chunk is a client's request running on a thread the plugin owns, so it runs under the request's
+ * {@link ProtocolContext} ({@link #runTagged}): an untagged worker would read {@code INTERNAL}, which the HA snapshot gate
+ * exempts and the query metrics and trace spans attribute to the engine (issue #10094).
  */
 final class HydratePool extends DedicatedThreadPool {
   static final String POOL_TAG = "spork_hydrate";
@@ -64,6 +69,23 @@ final class HydratePool extends DedicatedThreadPool {
   private void gauge(final MeterRegistry registry, final Tags tags, final String name, final ToDoubleFunction<PoolStats> value) {
     meters.add(Gauge.builder(name, this, pool -> value.applyAsDouble(pool.getPoolStats())).tags(tags)
         .description("SPORK hydrate pool").register(registry));
+  }
+
+  /**
+   * Runs {@code chunk} under {@code protocol} and puts back whatever tag the thread had: none on a pooled worker, the
+   * request's own when the chunk was reclaimed or caller-run on the request thread.
+   */
+  static void runTagged(final String protocol, final Runnable chunk) {
+    final String enclosing = ProtocolContext.get();
+    ProtocolContext.set(protocol);
+    try {
+      chunk.run();
+    } finally {
+      if (ProtocolContext.INTERNAL.equals(enclosing))
+        ProtocolContext.clear();
+      else
+        ProtocolContext.set(enclosing);
+    }
   }
 
   @Override

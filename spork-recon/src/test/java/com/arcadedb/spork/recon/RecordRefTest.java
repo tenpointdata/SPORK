@@ -18,6 +18,8 @@
  */
 package com.arcadedb.spork.recon;
 
+import com.arcadedb.spork.keys.RecordId;
+import com.arcadedb.spork.keys.UpstreamRid;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -33,17 +35,18 @@ class RecordRefTest {
 
     assertThat(ref.kind()).isEqualTo(RecordRef.Kind.UPSTREAM_RID);
     assertThat(ref.value()).isEqualTo((168L << 40) | 8L);
-    assertThat(RecordRef.formatUpstreamRid(ref.value())).isEqualTo("168:8");
+    assertThat(UpstreamRid.format(ref.value())).isEqualTo("168:8");
+    assertThat(RecordRef.parse("#168:8")).as("OrientDB's own spelling").isEqualTo(ref);
   }
 
   @Test
   void aRecordIdIsAnUnsignedDecimalAndCarriesItsPeriod() {
-    final long recordId = (3L << 48) | 12345L;
+    final long recordId = RecordId.of(3, 12345L);
     final RecordRef ref = RecordRef.parse(Long.toString(recordId));
 
     assertThat(ref.kind()).isEqualTo(RecordRef.Kind.RECORD_ID);
     assertThat(ref.value()).isEqualTo(recordId);
-    assertThat(RecordRef.periodOf(recordId)).isEqualTo(3);
+    assertThat(RecordId.period(ref.value())).isEqualTo(3);
   }
 
   @Test

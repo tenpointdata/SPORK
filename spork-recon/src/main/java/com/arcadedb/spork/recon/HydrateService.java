@@ -22,6 +22,7 @@ import com.arcadedb.database.Database;
 import com.arcadedb.database.DatabaseContext;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.Document;
+import com.arcadedb.database.ProtocolContext;
 import com.arcadedb.graph.olap.GraphAlgorithms;
 import com.arcadedb.index.IndexCursor;
 import com.arcadedb.schema.DocumentType;
@@ -31,6 +32,8 @@ import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.ArcadeDBServer;
 import com.arcadedb.server.security.ServerSecurityUser;
+import com.arcadedb.spork.keys.RecordId;
+import com.arcadedb.spork.keys.UpstreamRid;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -128,15 +131,17 @@ final class HydrateService {
       final int chunks = (count + CHUNK - 1) / CHUNK;
       final Future<?>[] futures = new Future<?>[chunks - 1];
       final Throwable[] errors = new Throwable[chunks];
+      // the request thread's tag (http), carried onto the workers: they serve this client's request
+      final String protocol = ProtocolContext.get();
       for (int c = 1; c < chunks; c++) {
         final int chunk = c;
-        futures[c - 1] = pool.getExecutorService().submit(() -> {
+        futures[c - 1] = pool.getExecutorService().submit(() -> HydratePool.runTagged(protocol, () -> {
           try {
             request.run(chunk * CHUNK, Math.min(count, (chunk + 1) * CHUNK));
           } catch (final Throwable t) {
             errors[chunk] = t;
           }
-        });
+        }));
       }
       try {
         request.run(0, CHUNK);
@@ -200,7 +205,7 @@ final class HydrateService {
       Document record = null;
       switch (ref.kind()) {
       case RECORD_ID -> {
-        final Database partition = binding.bind(database(config.partitionPrefix() + RecordRef.periodOf(ref.value())));
+        final Database partition = binding.bind(database(config.partitionPrefix() + RecordId.period(ref.value())));
         if (partition == null) {
           status[i] = UNAVAILABLE;
           return;
@@ -245,7 +250,7 @@ final class HydrateService {
       out.put("id", ids[i]);
       out.put("recordId", Long.toUnsignedString(recordId));
       if (record.get("upstreamRid") instanceof Number upstreamRid)
-        out.put("upstreamRid", RecordRef.formatUpstreamRid(upstreamRid.longValue()));
+        out.put("upstreamRid", UpstreamRid.format(upstreamRid.longValue()));
       for (final RecordProjection field : fields)
         field.copy(record, out);
       records[i] = out;

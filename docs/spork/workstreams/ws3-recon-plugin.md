@@ -42,8 +42,12 @@ Every 200 answer carries `requestId` (also in the audit detail, for later comple
   from the request. Local users hold `localMarkings` (default none).
 - **Projection.** Allowlist (`RecordProjection`): phones, emails, socials, businessNames, imageHashes, lat, lon, city,
   state, country, postedAt, collectedAt, age, services, paymentTypes, clientele, source, viewCount, hasImages, style,
-  styleVec, textHash, priorityScore, markings. Default: all but styleVec. Anything else (title, text) is 400
+  styleVec, textHash, priorityScore, markings. Default: all but styleVec. `state`, `country` and `city` are the display
+  values, not the normalized `stateCode`, `countryCode` and `cityNorm`. Anything else (title, text) is 400
   `projectionInvalid`.
+- **Protocol tag.** Each chunk runs under the request's `ProtocolContext` (`HydratePool.runTagged`), restored in a
+  finally, so pool work is the client's request to the HA snapshot gate, the query metrics and the traces, not the
+  engine's (issue #10094; `ProtocolContextCensusTest` pins `spork-recon` at 2 tag calls).
 - **Parallelism.** Above 64 ids the work splits into 64-id chunks on the `spork-hydrate` pool (`HydratePool`, a
   `DedicatedThreadPool`: 32 threads, 1,024-deep queue, caller-runs, gauges `arcadedb.executor.*{pool=spork_hydrate}`);
   the request thread runs chunk 0 and waits with `GraphAlgorithms.awaitFutures`, which reclaims unstarted chunks.
@@ -89,14 +93,16 @@ was written; handover note `ws2-schema-v1-handover.md` in the train-1 notes fold
    partitions `rec_<period>`. `RecordRef.periodOf` is the one place here that knows it.
 2. Record property names are the ones `RecordProjection` reads: `socials`, `lat`, `lon`, display `city`, `stateCode`,
    `countryCode`, `paymentTypes`, `clientele`, `source`, `style`, `styleVec` (ARRAY_OF_FLOATS), `priorityScore`
-   (FLOAT), `markings` (LONG bitmask), `tenantId`. `importedId` is indexed only as `(tenantId, importedId)` UNIQUE_HASH
+   (FLOAT), `markings` (LONG bitmask), `tenantId`. `state` and `country` are the display values v1 keeps beside the
+   normalized `stateCode` and `countryCode`, and hydrate returns the display ones, as Recon shows them. `importedId` is indexed only as `(tenantId, importedId)` UNIQUE_HASH
    NULL_STRATEGY SKIP, which is exactly how an `imp:` id is looked up; `upstreamRid` UNIQUE_HASH skips nulls.
 3. `textHash` is BINARY 32 bytes (full SHA-256 over the 4-byte title length, title and body), returned as lowercase hex.
 4. `RecordDir {upstreamRid LONG, period SHORT}`, UNIQUE_HASH on `upstreamRid`.
 
-When `spork-keys` merges: replace `RecordRef.periodOf` and `formatUpstreamRid` with `RecordId` and `UpstreamRid`, and
-build the IT corpus with `SporkSchema.install(db)` instead of the hand-written DDL (which mirrors v1 today). The chain
-columns and `ChainHead` stay this side's (`AuditChain.ensureSchema`, IF NOT EXISTS over WS2's `AuditEntry`).
+`spork-recon` depends on `spork-keys` (engine excluded: the server provides it): `RecordRef` parses RIDs with
+`UpstreamRid` (so `#168:8` is accepted too), hydrate takes the period from `RecordId.period`, and the IT corpus is built
+with `SporkSchema.install`. The chain columns and `ChainHead` stay this side's (`AuditChain.ensureSchema`, IF NOT EXISTS
+over WS2's `AuditEntry`).
 
 ## Next slices
 
@@ -127,7 +133,7 @@ themselves (owner question 10). The plugin is not yet in the `package` distribut
 
 ## Verification
 
-`mvn -o verify -Pintegration -pl spork-recon -am`. Unit: `OperatingContextTest`, `SporkRoutesTest`, `RecordRefTest`,
+`mvn -o verify -Pintegration -pl spork-recon -am`. Unit: `OperatingContextTest`, `SporkRoutesTest`, `RecordRefTest`, `HydratePoolTest` (a chunk carries the request's protocol tag and restores the thread's own),
 `MerkleRootTest`, `SporkReconConfigurationTest`, `SporkReconApiSpecTest` (the document parses with swagger-parser,
 documents every route with its purposes and refusals, carries the 5,000 cap, matches the committed copy, and the plugin
 registers only its two prefixes). Integration (`BaseGraphServerTest`, ports read back from the server, a stub Entry on a

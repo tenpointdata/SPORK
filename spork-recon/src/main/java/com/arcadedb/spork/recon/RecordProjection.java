@@ -31,7 +31,8 @@ import java.util.HexFormat;
 /**
  * The hydrate projection allowlist (01-architecture 7.2): Recon's analysis projection plus {@code textHash}, every field read from
  * the Record document alone, so a hydrate touches no edge, local vertex or text database. The API names are Recon's; the
- * property names are the schema's ({@code docs/spork/config/schema-ddl.sql}, WS2 schema v1), and this enum is the one place that
+ * property names are schema v1's ({@code spork-keys} {@code rec.sql}; {@code state}, {@code country} and {@code city} are the
+ * display values beside the normalized {@code stateCode}, {@code countryCode} and {@code cityNorm}), and this enum is the one place that
  * maps one to the other.
  * <p>
  * Ad title and text are not here: they live in {@code txt_<p>} behind their own grant and arrive with the text-access slice.
@@ -45,8 +46,8 @@ public enum RecordProjection {
   LAT("lat", "lat", Kind.NUMBER),
   LON("lon", "lon", Kind.NUMBER),
   CITY("city", "city", Kind.STRING),
-  STATE("state", "stateCode", Kind.STRING),
-  COUNTRY("country", "countryCode", Kind.STRING),
+  STATE("state", "state", Kind.STRING),
+  COUNTRY("country", "country", Kind.STRING),
   POSTED_AT("postedAt", "tsPosted", Kind.ISO_TIME),
   COLLECTED_AT("collectedAt", "tsCollected", Kind.ISO_TIME),
   AGE("age", "age", Kind.NUMBER),
