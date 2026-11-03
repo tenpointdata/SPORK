@@ -737,3 +737,53 @@ benchmarks-orientdb/bin/orientdb-bench.sh warm -Darcadedb.retrievalBench.records
 The fixed-workload driver used here is a pair of single-file programs (same seed 12345, 50 draws, best of 3) outside the
 repository; moving it into the two modules as a `fixed` mode is the next harness change, together with the 5M run and a
 cold-cache run on the NVMe nodes.
+
+### 5M records, `fixed` mode (2026-11-03, 11:06 to 11:51, load average 13 to 15)
+
+Branch `claude/fixed-workload` (87caf5ae4) adds the `fixed` stage to both drivers. Settings: seed 12345, 50 parameter sets
+per query (`vectorKnn20:10`), 20 s warm-up on other parameters, best of 3 timed passes, 4 GB page cache each. Both datasets
+hold 6,000,000 identifiers and 19,494,466 edges; row totals match on all 9 queries. The datasets (6.5 GB ArcadeDB, 11 GB
+OrientDB) exceed the page cache, so pages come from the OS file cache. One pass per engine: treat gaps under 2x as noise.
+
+| query | OrientDB median | stock median | OrientDB / stock | OrientDB p90 | stock p90 | partial-text median |
+|---|---:|---:|---:|---:|---:|---:|
+| identLookup | 0.037 | 0.057 | 0.6x | 0.047 | 0.067 | 0.052 |
+| hydrate200 | 0.123 | 0.159 | 0.8x | 0.155 | 0.167 | 0.073 |
+| feed24h | 0.133 | 0.171 | 0.8x | 0.136 | 0.187 | 0.109 |
+| pivot1Hop | 0.257 | 0.335 | 0.8x (mean 2.4x) | 3.24 | 2.94 | 0.257 |
+| pivot2Hop | 16.2 | 1.31 | 12x | 503 | 38.7 | 1.42 |
+| structured | 230 | 610 | **0.38x** (mean 1.8x) | 6,172 | 2,077 | 582 |
+| geoRadius14d | 58.6 | 18.1 | 3.2x | 496 | 35.5 | 13.0 |
+| fulltextTop20 | 1,815 | 128 | 14x | 6,498 | 438 | **20.0** |
+| vectorKnn20 | 6,577 | 0.659 | ~10,000x | 7,431 | 0.708 | 0.553 |
+
+- With the warm-up in place, OrientDB is at par or slightly ahead on the short reads (lookup, hydrate, feed, the 1-hop
+  median): the 1M table's ArcadeDB lead there was partly JIT-cold timing.
+- The large gaps hold or grow with scale: full-text 14x (91x with the partial-text top-k scorer, which is 6.4x over stock at
+  5M against 3x at 1M), 2-hop pivot 12x, vector kNN about 10,000x, geo 3.2x at the median and 14x at p90.
+- Structured search: OrientDB 2.7x faster at the median, ArcadeDB 1.8x better mean and 3x better p90. Same plan shape on
+  both (a services or age index, then per-record filters); the top SPORK planner target in the mix.
+- Current main (f24b2d065, index-locks merged) is within noise of stock on every query.
+
+**Addendum, 12:16 to 12:30: main at 7dc7ff312** (partial-text, page-cache, projection and graph-adjacency merged), and an
+isolated rerun of the cache-sensitive queries. In the full run, `pivot1Hop`, `pivot2Hop` and `hydrate200` sit between
+`structured`, `geoRadius14d` and `fulltextTop20`, which evict their pages, so their medians move 2x to 6x with cache state
+(main's full-run `pivot1Hop` read 0.86 ms; isolated, 0.09 to 0.13 ms, the same as stock). Rerun with
+`-Darcadedb.retrievalBench.queries=pivot1Hop,pivot2Hop,hydrate200` (OrientDB once; stock and main twice each, alternating):
+
+| query | OrientDB median | stock median | main median | OrientDB / main | OrientDB mean | main mean |
+|---|---:|---:|---:|---:|---:|---:|
+| pivot1Hop | 0.118 | 0.110 | 0.112 | 1.1x | 3.95 | 1.41 |
+| pivot2Hop | 7.61 | 0.952 | 0.827 | 9.2x | 131 | 15.2 |
+| hydrate200 | 0.064 | 0.114 | 0.138 | **0.46x** | 0.065 | 0.139 |
+
+Main's full run, the other six queries (ms, median): identLookup 0.058, feed24h 0.148, structured 691, geoRadius14d 15.6,
+fulltextTop20 22.3 (81x OrientDB), vectorKnn20 0.508. Within noise of stock except full-text, where the merged top-k scorer
+holds the 5.7x gain.
+
+- **hydrate200: OrientDB is about 2x faster in isolation.** OrientDB plans `SELECT FROM :rids` as direct loads; ArcadeDB runs
+  `@rid IN :rids`. 20% of Recon's reads, and the dossier hydrates up to 7,500: worth a profile against `lookupByRIDs`.
+- **Traffic-weighted** (means, weighted by the 0.1 shares: 1-hop pivot 35%, hydrate 20%, structured 15%, feed 10%, 2-hop 5%,
+  full-text 5%, geo 2%, kNN 1%): an average read costs 150 ms on main, 163 ms on stock, 506 ms on OrientDB. **98% of main's
+  weighted time is `structured`**: 691 ms median at 5M against the P4 target of 5 ms (2.4), from the non-cost-based plan that
+  opens `services BY ITEM` for common services. The P4 path is the largest single read-speed item left for Recon.
