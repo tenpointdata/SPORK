@@ -1,0 +1,53 @@
+{
+  "records": 300000,
+  "seed": 42,
+  "headroom": 3.0,
+  "hardware": "Apple M5 Max 18 cores, 128 GB, macOS 27.0, OpenJDK 21.0.11 Homebrew, ZGC; measured 2026-11-03 at main 4bc577f11",
+  "queries": {
+    "identLookup": {
+      "p95Us": 16,
+      "p50Us": 7,
+      "rowsPerQuery": 1
+    },
+    "pivot1Hop": {
+      "p95Us": 7017,
+      "p50Us": 373,
+      "rowsPerQuery": 115
+    },
+    "pivot2Hop": {
+      "p95Us": 137666,
+      "p50Us": 588,
+      "rowsPerQuery": 378
+    },
+    "structured": {
+      "p95Us": 99670,
+      "p50Us": 20651,
+      "rowsPerQuery": 54
+    },
+    "feed24h": {
+      "p95Us": 3412,
+      "p50Us": 442,
+      "rowsPerQuery": 200
+    },
+    "geoRadius14d": {
+      "p95Us": 27783,
+      "p50Us": 18011,
+      "rowsPerQuery": 410
+    },
+    "fulltextTop20": {
+      "p95Us": 13791,
+      "p50Us": 3457,
+      "rowsPerQuery": 20
+    },
+    "vectorKnn20": {
+      "p95Us": 1483,
+      "p50Us": 700,
+      "rowsPerQuery": 20
+    },
+    "hydrate200": {
+      "p95Us": 165,
+      "p50Us": 100,
+      "rowsPerQuery": 200
+    }
+  }
+}
