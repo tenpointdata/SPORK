@@ -349,6 +349,8 @@ These dependencies are used only for testing and are not included in production 
 | org.ow2.asm | asm (engine, reads the compiled SQL functions in a narrowing-read scan) | 9.7.1 | BSD 3-Clause | https://asm.ow2.io/ |
 | org.openjdk.jmh | jmh-core | 1.37 | GPL-2.0 WITH Classpath-exception-2.0 | https://openjdk.java.net/projects/code-tools/jmh/ |
 | org.openjdk.jmh | jmh-generator-annprocess | 1.37 | GPL-2.0 WITH Classpath-exception-2.0 | https://openjdk.java.net/projects/code-tools/jmh/ |
+| com.orientechnologies | orientdb-core (benchmarks-orientdb only: retrieval baseline, outside the reactor, never shipped) | 3.2.24 | Apache 2.0 | https://github.com/orientechnologies/orientdb |
+| com.orientechnologies | orientdb-lucene (benchmarks-orientdb only, brings Lucene 7.7.3) | 3.2.24 | Apache 2.0 | https://github.com/orientechnologies/orientdb |
 | com.fasterxml.jackson.core | jackson-databind (engine, JSON library Cucumber 8 needs for the openCypher TCK reports) | 2.22.x | Apache 2.0 | https://github.com/FasterXML/jackson |
 | com.fasterxml.jackson.datatype | jackson-datatype-jdk8 (engine, same purpose) | 2.22.x | Apache 2.0 | https://github.com/FasterXML/jackson-modules-java8 |
 
