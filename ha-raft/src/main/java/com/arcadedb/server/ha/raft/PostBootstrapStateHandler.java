@@ -187,6 +187,9 @@ public class PostBootstrapStateHandler extends AbstractServerHttpHandler {
       // their fingerprint would be meaningless to a peer that's about to seed itself; skip them.
       if (ArcadeDBServer.isReservedDatabaseName(dbName))
         continue;
+      // Nor a node-local database (HA_LOCAL_DATABASES, SPORK E26): listed, a joiner would auto-acquire it
+      if (server.isHALocalDatabase(dbName))
+        continue;
 
       try {
         // Unwraps to the LocalDatabase under the HA wrapper (same pattern as #4144) and fingerprints the SETTLED copy

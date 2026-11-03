@@ -325,7 +325,8 @@ public class SnapshotHttpHandler implements HttpHandler {
       }
 
       final var server = httpServer.getServer();
-      if (!server.existsDatabase(databaseName)) {
+      // A node-local database (HA_LOCAL_DATABASES, SPORK E26) is not the group's, so no peer installs it from here
+      if (!server.existsDatabase(databaseName) || server.isHALocalDatabase(databaseName)) {
         exchange.setStatusCode(404);
         exchange.getResponseSender().send("Database '" + databaseName + "' not found");
         return;
@@ -646,7 +647,7 @@ public class SnapshotHttpHandler implements HttpHandler {
 
   private void handleChecksums(final HttpServerExchange exchange, final String databaseName) throws Exception {
     final var server = httpServer.getServer();
-    if (!server.existsDatabase(databaseName)) {
+    if (!server.existsDatabase(databaseName) || server.isHALocalDatabase(databaseName)) {
       exchange.setStatusCode(404);
       exchange.getResponseSender().send("Database '" + databaseName + "' not found");
       return;

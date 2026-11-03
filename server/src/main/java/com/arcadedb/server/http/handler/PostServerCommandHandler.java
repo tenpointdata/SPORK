@@ -106,11 +106,12 @@ public class PostServerCommandHandler extends AbstractServerHttpHandler {
     else
       checkRootUser(user);
 
-    // Write commands that must run on the leader: forward if this node is a replica
-    if (command_lc.startsWith(CREATE_DATABASE) || command_lc.startsWith(DROP_DATABASE) ||
+    // Write commands that must run on the leader: forward if this node is a replica. Not a restore or a drop of a node-local
+    // database (HA_LOCAL_DATABASES, SPORK E26): it is this node's own copy, and the leader's is another one or none
+    if ((command_lc.startsWith(CREATE_DATABASE) || command_lc.startsWith(DROP_DATABASE) ||
         command_lc.startsWith(CREATE_USER) || command_lc.startsWith(DROP_USER) ||
         command_lc.startsWith(RESTORE_BACKUP) || command_lc.startsWith(RESTORE_DATABASE) ||
-        command_lc.startsWith(IMPORT_DATABASE)) {
+        command_lc.startsWith(IMPORT_DATABASE)) && !targetsNodeLocalDatabase(command, command_lc)) {
       final ExecutionResponse forwarded = forwardToLeaderIfReplica(exchange, payload, user,
           isLongRunningForwardedCommand(command_lc));
       // The leader's progress stream was relayed straight to the client (issue #7603): the response is already on
@@ -514,7 +515,8 @@ public class PostServerCommandHandler extends AbstractServerHttpHandler {
     // run here, first). Deliberate: a node that is going to refuse the command should not first
     // resolve a hostname the caller chose, and the caller has to take the command to the leader
     // either way, where the URL refusal is what they will get. Issue #7308.
-    checkServerIsLeaderIfInHA();
+    if (!httpServer.getServer().isHALocalDatabase(databaseName))
+      checkServerIsLeaderIfInHA();
     Metrics.counter("http.restore-database").increment();
 
     return streamOrRun(exchange, databaseName + " restored successfully",
@@ -787,7 +789,8 @@ public class PostServerCommandHandler extends AbstractServerHttpHandler {
     if (databaseName.isEmpty())
       throw new IllegalArgumentException("Database name empty");
 
-    checkServerIsLeaderIfInHA();
+    if (!httpServer.getServer().isHALocalDatabase(databaseName))
+      checkServerIsLeaderIfInHA();
 
     Metrics.counter("http.drop-database").increment();
 
@@ -828,6 +831,20 @@ public class PostServerCommandHandler extends AbstractServerHttpHandler {
   static boolean isLongRunningForwardedCommand(final String command_lc) {
     return command_lc.startsWith(RESTORE_BACKUP) || command_lc.startsWith(RESTORE_DATABASE) ||
         command_lc.startsWith(IMPORT_DATABASE);
+  }
+
+  /** A {@code drop database} or {@code restore database} whose target is served node-locally, outside the Raft group. */
+  private boolean targetsNodeLocalDatabase(final String command, final String command_lc) {
+    final String target;
+    if (command_lc.startsWith(DROP_DATABASE))
+      target = extractTarget(command, DROP_DATABASE);
+    else if (command_lc.startsWith(RESTORE_DATABASE)) {
+      final String args = extractTarget(command, RESTORE_DATABASE);
+      final int space = args.indexOf(' ');
+      target = space > 0 ? args.substring(0, space) : args;
+    } else
+      return false;
+    return httpServer.getServer().isHALocalDatabase(target.trim());
   }
 
   private void checkServerIsLeaderIfInHA() {

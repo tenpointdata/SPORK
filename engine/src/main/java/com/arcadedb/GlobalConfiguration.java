@@ -2907,6 +2907,19 @@ public enum GlobalConfiguration {
       too; the retry count is capped so this cannot loop indefinitely.""",
       Boolean.class, true),
 
+  HA_LOCAL_DATABASES("arcadedb.ha.localDatabases", SCOPE.SERVER,
+      """
+      Comma-separated names of databases this server serves node-locally, outside the Raft group (SPORK E26: warm \
+      sealed partitions held on a subset of the nodes); an entry ending in '*' is a name prefix. A listed database is \
+      opened READ_ONLY, is never wrapped for replication, refuses every write and schema change, cannot be created \
+      through the server, and is invisible to the HA layer: it is left out of the bootstrap election, the reconcile \
+      listing, snapshot installs, auto-acquire, stale-follower and stalled-replica resyncs and the applied-index \
+      bookkeeping, and the snapshot endpoint answers 404 for it. A 'restore database' of such a name is this node's \
+      alone and runs on any role, which is how a rewritten copy is admitted to each holder. A Raft entry naming it is \
+      applied as a no-op and logged SEVERE (only a leader configured differently can write one). Set it alike on every \
+      node. Read at startup; empty (the default) means every database is replicated.""",
+      String.class, ""),
+
   HA_SNAPSHOT_MAX_CONCURRENT("arcadedb.ha.snapshotMaxConcurrent", SCOPE.SERVER,
       "Maximum number of concurrent snapshot downloads served by the leader. Requests over this limit receive HTTP 503.",
       Integer.class, 2),

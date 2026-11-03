@@ -996,7 +996,8 @@ class BootstrapElection {
     final Map<String, PeerState> result = new HashMap<>();
     final long settleDeadline = System.currentTimeMillis() + BootstrapFingerprint.SETTLE_MAX_WAIT_MILLIS;
     for (final String dbName : server.getDatabaseNames()) {
-      if (!dbFilter.contains(dbName))
+      // A node-local database (HA_LOCAL_DATABASES) has no cluster-wide baseline to elect
+      if (!dbFilter.contains(dbName) || server.isHALocalDatabase(dbName))
         continue;
       try {
         final ArcadeStateMachine.BootstrapBaseline local = ArcadeStateMachine.localBootstrapState(server.getDatabaseForOperator(dbName),
@@ -1015,7 +1016,7 @@ class BootstrapElection {
   private List<String> collectLocalDatabaseNames() {
     final List<String> out = new ArrayList<>();
     for (final String dbName : server.getDatabaseNames())
-      if (!ArcadeDBServer.isReservedDatabaseName(dbName))
+      if (!ArcadeDBServer.isReservedDatabaseName(dbName) && !server.isHALocalDatabase(dbName))
         out.add(dbName);
     return out;
   }
