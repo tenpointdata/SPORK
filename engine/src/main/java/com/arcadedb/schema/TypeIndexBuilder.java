@@ -230,6 +230,8 @@ public class TypeIndexBuilder extends IndexBuilder<TypeIndex> {
       return new TypeLSMVectorIndexBuilder(this);
     if (indexType == Schema.INDEX_TYPE.LSM_SPARSE_VECTOR && !(this instanceof TypeLSMSparseVectorIndexBuilder))
       return new TypeLSMSparseVectorIndexBuilder(this);
+    if (indexType == Schema.INDEX_TYPE.LSM_IVF_VECTOR && !(this instanceof TypeLSMIVFVectorIndexBuilder))
+      return new TypeLSMIVFVectorIndexBuilder(this);
     if (indexType == Schema.INDEX_TYPE.FULL_TEXT && !(this instanceof TypeFullTextIndexBuilder))
       return new TypeFullTextIndexBuilder(this);
     if (indexType == Schema.INDEX_TYPE.GEOSPATIAL && !(this instanceof TypeGeoIndexBuilder))

@@ -72,6 +72,8 @@ import com.arcadedb.index.fulltext.LSMTreeFullTextIndex;
 import com.arcadedb.index.geospatial.LSMTreeGeoIndex;
 import com.arcadedb.index.lsm.LSMTreeIndex;
 import com.arcadedb.index.lsm.LSMTreeIndexAbstract;
+import com.arcadedb.index.ivfvector.IVFPostingsComponent;
+import com.arcadedb.index.ivfvector.LSMIVFVectorIndex;
 import com.arcadedb.index.sparsevector.LSMSparseVectorIndex;
 import com.arcadedb.index.sparsevector.SparseSegmentComponent;
 import com.arcadedb.index.lsm.LSMTreeIndexAbstract.NULL_STRATEGY;
@@ -550,6 +552,7 @@ public class LocalSchema implements Schema {
     componentFactory.registerComponent(LSMVectorIndex.FILE_EXT, new LSMVectorIndex.PaginatedComponentFactoryHandlerUnique());
     componentFactory.registerComponent(SparseSegmentComponent.FILE_EXT,
         new SparseSegmentComponent.PaginatedComponentFactoryHandler());
+    componentFactory.registerComponent(IVFPostingsComponent.FILE_EXT, new IVFPostingsComponent.PaginatedComponentFactoryHandler());
     componentFactory.registerComponent(TimeSeriesBucket.BUCKET_EXT, new TimeSeriesBucket.PaginatedComponentFactoryHandler());
     componentFactory.registerComponent(TimeSeriesTagDictionary.DICT_EXT,
         new TimeSeriesTagDictionary.PaginatedComponentFactoryHandler());
@@ -563,6 +566,7 @@ public class LocalSchema implements Schema {
     indexFactory.register(INDEX_TYPE.FULL_TEXT.name(), new LSMTreeFullTextIndex.LSMTreeFullTextIndexFactoryHandler());
     indexFactory.register(INDEX_TYPE.LSM_VECTOR.name(), new LSMVectorIndex.LSMVectorIndexFactoryHandler());
     indexFactory.register(INDEX_TYPE.LSM_SPARSE_VECTOR.name(), new LSMSparseVectorIndex.LSMSparseVectorIndexFactoryHandler());
+    indexFactory.register(INDEX_TYPE.LSM_IVF_VECTOR.name(), new LSMIVFVectorIndex.LSMIVFVectorIndexFactoryHandler());
     indexFactory.register(INDEX_TYPE.GEOSPATIAL.name(), new LSMTreeGeoIndex.GeoIndexFactoryHandler());
     indexFactory.register(INDEX_TYPE.HASH.name(), new HashIndex.HashIndexFactoryHandler());
     configurationFile = new File(databasePath + File.separator + SCHEMA_FILE_NAME);
@@ -4218,6 +4222,12 @@ public class LocalSchema implements Schema {
                     // Same reason as the full-text branch above (issue #5742).
                     sparseMeta.inheritCommonSettingsFrom(index.getMetadata());
                     index = new LSMSparseVectorIndex((LSMTreeIndex) index, sparseMeta);
+                    publishIndexDuringLoad(registeredName, index);
+                  } else if (configuredIndexType.equalsIgnoreCase(Schema.INDEX_TYPE.LSM_IVF_VECTOR.toString())) {
+                    final LSMIVFVectorIndexMetadata ivfMeta = new LSMIVFVectorIndexMetadata(typeName, properties, -1);
+                    ivfMeta.fromJSON(indexJSON);
+                    ivfMeta.inheritCommonSettingsFrom(index.getMetadata());
+                    index = new LSMIVFVectorIndex((LSMTreeIndex) index, ivfMeta);
                     publishIndexDuringLoad(registeredName, index);
                   } else {
                     orphanIndexes.put(indexName, indexJSON);

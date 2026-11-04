@@ -64,6 +64,35 @@ class LockTimeoutHolderDiagnosticsTest extends TestHelper {
     }
   }
 
+  /**
+   * The file the waiter timed out on can be gone by the time the message is built: a commit that queued entries for an index a
+   * REBUILD INDEX dropped while it waited (the database lock off, {@code arcadedb.backup.enabled=false}). Naming the file threw an
+   * {@code IllegalArgumentException} there, which the commit wrapped in a non-retryable {@code TransactionException}: the timeout
+   * must stay a {@link LockTimeoutException}, through both overloads.
+   */
+  @Test
+  void lockTimeoutOnAFileDroppedMeanwhileStaysALockTimeout() {
+    final TransactionManager txManager = ((DatabaseInternal) database).getTransactionManager();
+    // An id no file is registered under: what a dropped file's id is to the file manager
+    final int dropped = Integer.MAX_VALUE - 7;
+    assertThat(((DatabaseInternal) database).getFileManager().getFileIfExists(dropped)).isNull();
+
+    final List<Integer> held = txManager.tryLockFiles(List.of(dropped), 1_000, "holder-tx-A");
+    assertThat(held).containsExactly(dropped);
+    try {
+      assertThatThrownBy(() -> txManager.tryLockFiles(List.of(dropped), 50, "waiter-tx-B"))
+          .isInstanceOf(LockTimeoutException.class)
+          .hasMessageContaining("dropped")
+          .hasMessageContaining("holder-tx-A");
+      assertThatThrownBy(() -> txManager.tryLockFiles(new int[] { dropped }, 50, "waiter-tx-B"))
+          .isInstanceOf(LockTimeoutException.class)
+          .hasMessageContaining("dropped")
+          .hasMessageContaining("holder-tx-A");
+    } finally {
+      txManager.unlockFilesInOrder(held, "holder-tx-A");
+    }
+  }
+
   @Test
   void lockStatsAreReadableFromTheTransactionManager() {
     final DocumentType type = database.getSchema().createDocumentType("Observed");

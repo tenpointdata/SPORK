@@ -286,7 +286,7 @@ final class PostgresCatalogIndexes {
       case HASH -> HASH;
       case FULL_TEXT -> GIN;
       case GEOSPATIAL -> GIST;
-      case LSM_VECTOR, LSM_SPARSE_VECTOR -> HNSW;
+      case LSM_VECTOR, LSM_SPARSE_VECTOR, LSM_IVF_VECTOR -> HNSW;
     };
   }
 

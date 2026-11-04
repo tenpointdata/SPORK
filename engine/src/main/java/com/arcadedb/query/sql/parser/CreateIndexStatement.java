@@ -44,6 +44,7 @@ import com.arcadedb.schema.Schema;
 import com.arcadedb.schema.TypeFullTextIndexBuilder;
 import com.arcadedb.schema.TypeGeoIndexBuilder;
 import com.arcadedb.schema.TypeIndexBuilder;
+import com.arcadedb.schema.TypeLSMIVFVectorIndexBuilder;
 import com.arcadedb.schema.TypeLSMSparseVectorIndexBuilder;
 import com.arcadedb.schema.TypeLSMVectorIndexBuilder;
 import com.arcadedb.serializer.json.JSONException;
@@ -114,6 +115,8 @@ public class CreateIndexStatement extends DDLStatement {
     case "LSM_VECTOR" -> {
     }
     case "LSM_SPARSE_VECTOR" -> {
+    }
+    case "LSM_IVF_VECTOR" -> {
     }
     case "GEOSPATIAL" -> {
     }
@@ -272,6 +275,9 @@ public class CreateIndexStatement extends DDLStatement {
       unique = false;
     } else if ("LSM_SPARSE_VECTOR".equalsIgnoreCase(typeAsString)) {
       indexType = Schema.INDEX_TYPE.LSM_SPARSE_VECTOR;
+      unique = false;
+    } else if ("LSM_IVF_VECTOR".equalsIgnoreCase(typeAsString)) {
+      indexType = Schema.INDEX_TYPE.LSM_IVF_VECTOR;
       unique = false;
     } else if ("GEOSPATIAL".equalsIgnoreCase(typeAsString)) {
       indexType = Schema.INDEX_TYPE.GEOSPATIAL;
@@ -507,6 +513,24 @@ public class CreateIndexStatement extends DDLStatement {
       }
       resultingIndex = sparseBuilder.create();
       creator = sparseBuilder;
+
+    } else if (indexType == Schema.INDEX_TYPE.LSM_IVF_VECTOR) {
+      if (metadata == null)
+        throw new CommandSQLParsingException("LSM_IVF_VECTOR index requires METADATA with at least \"dimensions\", e.g. METADATA {\"dimensions\": 512}");
+      final TypeLSMIVFVectorIndexBuilder ivfBuilder = builder.withIVFVectorType();
+      final Map<String, Object> metadataMap = metadata.toMap((Result) null, context);
+      final JSONObject jsonMetadata = new JSONObject(metadataMap);
+      try {
+        if (jsonMetadata.getInt("dimensions", 0) < 1)
+          throw new CommandSQLParsingException("LSM_IVF_VECTOR index requires a positive \"dimensions\" in METADATA");
+        stripDirectives(jsonMetadata);
+        ivfBuilder.withMetadata(jsonMetadata);
+        ivfBuilder.withUserMetadata(jsonMetadata);
+      } catch (final IndexException | IllegalArgumentException | JSONException e) {
+        throw new CommandSQLParsingException("Invalid METADATA for LSM_IVF_VECTOR index: " + e.getMessage(), e);
+      }
+      resultingIndex = ivfBuilder.create();
+      creator = ivfBuilder;
 
     } else if (indexType == Schema.INDEX_TYPE.GEOSPATIAL) {
       // Builder is already a TypeGeoIndexBuilder after withType(GEOSPATIAL)

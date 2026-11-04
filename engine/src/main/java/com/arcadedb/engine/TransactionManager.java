@@ -1892,7 +1892,7 @@ public class TransactionManager {
 
         if (attemptFileId != null)
           throw new LockTimeoutException(
-              "Timeout on locking file " + attemptFileId + " (" + database.getFileManager().getFile(attemptFileId).getFileName()
+              "Timeout on locking file " + attemptFileId + " (" + describeFile(attemptFileId)
                   + ") during commit (fileIds=" + orderedFilesIds + ", timeout=" + timeout + "ms" + describeHolder(attemptFileId)
                   + ")");
 
@@ -1930,7 +1930,7 @@ public class TransactionManager {
         unlockFilesInOrder(lockedFiles, requester);
 
         throw new LockTimeoutException(
-            "Timeout on locking file " + attemptFileId + " (" + database.getFileManager().getFile(attemptFileId).getFileName()
+            "Timeout on locking file " + attemptFileId + " (" + describeFile(attemptFileId)
                 + ") during commit (fileIds=" + Arrays.toString(fileIds) + ", timeout=" + timeout + "ms"
                 + describeHolder(attemptFileId) + ")");
       }
@@ -1941,6 +1941,17 @@ public class TransactionManager {
       LogManager.instance().log(this, Level.FINE, "Locked files %s (threadId=%d)", null, Arrays.toString(fileIds),
           Thread.currentThread().threadId());
     return lockedFiles;
+  }
+
+  /**
+   * The name of {@code fileId} for a {@link LockTimeoutException} message. The file can be gone by then: a transaction that queued
+   * entries for an index which a REBUILD INDEX dropped while it waited for the lock (possible once the database lock is off,
+   * {@code arcadedb.backup.enabled=false}). Asking {@code getFile} threw an {@code IllegalArgumentException} there, which the commit
+   * wrapped in a plain {@code TransactionException} and so turned a retryable lock timeout into a failure no retry absorbs.
+   */
+  private String describeFile(final int fileId) {
+    final ComponentFile file = database.getFileManager().getFileIfExists(fileId);
+    return file != null ? file.getFileName() : "dropped";
   }
 
   /**

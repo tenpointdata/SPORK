@@ -284,6 +284,10 @@ class Issue10751TypeRenameRekeysIndexMapTest extends TestHelper {
       database.command("sql", "CREATE PROPERTY " + t + ".weights ARRAY_OF_FLOATS");
       database.command("sql", "CREATE INDEX ON " + t + " (tokens, weights) LSM_SPARSE_VECTOR METADATA { dimensions: 16 }");
     }
+    case LSM_IVF_VECTOR -> {
+      database.command("sql", "CREATE PROPERTY " + t + ".v ARRAY_OF_FLOATS");
+      database.command("sql", "CREATE INDEX ON " + t + " (v) LSM_IVF_VECTOR METADATA { dimensions: 4, nlist: 2 }");
+    }
     default -> throw new IllegalStateException("index kind " + kind + " registered in the factory and not covered by this census");
     }
   }
