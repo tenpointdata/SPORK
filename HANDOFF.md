@@ -157,9 +157,35 @@ they are, file each item as an issue and replace its line with a link. Sizes and
 28. Resolve the commit-policy conflict: `CLAUDE.md` lets sessions commit and push (explicit paths only), while the
     `docs/spork/README.md` "Conventions" line still says no commits from Claude sessions.
 
+### Retrieval speed (read path), as of 2026-11-04
+
+Owner goal: optimize retrieval speed. The CPU-cost A/B (upstream `4bc577f11` engine vs main `6748abd4d`, 5M
+Recon-shaped records, three interleaved rounds per leg) is in
+`.claude/worktrees/bench-main-combined/target/cpucost/comparison.md`. Its harness changes (the `cpucost` stage and the
+opt-in IVF variant) are uncommitted in the `bench-main-combined` and `read-bench-63f0a8` worktrees.
+
+29. **Ordered index scan with early LIMIT** (worktree `wf_e48018eb-d84-1`, in progress): the `structured` query
+    (equality on `state`, ranges, `ORDER BY tsPosted DESC LIMIT 100`) costs about 755 ms CPU at 5M, 96% of the mix.
+    Done when the planner walks `Record[state,tsPosted]` newest-first and stops at the limit, with result-equivalence
+    tests and no regression on `feed24h`.
+30. **Filtered vector kNN allow-lists** (worktree `wf_e48018eb-d84-2`, in progress): about 280 ms CPU and 220 MB
+    allocated per query because the `filter` subquery becomes a `HashSet<RID>` per call. Done when the allow-list is
+    index-only and primitive, about 10x cheaper, same neighbors.
+31. **IVF defaults on low-dimensional vectors** (worktree `wf_e48018eb-d84-3`, in progress): on 24-d style vectors the
+    defaults give recall@20 0.47 against 0.91 for `LSM_VECTOR`, at 1.7x the CPU. Done at recall@20 >= 0.9 with CPU no
+    worse than `LSM_VECTOR` and the filtered advantage (41% less CPU) kept. Related to item 2.
+32. **Latency A/B on a cluster node**: latency (p50/p99 at 1, 8, 32 clients) cannot be measured on the shared Mac (it never
+    had a quiet window in 18 hours). Needs one idle 126 GB node for about 2 hours, Java 21, about 20 GB disk. Blocked on
+    node provisioning. The interleaved, contention-gated runner is
+    `.claude/worktrees/bench-main-combined/target/gated/gated-ab.sh`.
+33. **HA hazard with `arcadedb.backup.enabled=false`** (any chunked index build, not IVF-specific): a leader write during a
+    session build longer than `HA_QUORUM_TIMEOUT` ships a `TX_ENTRY` for a file only the leader's uncommitted session
+    has, so followers can diverge. Details in `docs/spork/workstreams/ivf-vector.md`, round 6/7.
+
 ### Waiting on the owner (gates)
 
 - 4 TB replacement drives on every node by about 2027-01-15, ideally before the cluster is first formed.
+- One idle cluster node for the retrieval latency benchmark (item 32), once the nodes are provisioned.
 - Object store: S3-compatible or not, free capacity, Object Lock, who holds the encryption keys (gates plan E and
   backups).
 - Faces: image counts per record, existing crops or embeddings, permitted purposes, rules for minor-flagged faces.
