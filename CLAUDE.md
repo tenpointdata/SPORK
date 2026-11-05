@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 ## Response Formatting
 - Never use the em dash character (`—`) in responses. Use a normal dash (`-`), a comma, or rephrase instead.
 
