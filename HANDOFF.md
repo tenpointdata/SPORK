@@ -28,7 +28,7 @@ hot data.
 | Remote | `https://github.com/tenpointdata/SPORK` (private). **GitHub issues are disabled on it**, so open work is tracked in this file (see below) |
 | Deploy target | None yet. Production is a 4-node cluster (126 GB RAM each, no GPU, 4 TB drives); WS1 builds it |
 
-## Current state (2026-11-09)
+**Last updated:** 2026-11-09 08:09 MST, by local-agent-mode-eng-journal: Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 - `main` is at `b51665b57` and matches `origin/main`. No code changed since 2026-11-04; the change on this date is
   to the plan.
@@ -380,3 +380,9 @@ others) and have the repository's `CLAUDE.md` import that file with `@AGENTS.md`
   files the other session owns.
 - **This repository:** the remote exists but has issues disabled; the open-work list above stands in for issues until
   they are enabled.
+## Deltas
+
+<!-- composite:deltas · newest first; Composite rewrites this block on every merge (ej handoff merge / merge_handoff) -->
+- **2026-11-09 08:09 MST** · local-agent-mode-eng-journal · `main` `b51665b`→`9609279` (1 commit) · `h-f5b0fd` — Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Most is already answered by 04-identity-resolution-design (time-aware Fellegi-Sunter compare with an honest interval, DISJOINT and CONFLICT terms, identity.candidates for discovery) and 01-architecture 2.6/2.7 (soft edges never automatic, rejections kept, _prov, markings, E25 history). Recorded the seven gaps as HANDOFF open work 34 to 40 and added the Triage section the form asked for. No code or architecture docs changed. **Next:** Items 34, 37 and 35 are the small self-contained engine wins in the agents' lane: evidence rows carrying their supporting record RIDs and sighting dates, a (website, urlHash) index on Record, and a from/to window on identity.compare. 39 (analyst assessment state) gates 36 and 38 and needs a Recon product decision first. **Decided:** The analyst requirements are open work, not architecture changes: the design answers the bulk of them, each gap is traceable to a named route, index or procedure field, and docs 01 and 04 belong to other sessions. Assessment state (39), the record-group route (38) and the basis on a place assertion (40) go in the human lane because each needs a Recon product or governance decision before it can be schema.
+<!-- /composite:deltas -->
+
