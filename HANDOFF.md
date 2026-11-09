@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-09 09:06 MST, by local-agent-mode-eng-journal: Built HANDOFF open work 34: every SHARED evidence row of identity.compare, cohesion, candidates and features now names the records behind it (recordsA / recordsB as {record, at} per member, cut at the new evidenceRecord… Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-09 18:20 UTC, by a Claude Code cloud session: added `tools/spork-testcluster/`, Python scripts that deploy a 3-node test cluster to VMs over SSH, create a `Record --OBSERVED_DATA--> Data` test schema and upload and download objects from another server (tested on one machine with stand-in ssh; not yet on real VMs, open work 45). Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -29,6 +29,7 @@ hot data.
 | Capacity model (every capacity number comes from it) | `docs/spork/model/budget.py` (`python3 docs/spork/model/budget.py`) |
 | Day-1 node configuration, JVM flags, OS tuning, schema DDL | `docs/spork/config/` |
 | Remote | `https://github.com/tenpointdata/SPORK` (private). **GitHub issues are disabled on it**, so open work is tracked in this file (see below) |
+| Test cluster on VMs (unencrypted, test data only) | `tools/spork-testcluster/` (deploy over SSH, schema, upload/download; start at its README) |
 | Deploy target | None yet. Production is a 4-node cluster (126 GB RAM each, no GPU, 4 TB drives); WS1 builds it |
 
 **Last updated:** 2026-11-09 08:09 MST, by local-agent-mode-eng-journal: Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Earlier hand-offs are under Deltas and in `ej handoff log`.
@@ -134,6 +135,8 @@ move items between lanes when that changed.
 | 2 IVF recall gate | Phase 0 data and the 4 TB drives |
 | 11 E19 and WS15a first spaces | The 4 TB drives and the backfill window |
 | 33 HA hazard with `arcadedb.backup.enabled=false` | Needs a reproduction on a cluster, not the shared Mac |
+| 45 test cluster scripts on the real VMs | Access to the VMs (the owner has it) |
+| 47 REUSE headers on `tools/spork-testcluster/` | Owner names the copyright holder |
 
 ## Setup, run, test
 
@@ -151,6 +154,8 @@ which matter here:
   `retrieval-bench.md`.
 
 Deploy: there is no deployment yet. The node configuration to start from is `docs/spork/config/`.
+A throwaway test cluster on VMs (no TLS, root account, test data only) is `tools/spork-testcluster/`: build with
+`mvn -DskipTests -pl package -am install`, then follow its README.
 
 ## Open work
 
@@ -220,6 +225,17 @@ they are, file each item as an issue and replace its line with a link. Sizes and
 27. Enable GitHub issues on `tenpointdata/SPORK` (owner) and move this list into issues.
 28. Resolve the commit-policy conflict: `CLAUDE.md` lets sessions commit and push (explicit paths only), while the
     `docs/spork/README.md` "Conventions" line still says no commits from Claude sessions.
+
+45. **Run `tools/spork-testcluster/` on the real VMs.** Tested 2026-11-09 on one machine with three nodes and local
+    stand-ins for `ssh` / `scp`, so real SSH, `sudo -n`, systemd units and firewalls are untested. Done when
+    `deploy_nodes.py`, `create_schema.py` and `record_io.py roundtrip` pass on the VMs and the README notes any fix.
+46. **The stock `bin/server.sh` opens unauthenticated remote JMX** (`jmxremote.authenticate=false`,
+    `local.only=false`, ports 9999/9998) unless `ARCADEDB_JMX` is set, so anyone who reaches a node can run code in its
+    JVM. `tools/spork-testcluster/node_install.sh` sets it off; WS1 (item 3) must too, and the default in
+    `package/src/main/scripts/server.sh` (upstream) should be off or authenticated.
+47. **REUSE headers on `tools/spork-testcluster/`.** The files carry no SPDX header and no `REUSE.toml` annotation
+    (nor does `docs/spork/model/budget.py`), so `reuse-compliance.yml` may flag them. Needs the owner to name the
+    copyright holder for SPORK-only files.
 
 ### Retrieval speed (read path), as of 2026-11-04
 

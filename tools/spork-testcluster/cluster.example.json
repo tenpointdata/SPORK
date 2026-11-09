@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to cluster.json and edit. No passwords in here: the scripts ask for the root password, or read SPORK_PASSWORD.",
+
+  "database": "spork_test",
+
+  "nodes": [
+    { "name": "n0", "host": "10.0.0.11", "ssh": "ubuntu@10.0.0.11" },
+    { "name": "n1", "host": "10.0.0.12", "ssh": "ubuntu@10.0.0.12" },
+    { "name": "n2", "host": "10.0.0.13", "ssh": "ubuntu@10.0.0.13" }
+  ],
+
+  "raft_port": 2434,
+  "http_port": 2480,
+  "install_dir": "/opt/spork",
+  "heap": "2g",
+
+  "_client_comment": "Where the client scripts (create_schema.py, record_io.py) send requests. Leave out to use http://<host>:<http_port> for every node. Set it when the client server reaches the nodes through an SSH tunnel, e.g. [\"http://127.0.0.1:12480\", \"http://127.0.0.1:12481\", \"http://127.0.0.1:12482\"].",
+  "client_urls": null
+}
