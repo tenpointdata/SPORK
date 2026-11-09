@@ -28,9 +28,10 @@ hot data.
 | Remote | `https://github.com/tenpointdata/SPORK` (private). **GitHub issues are disabled on it**, so open work is tracked in this file (see below) |
 | Deploy target | None yet. Production is a 4-node cluster (126 GB RAM each, no GPU, 4 TB drives); WS1 builds it |
 
-## Current state (2026-11-04)
+## Current state (2026-11-09)
 
-- `main` is at `6748abd4d` (merge of `spork/ivf-vector`) and matches `origin/main`.
+- `main` is at `b51665b57` and matches `origin/main`. No code changed since 2026-11-04; the change on this date is
+  to the plan.
 - The architecture is at review round 10 ([01-architecture.md](docs/spork/01-architecture.md)). The plan is scheduled by
   gates (measurements, external answers, hardware, compute, data deadlines), never by engineering time.
 - Every engine and train 1 worktree is merged into `main`. The only unmerged branch is
@@ -38,6 +39,10 @@ hot data.
   tests and must not be merged.
 - `docs/spork/README.md` still lists six worktrees "in review"; they are all merged now. That README belongs to the
   architecture session, so it has not been edited here.
+- A Recon analyst set out the four workflows the move has to serve (2026-11-05). The design answers most of them; the
+  seven parts it does not are items 34 to 40 under Open work, and the ones that need a product or governance decision
+  before they can be built are in the human lane of Triage. Nothing in the architecture was changed for them: the
+  affected docs (01, 04) belong to other sessions.
 
 ### Done
 
@@ -70,6 +75,44 @@ Train 1 modules, on `main`:
 - WS12 PDQ library, band scheme and hash-gate hook.
 - WS13 encoder sidecar (text encoding end to end at about 194 ms per ad; image stages are stubs).
 - Entry identity and audit slice 1 (session proof, lifecycle receiver, hash-chained audit with actor = Entry account).
+
+## Triage
+
+What to pick up next, ranked. Numbers are the items under [Open work](#open-work); take the top unclaimed one in the
+agents' lane unless you were given a task, and claim it (`fork_handoff` with `claim=#N`). Items 29 to 31 are claimed by
+the retrieval-speed worktrees named on their lines. Re-rank when you finish: drop what you closed, add what you found,
+move items between lanes when that changed.
+
+**For an agent**
+
+| Item | Size | Done looks like |
+|---|---|---|
+| 34 evidence rows name their supporting records and dates | small | `identity.compare` / `cohesion` / `candidates` evidence rows carry the supporting member RIDs per side and each side's first and last sighting, under a cap, with no extra record reads |
+| 37 `(website, urlHash)` index on `Record` | small | The index is in schema v1 and a URL's capture set is one lookup |
+| 35 period window on the association question | small | `from` / `to` on compare, scored on the window, with in-window and out-of-window sighting counts per identifier |
+| 36 rejected candidates stay rejected | medium | `identity.candidates` excludes or flags groups with a rejected link or unlink decision, with an option to include them |
+| 4 WS2 follow-ups (schema still to add, ETL, offline GraphBatch build) | medium | Each sub-item of the WS2 line, in that doc's order |
+| 5 WS3 next slices, in order from intake and `GET /records/{id}` | large | Each slice green with its tests, in the order the line gives |
+
+**For a human (owner or product decision first)**
+
+| Item | Why it needs a person |
+|---|---|
+| 39 analyst assessment state | The shape is a Recon product decision (what a subject is, what states exist, who sees whose assessments) before it can be schema |
+| 38 record-group route | Depends on 39, and on how Recon wants a group presented |
+| 40 basis on a place assertion | Someone has to define what counts as corroborated presence, and governance has to agree the label is not an assertion of fact |
+| 27 enable GitHub issues, then move Open work into issues | Owner-only on the remote |
+| 28 commit-policy conflict between `CLAUDE.md` and `docs/spork/README.md` | Owner call |
+| 25 refresh `docs/spork/README.md` "Engine work" | Owned by the architecture session |
+
+**Blocked**
+
+| Item | On what |
+|---|---|
+| 32 latency A/B on a cluster node | One idle 126 GB node, about 2 hours |
+| 2 IVF recall gate | Phase 0 data and the 4 TB drives |
+| 11 E19 and WS15a first spaces | The 4 TB drives and the backfill window |
+| 33 HA hazard with `arcadedb.backup.enabled=false` | Needs a reproduction on a cluster, not the shared Mac |
 
 ## Setup, run, test
 
@@ -182,6 +225,70 @@ opt-in IVF variant) are uncommitted in the `bench-main-combined` and `read-bench
     session build longer than `HA_QUORUM_TIMEOUT` ships a `TX_ENTRY` for a file only the leader's uncommitted session
     has, so followers can diverge. Details in `docs/spork/workstreams/ivf-vector.md`, round 6/7.
 
+### Analyst workflow fit (Recon, from the 2026-11-05 analyst requirements)
+
+A Recon analyst (Alisha Willemssen) set out the four workflows the move onto SPORK has to serve and what each one needs:
+discovery against assessment for identity, grouping without collapsing for duplicates, connections whose basis is
+visible, and historical comparison that does not read as verified movement. Most of it the design already answers
+(`04-identity-resolution-design.md` for the time-aware compare model with its honest interval and its DISJOINT and
+CONFLICT terms, `01-architecture.md` 2.6 for soft edges that are never automatic and whose rejections are kept, 2.7 for
+`_prov`, markings and the ontology, E25 for history). These seven are the parts it does not, each traced to the workflow
+it blocks.
+
+34. **Evidence rows name no supporting records and no sighting dates.** `identity.compare`, `identity.cohesion` and
+    `identity.candidates` return evidence as `{type, kind, identifier, countA, countB, frequency, gapDays, weight,
+    stdDev}` (`IdentityMatchModel.Evidence`, rendered in `AbstractIdentityProcedure.java:380-400`). The analyst sees
+    which phone and how many ads on each side, then has to go and find those ads and their dates. That is precisely the
+    "unexplained connections still require me to reconstruct the work" cost the move is meant to remove, and the
+    requirement is "supporting and conflicting information and sources and relevant dates". Done when each evidence row
+    carries, under a cap, the supporting member RIDs per side and each side's first and last sighting of that
+    identifier, with no extra record reads on the unshared path (`ClusterProfile` already holds the per-member sorted
+    time arrays, and a shared identifier is already read once for its frequency).
+35. **The association question cannot be scoped to a period.** The analyst's phone question is not "who owns this
+    number" but "what supports the association of this person to this number during the relevant time period". Today
+    the caller has to pre-filter both clusters to the window, and the evidence rows do not say which sightings fell
+    inside it, so "this number ties to her through 2023 and not after" is not one call. Done when compare takes a
+    `from` / `to` window (procedure option, and the plugin route over it) and reports in-window and out-of-window
+    sighting counts per identifier, scored on the window while the out-of-window sightings stay visible.
+36. **A rejected candidate comes back on the next call.** 2.6 keeps rejected soft edges "so recomputation never
+    re-creates them", but `identity.candidates` blocks and scores straight off the graph with no filter on rejected
+    links or prior `ResolutionDecision`s, so an identity the analyst has already ruled out is re-surfaced every time.
+    The requirement is retaining reviewed and rejected matches to prevent repeated work "while allowing reassessment
+    when new info appears". Done when candidates excludes, or returns flagged with the decision id and date, any group
+    with a rejected link or an unlink decision against the cluster; an option includes them; and reassessment is a new
+    decision that supersedes rather than an overwrite.
+37. **Re-ingest of the same source is not an indexed question.** `Record.urlHash` is a property with no index (2.1
+    schema table; the `Url` key is still an open question in `workstreams/ws2-keys-schema.md`), and `upstreamRid` only
+    makes ingest idempotent when upstream minted the same rid. So the first of the three cases the analyst needs
+    separated, "the same source being ingested more than once", cannot be answered without a scan. Done when
+    `(website, urlHash)` is a NOTUNIQUE HASH index on `Record` and a capture set for a URL is one lookup.
+38. **Record grouping for review is not a route.** Storage dedup (exact-byte `textHash` on `TextBody`, SHA-256 on
+    `Image`, PDQ clusters) never collapses records, which is the right half of "grouped, not necessarily collapsed in a
+    way that removes their individual value"; what is missing is the other half, a group an analyst can review once.
+    The three cases have to be told apart and labelled: same source captured twice (37), separate ads sharing
+    attributes, and records possibly referring to the same person. The example to hold onto is different ad sites,
+    same number, different photos including tattoos, where the extra photos were the positive ID: the group must
+    surface what each member adds, not hide it. Done when a WS3 record-group route returns, for a record, its capture
+    siblings, its attribute-sharing siblings with the shared identifiers named, and its identity siblings, each with
+    its basis and its review state (39), and search rows carry the group id.
+39. **There is no analyst assessment state.** `Review` in the schema is the upstream RedLight ad review vertex, not
+    analyst triage. `ResolutionDecision` covers identity merges, splits, links and unlinks, and `BoardLabel` covers
+    board work, but nothing records "I have looked at this record, or this candidate pair, and it is supported,
+    rejected or unresolved", which is where the analyst's workflow actually ends and the only thing that stops repeat
+    review. Done when an assessment exists per (subject, counterpart, Operating Context) with state supported,
+    rejected or unresolved, the evidence snapshot it was made against, the actor Entry account and its audit entry, a
+    versioned type so a later reassessment supersedes rather than overwrites, and it is returned on every search row
+    and every candidate row. 36 and 38 both depend on it.
+40. **Listed location is not distinguished from corroborated presence.** `Record.placeId`, `city`, `lat` and `lon` are
+    what the ad listed, and nothing marks a place as independently corroborated, so the timeline and geo routes present
+    listed cities as a trajectory. Analysts need the patterns "without automatically treating it as verified
+    movements": many post the cities they are travelling to next, or several cities at once, and the distinctions that
+    matter are when an ad was reportedly posted, when it was collected, what location it listed, and whether the
+    presence is corroborated. The first two are already separate indexed properties (`tsPosted`, `tsCollected`). Done
+    when a place assertion carries its basis (listed in the ad, analyst corroborated, independently sourced), the
+    timeline and geo routes return the basis per point and can filter on it, and no route labels a listed sequence as
+    movement.
+
 ### Waiting on the owner (gates)
 
 - 4 TB replacement drives on every node by about 2027-01-15, ideally before the cluster is first formed.
@@ -228,6 +335,10 @@ opt-in IVF variant) are uncommitted in the `bench-main-combined` and `read-bench
 - 2026-11-03: version history is native to the engine (E25), not modelled with assertion nodes or edge validity stamps.
 - 2026-11-03: all work consolidated onto `main`; sessions may commit and push, staging explicit paths only.
 - 2026-11-04: GitHub issues are disabled on the remote, so open work lives in this file until they are enabled.
+- 2026-11-09: the 2026-11-05 analyst requirements are recorded as open work (34 to 40), not as architecture changes. The
+  design already answers the bulk of them, the seven gaps are each traceable to a named route, index or procedure field,
+  and 01 and 04 belong to other sessions. Assessment state (39), the record-group route (38) and the basis on a place
+  assertion (40) are in the human lane because each needs a Recon product or governance decision before it is schema.
 
 ## Handoff policy
 
