@@ -22,6 +22,7 @@ hot data.
 | Encoder sidecar client (ONNX text encoding) | `spork-encoder/` |
 | Retrieval benchmark harness | `benchmarks/`; OrientDB 3.2.24 baseline in `benchmarks-orientdb/` (outside the reactor) |
 | Design docs | `docs/spork/` (start at its README) |
+| End-user requirements and the design principles they impose | `docs/spork/10-analyst-requirements.md` (Recon analyst, 2026-11-05) |
 | Per-workstream docs with measured numbers | `docs/spork/workstreams/` |
 | Capacity model (every capacity number comes from it) | `docs/spork/model/budget.py` (`python3 docs/spork/model/budget.py`) |
 | Day-1 node configuration, JVM flags, OS tuning, schema DDL | `docs/spork/config/` |
@@ -30,8 +31,8 @@ hot data.
 
 **Last updated:** 2026-11-09 08:09 MST, by local-agent-mode-eng-journal: Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
-- `main` is at `b51665b57` and matches `origin/main`. No code changed since 2026-11-04; the change on this date is
-  to the plan.
+- `main` is at `96092796b` plus this session's docs commit. No code changed since 2026-11-04; the changes on this
+  date are to the plan.
 - The architecture is at review round 10 ([01-architecture.md](docs/spork/01-architecture.md)). The plan is scheduled by
   gates (measurements, external answers, hardware, compute, data deadlines), never by engineering time.
 - Every engine and train 1 worktree is merged into `main`. The only unmerged branch is
@@ -43,6 +44,12 @@ hot data.
   seven parts it does not are items 34 to 40 under Open work, and the ones that need a product or governance decision
   before they can be built are in the human lane of Triage. Nothing in the architecture was changed for them: the
   affected docs (01, 04) belong to other sessions.
+- The requirements themselves, the design principles they impose and the questions to put back to the analyst are now
+  a doc of their own, [docs/spork/10-analyst-requirements.md](docs/spork/10-analyst-requirements.md). It adds four
+  requirements items 34 to 40 did not reach (41 selector class and interval, 42 candidate thresholds that rank rather
+  than drop, 43 the provenance ladder enforced at the API and export boundary, 44 reserving the assessment type in
+  schema v1). `docs/spork/README.md`'s document map does not list it yet: that README belongs to the architecture
+  session.
 
 ### Done
 
@@ -91,6 +98,9 @@ move items between lanes when that changed.
 | 37 `(website, urlHash)` index on `Record` | small | The index is in schema v1 and a URL's capture set is one lookup |
 | 35 period window on the association question | small | `from` / `to` on compare, scored on the window, with in-window and out-of-window sighting counts per identifier |
 | 36 rejected candidates stay rejected | medium | `identity.candidates` excludes or flags groups with a rejected link or unlink decision, with an option to include them |
+| 42 candidate thresholds rank, never drop | small | No threshold on the `identity.candidates` path removes a group silently; caps are explicit, overridable and reported |
+| 41 selector class and interval discount the evidence weight | medium | A shared VoIP or aggregator number, or one whose sightings never overlap, scores below a shared private one, and the row says why |
+| 43 provenance rung enforced at the boundary | medium | The rung is typed and mandatory on every connection a route returns, and a test forbids rung-0/1 connections being described in rung-2/3 language |
 | 4 WS2 follow-ups (schema still to add, ETL, offline GraphBatch build) | medium | Each sub-item of the WS2 line, in that doc's order |
 | 5 WS3 next slices, in order from intake and `GET /records/{id}` | large | Each slice green with its tests, in the order the line gives |
 
@@ -99,6 +109,7 @@ move items between lanes when that changed.
 | Item | Why it needs a person |
 |---|---|
 | 39 analyst assessment state | The shape is a Recon product decision (what a subject is, what states exist, who sees whose assessments) before it can be schema |
+| 44 reserve the assessment type in schema v1 | Owner call, narrower than 39: reserve the type and key in Q1 so the product decision needs no migration later |
 | 38 record-group route | Depends on 39, and on how Recon wants a group presented |
 | 40 basis on a place assertion | Someone has to define what counts as corroborated presence, and governance has to agree the label is not an assertion of fact |
 | 27 enable GitHub issues, then move Open work into issues | Owner-only on the remote |
@@ -232,8 +243,11 @@ discovery against assessment for identity, grouping without collapsing for dupli
 visible, and historical comparison that does not read as verified movement. Most of it the design already answers
 (`04-identity-resolution-design.md` for the time-aware compare model with its honest interval and its DISJOINT and
 CONFLICT terms, `01-architecture.md` 2.6 for soft edges that are never automatic and whose rejections are kept, 2.7 for
-`_prov`, markings and the ontology, E25 for history). These seven are the parts it does not, each traced to the workflow
-it blocks.
+`_prov`, markings and the ontology, E25 for history). Items 34 to 40 are the parts it does not, each traced to the
+workflow it blocks; 41 to 44 are what those seven do not reach. The requirements as stated, the design principles
+they impose (records immutable, the four-rung provenance ladder, the four clocks, a selector is not an identity
+anchor) and the open questions back to the analyst are in
+[docs/spork/10-analyst-requirements.md](docs/spork/10-analyst-requirements.md).
 
 34. **Evidence rows name no supporting records and no sighting dates.** `identity.compare`, `identity.cohesion` and
     `identity.candidates` return evidence as `{type, kind, identifier, countA, countB, frequency, gapDays, weight,
@@ -288,6 +302,40 @@ it blocks.
     when a place assertion carries its basis (listed in the ad, analyst corroborated, independently sourced), the
     timeline and geo routes return the basis per point and can filter on it, and no route labels a listed sequence as
     movement.
+
+41. **A shared selector scores the same whatever kind of number it is.** The analyst's hardest cases are VoIP and
+    burner accounts: "shared info is not automatically a verified identity or relationship", and "the use of VoIP makes
+    this so much more difficult for me". A selector is a time-boxed, shared, reassignable handle, but
+    `identity.compare` and `identity.cohesion` weight a shared phone by frequency and gap alone, with no notion of
+    selector class and no discount when the two sides' sightings never overlap. Done when evidence weight is discounted
+    by interval overlap and by a selector class (private, VoIP range, known aggregator or shared number, recycled
+    handle), the class is on the evidence row so the analyst can see why a match was discounted, and the class table is
+    data rather than code so it can be corrected without a release. Depends on 35 for the interval. The class tiers
+    themselves are a question for the analyst (`docs/spork/10-analyst-requirements.md` 7.5).
+42. **Thresholds that drop candidate rows, rather than rank them.** The analyst wants more potential connections to
+    review, not fewer, on the condition that she can see what connects them: she would "generally prefer more potential
+    connections I just have to review", provided she can "quickly see what exactly connects them". Every instinct
+    during tuning runs the other way, so the candidate path needs an audit against the directive. Done when every
+    threshold on the `identity.candidates` path is either a ranking input or an explicit, documented,
+    caller-overridable cap, no scoring threshold silently removes a group from the result, and the result says how many
+    were capped. Depends on 34, since recall is only affordable once a row explains itself.
+43. **The provenance ladder is not enforced at the boundary.** Four rungs have to stay apart end to end: records
+    sharing a selector, a source associating a selector with a person, an analyst having assessed that record, and an
+    analyst asserting the relationship (`docs/spork/10-analyst-requirements.md` P3). Soft edges carry `method`,
+    `evidence[]`, `createdBy` and `opContext` (2.2), which is the right struct, but the rung is not a typed property
+    and nothing stops a route, a graph view or a CSV export from rendering a co-occurrence as "linked". One flattening
+    layer anywhere destroys the distinction for every consumer above it. Done when the rung is a typed, mandatory
+    property on every connection a route can return, the write routes refuse a connection without one, the export and
+    expand paths carry it, and a test asserts that no response field describes a rung-0 or rung-1 connection in rung-2
+    or rung-3 language.
+44. **Reserve the assessment type in schema v1 (Q1), ahead of the product decision in 39.** 39 is correctly a product
+    decision, but its *shape* should land with schema v1 rather than with its routes: every day Recon runs on SPORK
+    without it is a day of analyst judgements that are not captured and cannot be recovered afterwards, and
+    retrofitting a versioned judgement type onto sealed partitions is materially harder than reserving it now. Done
+    when schema v1 carries the type and its key with the four states (unexamined by absence, unresolved, supported,
+    rejected), versioned so a reassessment supersedes, with the actor Entry account and audit entry, and the fields
+    that need the product decision left open. Owner decision, narrower than 39: reserve the type and its key now so the
+    product decision can be made later without a migration.
 
 ### Waiting on the owner (gates)
 
