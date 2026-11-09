@@ -28,7 +28,7 @@ import java.util.Set;
 
 /**
  * What the identity match model knows about one cluster: for every member its time and place, for every identifier the
- * members reach how many reach it and when, and for every identifier kind when the cluster used it.
+ * members reach which of them reach it, how many and when, and for every identifier kind when the cluster used it.
  * <p>
  * Times are epoch milliseconds, {@link #NO_TIME} when unknown; places are degrees, NaN when unknown. Every per-identifier
  * and per-kind time list is sorted, so the model reads gaps and windows with merges rather than pairwise loops.
@@ -48,6 +48,7 @@ public final class ClusterProfile {
 
   private static final long[] NO_TIMES = new long[0];
   private static final int[]  NO_KINDS = new int[0];
+  private static final int[]  NO_MEMBERS = new int[0];
   private static final long[][] NO_IMAGES = new long[0][];
 
   static final class Identifier {
@@ -55,6 +56,8 @@ public final class ClusterProfile {
     int    count;
     long[] times = NO_TIMES;
     int    timeCount;
+    int[]  members = NO_MEMBERS;
+    int    memberCount;
 
     Identifier(final int kind) {
       this.kind = kind;
@@ -64,6 +67,13 @@ public final class ClusterProfile {
       if (timeCount == times.length)
         times = Arrays.copyOf(times, Math.max(4, timeCount * 2));
       times[timeCount++] = time;
+    }
+
+    /** Members are added in ascending member order, so the list needs no sort. */
+    void addMember(final int member) {
+      if (memberCount == members.length)
+        members = Arrays.copyOf(members, Math.max(4, memberCount * 2));
+      members[memberCount++] = member;
     }
   }
 
@@ -166,6 +176,39 @@ public final class ClusterProfile {
   long[] times(final RID id) {
     final Identifier identifier = identifiers.get(id);
     return identifier == null ? NO_TIMES : identifier.times;
+  }
+
+  /**
+   * The members reaching the identifier, in ascending member order: which records put this identifier on this side, so an
+   * evidence row can name them instead of only counting them. Read-only, and shared with the full profile unless this is a
+   * leave-one-out view that excludes one of them, which gets a filtered copy.
+   */
+  int[] members(final RID id) {
+    final Identifier identifier = identifiers.get(id);
+    if (identifier == null)
+      return NO_MEMBERS;
+    if (!excludedReaches(id))
+      return identifier.members;
+    final int[] kept = new int[identifier.memberCount - 1];
+    int k = 0;
+    for (int i = 0; i < identifier.memberCount; i++)
+      if (identifier.members[i] != excluded)
+        kept[k++] = identifier.members[i];
+    return kept;
+  }
+
+  /** The earliest known time of the members reaching the identifier, {@link #NO_TIME} when none of them has one. */
+  long firstTime(final RID id) {
+    return first(times(id), skipIndex(id));
+  }
+
+  long lastTime(final RID id) {
+    return last(times(id), skipIndex(id));
+  }
+
+  /** The time of one member, {@link #NO_TIME} when it has none. */
+  long memberTime(final int member) {
+    return memberTime[member];
   }
 
   /** The index in {@link #times(RID)} a leave-one-out view skips, or -1. */
@@ -390,6 +433,7 @@ public final class ClusterProfile {
           final int kind = kinds[m][i];
           final Identifier identifier = identifiers.computeIfAbsent(memberIds[m][i], rid -> new Identifier(kind));
           identifier.count++;
+          identifier.addMember(m);
           if (time != NO_TIME)
             identifier.addTime(time);
         }
@@ -415,6 +459,7 @@ public final class ClusterProfile {
       for (final Identifier identifier : identifiers.values()) {
         identifier.times = Arrays.copyOf(identifier.times, identifier.timeCount);
         Arrays.sort(identifier.times);
+        identifier.members = Arrays.copyOf(identifier.members, identifier.memberCount);
       }
       for (int k = 0; k < kindCount; k++) {
         kindTimes[k] = Arrays.copyOf(kindTimes[k], kindTimeCount[k]);

@@ -222,7 +222,8 @@ public class IdentityCandidates extends AbstractIdentityProcedure {
       if (groupMembers.isEmpty())
         continue;
 
-      final MatchResult r = settings.model.compare(profile, buildProfile(groupMembers, settings, guard), settings.frequencyLookup);
+      final ClusterProfile groupProfile = buildProfile(groupMembers, settings, guard);
+      final MatchResult r = settings.model.compare(profile, groupProfile, settings.frequencyLookup);
 
       final Map<String, Object> row = new LinkedHashMap<>();
       row.put("candidate", group.key);
@@ -234,7 +235,7 @@ public class IdentityCandidates extends AbstractIdentityProcedure {
       row.put("complete", complete);
       row.put("overlap", overlap);
       row.put("blockedOn", group.blockingIds.size());
-      putMatch(row, r, settings);
+      putMatch(row, r, settings, new Side(profile, members), new Side(groupProfile, groupMembers));
       rows.add(row);
     }
 

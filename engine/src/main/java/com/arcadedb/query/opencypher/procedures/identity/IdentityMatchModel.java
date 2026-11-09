@@ -91,12 +91,38 @@ public final class IdentityMatchModel {
   }
 
   /**
+   * What one side was seen with, so a row can be read without going back to the graph: the members behind it as indices
+   * into that side's member list in member order, and the first and last of their times
+   * ({@link ClusterProfile#NO_TIME} when none of them has one).
+   * <p>
+   * {@code members} is read-only and may be shared with the profile it came from.
+   * </p>
+   */
+  public record Sightings(int[] members, long first, long last) {
+    public static final Sightings NONE = new Sightings(new int[0], ClusterProfile.NO_TIME, ClusterProfile.NO_TIME);
+
+    static Sightings of(final ClusterProfile side, final RID identifier) {
+      return new Sightings(side.members(identifier), side.firstTime(identifier), side.lastTime(identifier));
+    }
+
+    static Sightings window(final long first, final long last) {
+      return first == ClusterProfile.NO_TIME && last == ClusterProfile.NO_TIME ? NONE : new Sightings(NONE.members, first, last);
+    }
+  }
+
+  /**
    * One piece of evidence. {@code weight} and {@code stdDev} are in bits (log2 of the likelihood ratio), after damping.
    * For SHARED, {@code countA}/{@code countB} are the members reaching the identifier; for DISJOINT, the members using the
    * kind; for CONFLICT, the conflicting and the comparable pairs. {@code gapDays} is NaN when unknown.
+   * <p>
+   * {@code a} and {@code b} say which records on each side the row rests on and when they were seen: for SHARED, the
+   * members reaching the identifier and the ends of their times; for DISJOINT, no members and the ends of that side's
+   * window of use of the kind; {@link Sightings#NONE} for CONFLICT and SOFT, whose terms rest on member pairs rather than
+   * on one identifier.
+   * </p>
    */
   public record Evidence(EvidenceType type, String kind, RID identifier, int countA, int countB, long frequency, double gapDays,
-                         double weight, double stdDev) {
+                         double weight, double stdDev, Sightings a, Sightings b) {
   }
 
   /**
@@ -122,18 +148,23 @@ public final class IdentityMatchModel {
   }
 
   private record Term(EvidenceType type, int kind, String label, RID identifier, int countA, int countB, long frequency,
-                      double gapDays, double weight, double variance) {
+                      double gapDays, double weight, double variance, Sightings a, Sightings b) {
   }
 
   /**
    * One identifier both clusters reach, as {@link #features} found it: the counts, the frequency the score uses (the
-   * reported one, raised to what the two clusters show), and the shortest gap between sightings in ms (-1 = unknown).
+   * reported one, raised to what the two clusters show), the shortest gap between sightings in ms (-1 = unknown), and the
+   * members reaching it on each side with the ends of their times.
    */
-  public record SharedFeature(int kind, RID identifier, int countA, int countB, long frequency, long gap) {
+  public record SharedFeature(int kind, RID identifier, int countA, int countB, long frequency, long gap, Sightings a,
+                              Sightings b) {
   }
 
-  /** A kind both clusters use with no identifier in common: members using it, and the gap between the windows (-1 = unknown). */
-  public record DisjointFeature(int kind, int countA, int countB, long gap) {
+  /**
+   * A kind both clusters use with no identifier in common: members using it, the gap between the windows (-1 = unknown),
+   * and each side's window of use of the kind ({@link Sightings#members} empty, since the kind is not one identifier).
+   */
+  public record DisjointFeature(int kind, int countA, int countB, long gap, Sightings a, Sightings b) {
   }
 
   /**
@@ -384,7 +415,7 @@ public final class IdentityMatchModel {
         final long observed = (long) countA + countB;
         final long reported = frequencies == null ? -1 : frequencies.frequency(id);
         shared.add(new SharedFeature(kind, id, countA, countB, Math.max(reported, observed),
-            minGap(a.times(id), a.skipIndex(id), b.times(id), b.skipIndex(id))));
+            minGap(a.times(id), a.skipIndex(id), b.times(id), b.skipIndex(id)), Sightings.of(a, id), Sightings.of(b, id)));
       }
       // RID order, so the features do not depend on which side was iterated
       shared.sort((x, y) -> x.identifier().compareTo(y.identifier()));
@@ -392,7 +423,8 @@ public final class IdentityMatchModel {
       for (int k = 0; k < kindCount; k++)
         if (!kindShared[k] && a.kindMembers(k) > 0 && b.kindMembers(k) > 0)
           disjoint.add(new DisjointFeature(k, a.kindMembers(k), b.kindMembers(k),
-              windowGap(a.kindFirst(k), a.kindLast(k), b.kindFirst(k), b.kindLast(k))));
+              windowGap(a.kindFirst(k), a.kindLast(k), b.kindFirst(k), b.kindLast(k)),
+              Sightings.window(a.kindFirst(k), a.kindLast(k)), Sightings.window(b.kindFirst(k), b.kindLast(k))));
 
       // Impossible travel
       if (a.pointCount() > 0 && b.pointCount() > 0) {
@@ -461,7 +493,7 @@ public final class IdentityMatchModel {
       double damping = 1;
       for (final Term t : kindTerms) {
         terms.add(new Term(t.type, t.kind, t.label, t.identifier, t.countA, t.countB, t.frequency, t.gapDays, t.weight * damping,
-            t.variance * damping * damping));
+            t.variance * damping * damping, t.a, t.b));
         damping *= redundancy;
       }
     }
@@ -476,7 +508,7 @@ public final class IdentityMatchModel {
       final double variance = lnLR * lnLR * IdentityStatistics.betaVariance(f.conflicts() + 0.5,
           f.comparablePairs() - f.conflicts() + 0.5);
       terms.add(new Term(EvidenceType.CONFLICT, -1, null, null, f.conflicts(), f.comparablePairs(), -1, Double.NaN, fraction * lnLR,
-          variance));
+          variance, Sightings.NONE, Sightings.NONE));
     }
 
     if (f.style() != null && f.style().pairs() > 0)
@@ -518,7 +550,7 @@ public final class IdentityMatchModel {
     final List<Evidence> evidence = new ArrayList<>(terms.size());
     for (final Term t : terms)
       evidence.add(new Evidence(t.type, t.label != null ? t.label : t.kind < 0 ? null : kinds.get(t.kind).name, t.identifier, t.countA, t.countB, t.frequency,
-          t.gapDays, t.weight / LN2, Math.sqrt(t.variance) / LN2));
+          t.gapDays, t.weight / LN2, Math.sqrt(t.variance) / LN2, t.a, t.b));
     evidence.sort(Comparator.comparingDouble((Evidence e) -> -Math.abs(e.weight())).thenComparing(Evidence::type)
         .thenComparing(e -> e.identifier() == null ? "" : e.identifier().toString()));
 
@@ -546,7 +578,7 @@ public final class IdentityMatchModel {
     if (agreeing > 0 ? weight <= 0 : weight >= 0)
       return;
     terms.add(new Term(EvidenceType.SOFT, -1, signal.label(), null, (int) Math.min(agreeing, Integer.MAX_VALUE),
-        (int) Math.min(pairs, Integer.MAX_VALUE), -1, Double.NaN, weight, variance));
+        (int) Math.min(pairs, Integer.MAX_VALUE), -1, Double.NaN, weight, variance, Sightings.NONE, Sightings.NONE));
   }
 
   private Term sharedTerm(final Features f, final SharedFeature s) {
@@ -588,7 +620,7 @@ public final class IdentityMatchModel {
       variance = 0;
     }
     return new Term(EvidenceType.SHARED, s.kind(), null, s.identifier(), s.countA(), s.countB(), s.frequency(),
-        s.gap() < 0 ? Double.NaN : s.gap() / DAY_MS, weight, variance);
+        s.gap() < 0 ? Double.NaN : s.gap() / DAY_MS, weight, variance, s.a(), s.b());
   }
 
   private Term disjointTerm(final Features f, final DisjointFeature d) {
@@ -601,7 +633,7 @@ public final class IdentityMatchModel {
     final double derivative = rho / (1 - share);
     final double variance = derivative * derivative * IdentityStatistics.betaVariance(m * mStrength, (1 - m) * mStrength);
     return new Term(EvidenceType.DISJOINT, d.kind(), null, null, d.countA(), d.countB(), -1, d.gap() < 0 ? Double.NaN : d.gap() / DAY_MS,
-        Math.log1p(-share), variance);
+        Math.log1p(-share), variance, d.a(), d.b());
   }
 
   /** The share of an identifier's binding to its owner left after {@code gap} milliseconds (-1 = unknown). */

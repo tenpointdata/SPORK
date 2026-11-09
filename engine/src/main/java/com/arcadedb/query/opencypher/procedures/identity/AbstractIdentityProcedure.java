@@ -29,6 +29,7 @@ import com.arcadedb.query.opencypher.procedures.algo.AbstractAlgoProcedure;
 import com.arcadedb.query.opencypher.procedures.identity.IdentityMatchModel.Evidence;
 import com.arcadedb.query.opencypher.procedures.identity.IdentityMatchModel.FrequencyLookup;
 import com.arcadedb.query.opencypher.procedures.identity.IdentityMatchModel.MatchResult;
+import com.arcadedb.query.opencypher.procedures.identity.IdentityMatchModel.Sightings;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.WorkGuard;
@@ -67,7 +68,10 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
   static final Set<String> MODEL_KEYS = Set.of("via", "direction", "timeProperty", "latProperty", "lonProperty",
       "frequencyProperty", "population", "prior", "kinds", "defaultM", "defaultConcurrent", "defaultHandoff",
       "defaultHalfLifeDays", "mStrength", "redundancy", "maxSpeedKmh", "conflictWindowHours", "minConflictKm", "conflictLR",
-      "confidence", "matchThreshold", "nonMatchThreshold", "maxPairs", "evidenceLimit", "model", "styleProperty", "styleRecon", "imageHashProperty", "soft");
+      "confidence", "matchThreshold", "nonMatchThreshold", "maxPairs", "evidenceLimit", "evidenceRecords", "model", "styleProperty", "styleRecon", "imageHashProperty", "soft");
+
+  /** How many records one side of an evidence row names when the call does not say. */
+  static final int DEFAULT_EVIDENCE_RECORDS = 10;
 
   /** The keys a registered model's settings may hold: every model option but the output size and the model itself. */
   static final Set<String> MODEL_SETTING_KEYS;
@@ -75,6 +79,7 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
   static {
     final Set<String> keys = new HashSet<>(MODEL_KEYS);
     keys.remove("evidenceLimit");
+    keys.remove("evidenceRecords");
     keys.remove("model");
     MODEL_SETTING_KEYS = Set.copyOf(keys);
   }
@@ -97,6 +102,8 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
     final String                     imageHashProperty;
     final IdentityMatchModel         model;
     final int                        evidenceLimit;
+    /** How many records one side of an evidence row may name; 0 names none. */
+    final int                        evidenceRecords;
     final boolean                    populationGiven;
     /** The {@code name@version} of the registered model the settings came from, null without one. */
     final String                     modelVersion;
@@ -125,6 +132,7 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
         throw new IllegalArgumentException(getName() + "(): styleRecon must be true or false, got " + recon);
       this.styleRecon = Boolean.TRUE.equals(recon);
       this.evidenceLimit = extractInt(numberOption(c, "evidenceLimit", defaultEvidenceLimit), "evidenceLimit", 0);
+      this.evidenceRecords = extractInt(numberOption(c, "evidenceRecords", DEFAULT_EVIDENCE_RECORDS), "evidenceRecords", 0);
       this.populationGiven = c.get("population") != null;
 
       final IdentityMatchModel m = new IdentityMatchModel();
@@ -273,8 +281,22 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
     return kinds;
   }
 
-  /** Two clusters ready to be compared: their profiles, and how many members they had in common (set aside). */
-  record Pair(ClusterProfile a, ClusterProfile b, int sharedMembers) {
+  /**
+   * One side of a match as the output needs it: the profile that was scored and the members its indices point at, so an
+   * evidence row can name the records behind it and the time of each.
+   */
+  record Side(ClusterProfile profile, List<Vertex> members) {
+  }
+
+  /** Two clusters ready to be compared: their profiles and members, and how many members they had in common (set aside). */
+  record Pair(ClusterProfile a, ClusterProfile b, int sharedMembers, List<Vertex> membersA, List<Vertex> membersB) {
+    Side sideA() {
+      return new Side(a, membersA);
+    }
+
+    Side sideB() {
+      return new Side(b, membersB);
+    }
   }
 
   /**
@@ -301,7 +323,7 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
       settings.defaultPopulation(all);
     }
     final WorkGuard guard = newWorkGuard(context);
-    return new Pair(buildProfile(a, settings, guard), buildProfile(b, settings, guard), both.size());
+    return new Pair(buildProfile(a, settings, guard), buildProfile(b, settings, guard), both.size(), a, b);
   }
 
   /** The option keys of the procedure. */
@@ -368,7 +390,7 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
   }
 
   /** The common output of a match: everything but the members. */
-  static void putMatch(final Map<String, Object> row, final MatchResult r, final Settings settings) {
+  static void putMatch(final Map<String, Object> row, final MatchResult r, final Settings settings, final Side a, final Side b) {
     final int evidenceLimit = settings.evidenceLimit;
     row.put("probability", r.probability());
     row.put("lower", r.lower());
@@ -392,10 +414,39 @@ abstract class AbstractIdentityProcedure extends AbstractAlgoProcedure {
       m.put("gapDays", Double.isNaN(e.gapDays()) ? null : e.gapDays());
       m.put("weight", e.weight());
       m.put("stdDev", e.stdDev());
+      putSightings(m, "A", e.a(), a, settings.evidenceRecords);
+      putSightings(m, "B", e.b(), b, settings.evidenceRecords);
       evidence.add(m);
     }
     row.put("evidence", evidence);
     row.put("modelVersion", settings.modelVersion);
+  }
+
+  /**
+   * One side of an evidence row: when that side was seen with it ({@code firstA} / {@code lastA}), and which records put
+   * it there ({@code recordsA}, a {@code {record, at}} per member, {@code at} null when the member has no time). The list
+   * is cut at {@code limit} and left out entirely when the row rests on no single identifier (DISJOINT, CONFLICT, SOFT) or
+   * {@code limit} is 0; {@code countA} always reports the true count, so a cut list is visible against it.
+   */
+  static void putSightings(final Map<String, Object> row, final String side, final Sightings sightings, final Side of,
+      final int limit) {
+    row.put("first" + side, time(sightings.first()));
+    row.put("last" + side, time(sightings.last()));
+    final int[] members = sightings.members();
+    if (limit == 0 || members.length == 0)
+      return;
+    final int count = Math.min(limit, members.length);
+    final List<Map<String, Object>> records = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      final int member = members[i];
+      if (member >= of.members().size())
+        continue;
+      final Map<String, Object> entry = new LinkedHashMap<>(2);
+      entry.put("record", of.members().get(member).getIdentity());
+      entry.put("at", time(of.profile().memberTime(member)));
+      records.add(entry);
+    }
+    row.put("records" + side, records);
   }
 
   static Map<String, Object> temporal(final MatchResult r) {

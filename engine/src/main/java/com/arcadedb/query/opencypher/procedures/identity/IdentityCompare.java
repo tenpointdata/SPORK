@@ -92,7 +92,7 @@ public class IdentityCompare extends AbstractIdentityProcedure {
     final MatchResult r = settings.model.compare(pair.a(), pair.b(), settings.frequencyLookup);
 
     final Map<String, Object> row = new LinkedHashMap<>();
-    putMatch(row, r, settings);
+    putMatch(row, r, settings, pair.sideA(), pair.sideB());
     row.put("sizeA", r.sizeA());
     row.put("sizeB", r.sizeB());
     row.put("sharedMembers", pair.sharedMembers());

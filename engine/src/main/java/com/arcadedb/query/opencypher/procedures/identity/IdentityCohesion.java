@@ -121,10 +121,12 @@ public class IdentityCohesion extends AbstractIdentityProcedure {
     final List<Map<String, Object>> rows = new ArrayList<>(members.size());
     for (int j = 0; j < members.size(); j++) {
       guard.check();
-      final MatchResult r = settings.model.compare(full.only(j), full.without(j), settings.frequencyLookup);
+      final ClusterProfile one = full.only(j);
+      final ClusterProfile rest = full.without(j);
+      final MatchResult r = settings.model.compare(one, rest, settings.frequencyLookup);
       final Map<String, Object> row = new LinkedHashMap<>();
       row.put("member", members.get(j).getIdentity());
-      putMatch(row, r, settings);
+      putMatch(row, r, settings, new Side(one, List.of(members.get(j))), new Side(rest, members));
       rows.add(row);
     }
 

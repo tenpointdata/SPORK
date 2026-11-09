@@ -112,6 +112,8 @@ public class IdentityFeatures extends AbstractIdentityProcedure {
       m.put("sizeA", f.sizeA());
       m.put("sizeB", f.sizeB());
       m.put("gapDays", days(s.gap()));
+      putSightings(m, "A", s.a(), pair.sideA(), settings.evidenceRecords);
+      putSightings(m, "B", s.b(), pair.sideB(), settings.evidenceRecords);
       shared.add(m);
     }
     final List<Map<String, Object>> disjoint = new ArrayList<>(f.disjoint().size());
@@ -121,6 +123,8 @@ public class IdentityFeatures extends AbstractIdentityProcedure {
       m.put("countA", d.countA());
       m.put("countB", d.countB());
       m.put("gapDays", days(d.gap()));
+      putSightings(m, "A", d.a(), pair.sideA(), settings.evidenceRecords);
+      putSightings(m, "B", d.b(), pair.sideB(), settings.evidenceRecords);
       disjoint.add(m);
     }
     final Map<String, Object> travel = new LinkedHashMap<>();

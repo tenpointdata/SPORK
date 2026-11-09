@@ -43,9 +43,12 @@ hot data.
 - `docs/spork/README.md` still lists six worktrees "in review"; they are all merged now. That README belongs to the
   architecture session, so it has not been edited here.
 - A Recon analyst set out the four workflows the move has to serve (2026-11-05). The design answers most of them; the
-  seven parts it does not are items 34 to 40 under Open work, and the ones that need a product or governance decision
-  before they can be built are in the human lane of Triage. Nothing in the architecture was changed for them: the
-  affected docs (01, 04) belong to other sessions.
+  seven parts it did not were items 34 to 40 under Open work. **34 is done** (evidence rows now name the records behind
+  them, see Done); 35 to 40 are open, and the ones that need a product or governance decision before they can be built
+  are in the human lane of Triage.
+- `docs/spork/04-identity-resolution-design.md` 2.5 and 2.8 were edited here for the new output fields, although that
+  doc belongs to the identity session: leaving the procedure contract wrong was the worse of the two. The edits are
+  factual only (the new row fields and the `evidenceRecords` option), no design change.
 - The requirements themselves, the design principles they impose and the questions to put back to the analyst are now
   a doc of their own, [docs/spork/10-analyst-requirements.md](docs/spork/10-analyst-requirements.md). It adds four
   requirements items 34 to 40 did not reach (41 selector class and interval, 42 candidate thresholds that rank rather
@@ -67,6 +70,12 @@ Engine, on `main`:
 - Stylometry port, perceptual hashes, Hamming band keys, `similarity.*`.
 - F3 graph analytical views (CSR) on followers.
 - E25 native record versioning (`ALTER TYPE ... VERSIONED`, `history.*`).
+- Evidence rows that name their own records (open work 34, 2026-11-09): every SHARED row of `identity.compare`,
+  `cohesion`, `candidates` and `features` carries `recordsA` / `recordsB` (`{record, at}` per member, cut at the new
+  `evidenceRecords` option, default 10) and `firstA` to `lastB`, the ends of each side's sightings of that identifier;
+  a DISJOINT row carries the kind's window. The members come off the profile the score already built
+  (`ClusterProfile.members`), so no row costs a record read it was not already paying. Pinned by
+  `IdentityEvidenceRecordsTest`.
 - Geo kNN and metre radii (kNN 3 s to 5-9 ms on 5M points).
 - Parallel per-bucket vector search (single-client p50 6-8x faster).
 - Partial-text and fuzzy search, BM25 top-K, block-max sidecar.
@@ -96,7 +105,6 @@ move items between lanes when that changed.
 
 | Item | Size | Done looks like |
 |---|---|---|
-| 34 evidence rows name their supporting records and dates | small | `identity.compare` / `cohesion` / `candidates` evidence rows carry the supporting member RIDs per side and each side's first and last sighting, under a cap, with no extra record reads |
 | 37 `(website, urlHash)` index on `Record` | small | The index is in schema v1 and a URL's capture set is one lookup |
 | 35 period window on the association question | small | `from` / `to` on compare, scored on the window, with in-window and out-of-window sighting counts per identifier |
 | 36 rejected candidates stay rejected | medium | `identity.candidates` excludes or flags groups with a rejected link or unlink decision, with an option to include them |
@@ -251,7 +259,8 @@ they impose (records immutable, the four-rung provenance ladder, the four clocks
 anchor) and the open questions back to the analyst are in
 [docs/spork/10-analyst-requirements.md](docs/spork/10-analyst-requirements.md).
 
-34. **Evidence rows name no supporting records and no sighting dates.** `identity.compare`, `identity.cohesion` and
+34. ~~**Evidence rows name no supporting records and no sighting dates.**~~ **Done 2026-11-09** (see Current state and
+    Done). Kept here with its number so the references to it elsewhere still land. What it was: `identity.compare`, `identity.cohesion` and
     `identity.candidates` return evidence as `{type, kind, identifier, countA, countB, frequency, gapDays, weight,
     stdDev}` (`IdentityMatchModel.Evidence`, rendered in `AbstractIdentityProcedure.java:380-400`). The analyst sees
     which phone and how many ads on each side, then has to go and find those ads and their dates. That is precisely the
@@ -320,7 +329,7 @@ anchor) and the open questions back to the analyst are in
     during tuning runs the other way, so the candidate path needs an audit against the directive. Done when every
     threshold on the `identity.candidates` path is either a ranking input or an explicit, documented,
     caller-overridable cap, no scoring threshold silently removes a group from the result, and the result says how many
-    were capped. Depends on 34, since recall is only affordable once a row explains itself.
+    were capped. Depended on 34, which is done, so a row now explains itself and recall is affordable.
 43. **The provenance ladder is not enforced at the boundary.** Four rungs have to stay apart end to end: records
     sharing a selector, a source associating a selector with a person, an analyst having assessed that record, and an
     analyst asserting the relationship (`docs/spork/10-analyst-requirements.md` P3). Soft edges carry `method`,
@@ -385,6 +394,11 @@ anchor) and the open questions back to the analyst are in
 - 2026-11-03: version history is native to the engine (E25), not modelled with assertion nodes or edge validity stamps.
 - 2026-11-03: all work consolidated onto `main`; sessions may commit and push, staging explicit paths only.
 - 2026-11-04: GitHub issues are disabled on the remote, so open work lives in this file until they are enabled.
+- 2026-11-09: the records behind an evidence row ride on `SharedFeature`, not on a second lookup, because
+  `compare = score(features(...))` is pinned by `IdentityFeaturesAndModelsTest` and anything the evidence shows has to
+  reach it through the features. The member indices come off `ClusterProfile`, which already walks every (member,
+  identifier) pair, so the row costs an `int` per pair and no extra read; the cap is applied when the row is rendered,
+  so it never touches a weight.
 - 2026-11-09: the 2026-11-05 analyst requirements are recorded as open work (34 to 40), not as architecture changes. The
   design already answers the bulk of them, the seven gaps are each traceable to a named route, index or procedure field,
   and 01 and 04 belong to other sessions. Assessment state (39), the record-group route (38) and the basis on a place

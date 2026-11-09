@@ -114,9 +114,21 @@ YIELD candidate, members, size, complete, overlap, blockedOn,
       probability, lower, upper, logOdds, matchWeight, matchWeightStdDev, verdict, evidence
 ```
 
-`evidence` is the `why`: a list of `{type, kind, identifier, countA, countB, frequency, gapDays, weight, stdDev}` (weights
-in bits), strongest first, cut at `evidenceLimit` (25 for compare, 5 for cohesion and candidates). `temporal` is
-`{firstA, lastA, firstB, lastB, gapDays, overlapDays, comparablePairs, conflicts, pairsTruncated}`.
+`evidence` is the `why`: a list of `{type, kind, identifier, countA, countB, frequency, gapDays, weight, stdDev,
+recordsA, recordsB, firstA, lastA, firstB, lastB}` (weights in bits), strongest first, cut at `evidenceLimit` (25 for
+compare, 5 for cohesion and candidates). `temporal` is `{firstA, lastA, firstB, lastB, gapDays, overlapDays,
+comparablePairs, conflicts, pairsTruncated}`.
+
+**A row names the records behind it (HANDOFF open work 34).** `recordsA` and `recordsB` are the members of each side that
+put the identifier there, `{record, at}` each (`at` null when the member has no time), cut at `evidenceRecords` (10) and
+left out when that is 0; `firstA` to `lastB` are the ends of each side's sightings of that identifier. So "what supports
+the association of this person to this number" is answered by the row itself rather than by a second query: the analyst
+reads which ads tie the number to each side and when, next to the weight that says how much it is worth. The cut is on
+what is shown, never on what is counted, so a cut list is visible against `countA` and `countB` and the window still
+spans every sighting. A DISJOINT row has no `recordsA` or `recordsB`, since it rests on a kind rather than on one
+identifier, and `firstA` to `lastB` are the ends of that side's window of use of the kind; CONFLICT and SOFT rows, whose
+terms rest on member pairs, carry neither. The members are read off the profile the score already built
+(`ClusterProfile.members`), so a row costs no record read it was not already paying.
 
 | Option | Meaning | Default |
 |---|---|---|
@@ -132,6 +144,7 @@ in bits), strongest first, cut at `evidenceLimit` (25 for compare, 5 for cohesio
 | `maxSpeedKmh`, `conflictWindowHours`, `minConflictKm`, `conflictLR`, `maxPairs` | Impossible travel | 900, 24, 100, 0.2, 100000 |
 | `confidence`, `matchThreshold`, `nonMatchThreshold` | Interval and verdict | 0.95, 0.9, 0.1 |
 | `evidenceLimit` | Evidence rows returned | 25 / 5 / 5 |
+| `evidenceRecords` | Records one side of an evidence row names; 0 names none | 10 |
 | `limit` (cohesion, candidates) | Rows returned: weakest member first / strongest candidate first | all / 25 |
 
 Every key is checked (an unknown one is refused, as `extractConfig` does for `algo.*`), and so is every kind key and
@@ -186,11 +199,12 @@ CALL identity.features($a, $b, $opts)
 YIELD sizeA, sizeB, population, temporal, sharedMembers, shared, disjoint, travel, modelVersion
 ```
 
-- `shared`: `{kind, identifier, countA, countB, frequency, population, sizeA, sizeB, gapDays}` per identifier both reach.
+- `shared`: `{kind, identifier, countA, countB, frequency, population, sizeA, sizeB, gapDays, recordsA, recordsB, firstA,
+  lastA, firstB, lastB}` per identifier both reach, the last six as in 2.5.
   `frequency` is the one the score uses (reported, raised to the observed count) and `population` the effective one (at
   least the two sizes), so each row is self-contained for a flat export.
-- `disjoint`: `{kind, countA, countB, gapDays}` per kind both use with nothing shared, including those whose gap is
-  unknown (the score drops them, a trainer may not).
+- `disjoint`: `{kind, countA, countB, gapDays, firstA, lastA, firstB, lastB}` per kind both use with nothing shared,
+  including those whose gap is unknown (the score drops them, a trainer may not).
 - `travel`: `{comparablePairs, conflicts, pairsTruncated}`. The travel bounds define what a conflict is, so they are the
   only parameters `features` reads.
 
