@@ -37,12 +37,16 @@ import com.arcadedb.query.sql.parser.ExplainResultSet;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.schema.LocalEdgeType;
 import com.arcadedb.schema.LocalVertexType;
+import com.arcadedb.security.SecurityDatabaseUser;
 import com.arcadedb.serializer.JsonGraphSerializer;
 import com.arcadedb.serializer.JsonSerializer;
 import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.http.HttpServer;
 import com.arcadedb.server.http.RequestRefusedBeforeExecutionException;
+import com.arcadedb.server.http.ResultSetTooLargeException;
+import com.arcadedb.server.security.ServerSecurityDatabaseUser;
+import com.arcadedb.server.security.ServerSecurityUser;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.Headers;
 
@@ -116,6 +120,54 @@ public abstract class AbstractQueryHandler extends DatabaseAbstractHandler {
 
   public AbstractQueryHandler(final HttpServer httpServer) {
     super(httpServer);
+  }
+
+  /**
+   * Hard ceiling on the rows of one response for this caller on this database: the ordinary
+   * {@code arcadedb.server.httpQueryMaxResultRows}, raised to {@code arcadedb.server.httpQueryElevatedMaxResultRows}
+   * for a caller trusted with the database's resources - the server administrator, or a user holding
+   * {@code updateDatabaseSettings} there. A non-positive value means unlimited.
+   * <p>
+   * The elevated value only ever raises the ceiling, and costs nothing while it follows the ordinary one (its default):
+   * the grant is looked up only when there is something to raise. The default row cap of a caller that states no limit
+   * stays bounded by the ordinary ceiling ({@link #getDefaultRowLimit()}), so the elevation is reached only by a caller
+   * that asks for more rows explicitly, with a request {@code limit} or a LIMIT in the query.
+   */
+  protected int getMaxResultRows(final ServerSecurityUser user, final Database database) {
+    final int ceiling = getMaxResultRows();
+    final int elevated = elevatedMaxResultRows(ceiling,
+        httpServer.getServer().getConfiguration().getValueAsInteger(GlobalConfiguration.SERVER_HTTP_QUERY_ELEVATED_MAX_RESULT_ROWS));
+    if (elevated == ceiling || user == null || database == null)
+      return ceiling;
+    if (ServerSecurityUser.isServerAdministrator(user.getName()))
+      return elevated;
+    final ServerSecurityDatabaseUser databaseUser = user.getDatabaseUser(database);
+    return databaseUser != null && databaseUser.requestAccessOnDatabase(SecurityDatabaseUser.DATABASE_ACCESS.UPDATE_DATABASE_SETTINGS) ?
+        elevated :
+        ceiling;
+  }
+
+  /**
+   * The ceiling a trusted caller gets, from the ordinary ceiling and the configured elevated value: a negative elevated
+   * value follows the ordinary ceiling, 0 is unlimited, and a positive one can raise the ceiling but never lower it. An
+   * unlimited ordinary ceiling has nothing to raise. Package-private for direct unit testing.
+   */
+  static int elevatedMaxResultRows(final int ceiling, final int elevated) {
+    if (elevated < 0 || ceiling <= 0)
+      return ceiling;
+    if (elevated == 0)
+      return 0;
+    return Math.max(ceiling, elevated);
+  }
+
+  /**
+   * The refusal for a response the given ceiling cut short, naming the setting that decided: the elevated one when the
+   * ceiling differs from the ordinary one, so a trusted caller is not told to raise a setting that no longer bounds it.
+   */
+  private ResultSetTooLargeException resultSetTooLargeFor(final int maxResultRows) {
+    return maxResultRows == getMaxResultRows() ?
+        resultSetTooLarge(maxResultRows) :
+        resultSetTooLarge(maxResultRows, GlobalConfiguration.SERVER_HTTP_QUERY_ELEVATED_MAX_RESULT_ROWS);
   }
 
   /**
@@ -273,7 +325,7 @@ public abstract class AbstractQueryHandler extends DatabaseAbstractHandler {
     final SerializationOutcome outcome = serializeResultSet(database, serializer, limit, response, qResult,
         includeTypeHints);
     if (limit != statedLimit && outcome.truncated())
-      throw resultSetTooLarge(maxResultRows);
+      throw resultSetTooLargeFor(maxResultRows);
     return outcome;
   }
 
@@ -378,7 +430,7 @@ public abstract class AbstractQueryHandler extends DatabaseAbstractHandler {
       if (ceilingLowered && truncated) {
         // What the buffered path answers 413 for. A 200 is already on the wire, so the refusal goes in band and
         // the stats trailer is withheld - which is exactly how a consumer tells this from a complete stream.
-        writeClassifiedError(exchange, stream, resultSetTooLarge(maxResultRows));
+        writeClassifiedError(exchange, stream, resultSetTooLargeFor(maxResultRows));
         return new SerializationOutcome(returned, true);
       }
 

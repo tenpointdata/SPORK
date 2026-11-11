@@ -37,7 +37,8 @@ export ARCADEDB_SETTINGS="$(grep -v '^#' read-node.properties | grep '=' | sed '
 `typeDefaultBuckets` (1, left), `indexCompactionMinPagesSchedule` (10), `indexCompactionFullSeriesThreshold`
 (constant INDEX_COMPACTION_FULL_SERIES, 10), `indexCompactionFullDeadEntriesRatio` (1.0), `indexBloomFilterRate`
 (0.01, left), `queryLiteralParameterization` (true), `sqlStatementCache` (300), `opencypher.statementCache` (300),
-`opencypher.planCache` (300), `server.httpQueryMaxResultRows` (SERVER, 1000000), `queryIndexMaxSelectivity`
+`opencypher.planCache` (300), `server.httpQueryMaxResultRows` (SERVER, 1000000), `server.httpQueryElevatedMaxResultRows` (SERVER, -1 = follow
+`httpQueryMaxResultRows`; commented out in `read-node.properties`), `queryIndexMaxSelectivity`
 (DATABASE, 0.6), `server.httpWorkerThreads` (500), `server.httpIoThreads` (cores), `queryMaxConcurrent` (JVM, 2 x
 cores), `queryQueueMaxSize` (256), `queryQueueTimeout` (30000), `queryParallelismPoolThreads` (JVM, cores),
 `parallelScanProducerPoolThreads` (JVM, cores), `queryParallelScanPagesPerUnit` (DATABASE, 32),
