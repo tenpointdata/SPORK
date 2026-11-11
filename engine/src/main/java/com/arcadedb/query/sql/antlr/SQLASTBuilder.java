@@ -5261,9 +5261,7 @@ public class SQLASTBuilder extends SQLParserBaseVisitor<Object> {
     // visitIdentifierChain() and needs the target alias resolved here. Without it, UPDATE Main m SET m.touched = 1
     // reads a property named m off the record and writes touched INSIDE that (absent) nested value, silently
     // setting nothing the statement asked for (issue #7153).
-    if (item.leftModifier != null && item.leftModifier.suffix != null && item.leftModifier.suffix.identifier != null
-        && !item.leftModifier.suffix.star && !item.leftModifier.squareBrackets && item.leftModifier.methodCall == null
-        && item.left.getStringValue().equals(targetAliases.peek())) {
+    if (startsWithTargetAlias(item.left, item.leftModifier)) {
       item.left = item.leftModifier.suffix.identifier;
       item.leftModifier = item.leftModifier.next;
     }
@@ -5318,12 +5316,27 @@ public class SQLASTBuilder extends SQLParserBaseVisitor<Object> {
   @Override
   public UpdateIncrementItem visitUpdateIncrementItem(final SQLParser.UpdateIncrementItemContext ctx) {
     final UpdateIncrementItem item = new UpdateIncrementItem();
-    item.setLeft((Identifier) visit(ctx.propertyName()));
-    if (ctx.modifier() != null) {
-      item.setLeftModifier((Modifier) visit(ctx.modifier()));
+    final Identifier left = (Identifier) visit(ctx.propertyName());
+    final Modifier modifier = ctx.modifier() != null ? (Modifier) visit(ctx.modifier()) : null;
+    // the same target alias resolution as UPDATE ... SET (issue #7153): UPDATE Main m INCREMENT m.n = 1 increments n
+    if (startsWithTargetAlias(left, modifier)) {
+      item.setLeft(modifier.suffix.identifier);
+      item.setLeftModifier(modifier.next);
+    } else {
+      item.setLeft(left);
+      item.setLeftModifier(modifier);
     }
     item.setRight((Expression) visit(ctx.expression()));
     return item;
+  }
+
+  /**
+   * True when an assignment target written {@code alias.property} names the alias of the statement's target, so the property is
+   * the one after the alias (issue #7153).
+   */
+  private boolean startsWithTargetAlias(final Identifier left, final Modifier modifier) {
+    return modifier != null && modifier.suffix != null && modifier.suffix.identifier != null && !modifier.suffix.star
+        && !modifier.squareBrackets && modifier.methodCall == null && left.getStringValue().equals(targetAliases.peek());
   }
 
   /**

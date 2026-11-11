@@ -27,6 +27,7 @@ import com.arcadedb.engine.Bucket;
 import com.arcadedb.engine.LocalBucket;
 import com.arcadedb.exception.DatabaseMetadataException;
 import com.arcadedb.exception.DuplicatedKeyException;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.exception.NeedRetryException;
 import com.arcadedb.exception.SchemaException;
 import com.arcadedb.index.Index;
@@ -796,11 +797,12 @@ public class TypeIndexBuilder extends IndexBuilder<TypeIndex> {
       // something already there - a Cypher CREATE CONSTRAINT without IF NOT EXISTS over its own unique index, say -
       // and the bare sentence left them to work out that the guard was the missing piece. The sentence itself is
       // unchanged: it is long-standing wording that callers may already match on.
-      throw new IllegalArgumentException(
+      throw new IndexDefinitionConflictException(
           "Found the existent index '" + existingTypeIndex.getName() + "' defined on the properties '" + Arrays.asList(
               metadata.propertyNames) + "' for type '" + metadata.typeName + "'" + (satisfied ?
               ". It already provides what was requested: use IF NOT EXISTS to make this statement idempotent" :
-              ". Drop it first if the definition has to change"));
+              ". Drop it first if the definition has to change" + onePerPropertySetHint(existingTypeIndex, indexType, unique,
+                  metadata.propertyNames)));
   }
 
   /**

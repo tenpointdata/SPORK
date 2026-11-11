@@ -24,6 +24,7 @@ import com.arcadedb.database.DatabaseContext;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.TransactionContext;
 import com.arcadedb.engine.Bucket;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.IndexInternal;
@@ -193,7 +194,7 @@ public abstract class IndexBuilder<T extends Index> {
    * {@link IllegalArgumentException} on purpose: the HTTP layer maps it to a 400, which is what a schema request the
    * server can read but cannot honour is.
    */
-  public static IllegalArgumentException conflictWithExistingIndex(final Index existing,
+  public static IndexDefinitionConflictException conflictWithExistingIndex(final Index existing,
       final Schema.INDEX_TYPE requestedType, final boolean requestedUnique, final String requestedTypeName,
       final List<String> requestedProperties) {
     return conflictWithExistingIndex(existing, requestedType, requestedUnique, requestedTypeName, requestedProperties,
@@ -205,11 +206,11 @@ public abstract class IndexBuilder<T extends Index> {
    * {@link IndexMetadata#findUserSettingMismatches}. Empty when the request was refused on its structural definition
    * alone, which is the only case the overload above covers.
    */
-  public static IllegalArgumentException conflictWithExistingIndex(final Index existing,
+  public static IndexDefinitionConflictException conflictWithExistingIndex(final Index existing,
       final Schema.INDEX_TYPE requestedType, final boolean requestedUnique, final String requestedTypeName,
       final List<String> requestedProperties, final List<String> settingMismatches) {
     final boolean inherited = !existing.getTypeName().equals(requestedTypeName);
-    return new IllegalArgumentException(
+    return new IndexDefinitionConflictException(
         "Cannot create the index on type '" + requestedTypeName + "' properties " + requestedProperties + " as "
             + describeDefinition(requestedType, requestedUnique) + " because the index '" + existing.getName()
             + "' already exists on " + (inherited ? "the parent type '" + existing.getTypeName() + "' and " : "")
@@ -241,16 +242,34 @@ public abstract class IndexBuilder<T extends Index> {
    * <p>
    * {@link IllegalArgumentException} for the same reason as its sibling: the HTTP layer maps it to a 400.
    */
-  public static IllegalArgumentException conflictWithExistingIndexName(final Index existing, final String requestedName,
+  public static IndexDefinitionConflictException conflictWithExistingIndexName(final Index existing, final String requestedName,
       final String requestedTypeName, final List<String> requestedProperties) {
     final boolean inherited = !existing.getTypeName().equals(requestedTypeName);
-    return new IllegalArgumentException(
+    return new IndexDefinitionConflictException(
         "Cannot create the index '" + requestedName + "' on type '" + requestedTypeName + "' properties "
             + requestedProperties + " because those properties are already indexed by '" + existing.getName() + "'"
             + (inherited ? " on the parent type '" + existing.getTypeName() + "'" : "")
             + ". A type holds one index per property set, so the requested name cannot be added next to it: use '"
             + existing.getName() + "' to address the existing index, or drop it first to create the index under the "
             + "requested name");
+  }
+
+  /**
+   * The sentence that tells a caller asking for a second index of ANOTHER kind on an already indexed property set why that
+   * cannot be done and what to do instead. A type keeps one index per property set ({@code indexesByProperties} is keyed by
+   * the property list, and the query planner, the unique-key checks and the schema reload all look an index up that way),
+   * so a UNIQUE and a FULL_TEXT index on the same property cannot coexist: the second would be unreachable, or would replace
+   * the first on reload. Only added when the kinds differ, since a same-kind request is a plain duplicate.
+   */
+  public static String onePerPropertySetHint(final Index existing, final Schema.INDEX_TYPE requestedType,
+      final boolean requestedUnique, final List<String> requestedProperties) {
+    if (existing.getType() == requestedType && existing.isUnique() == requestedUnique)
+      return "";
+    return ". A type holds one index per property set, so a " + describeDefinition(requestedType, requestedUnique)
+        + " index cannot be added next to '" + existing.getName() + "' (" + describeDefinition(existing.getType(),
+        existing.isUnique()) + "): to have both, put the second index on another property that holds the same value "
+        + "(for example a copy of " + requestedProperties + " kept in sync by the application), or drop '" + existing.getName()
+        + "' first";
   }
 
   private static String describeDefinition(final Schema.INDEX_TYPE indexType, final boolean unique) {
