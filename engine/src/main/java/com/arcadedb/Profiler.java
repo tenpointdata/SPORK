@@ -50,7 +50,7 @@ public class Profiler {
    */
   private static final String[] DB_STAT_KEYS = { "writeTx", "readTx", "txRollbacks", "createRecord", "readRecord",
       "updateRecord", "deleteRecord", "queries", "commands", "scanType", "scanBucket", "iterateType", "iterateBucket",
-      "countType", "countBucket", "indexCompactions", "recountPublishesRefused", "lightEdgeCensusFallbacks" };
+      "countType", "countBucket", "indexCompactions", "recountPublishesRefused", "lightEdgeCensusFallbacks", "txRetries" };
 
   // Indexes into the per-database accumulator array. Entries [0, MONOTONIC_STATS) are the ones carried across a
   // database close (see retainedStats); the rest are instantaneous and are re-read from the open databases only.
@@ -77,31 +77,33 @@ public class Profiler {
   // #10100: lightweight-edge census builds that failed, each leaving every edge of one list to walk it alone. Monotonic and
   // inside the retained range, for the reason above: the databases that keep failing are the ones an operator alerts on.
   private static final int STAT_LIGHT_EDGE_CENSUS_FALLBACKS = 17;
-  private static final int STAT_WAL_PAGES_WRITTEN = 18;
-  private static final int STAT_WAL_BYTES_WRITTEN = 19;
+  // Issue 5 of the SPORK stress report: transaction blocks re-run after a retryable conflict. Monotonic, retained range
+  private static final int STAT_TX_RETRIES = 18;
+  private static final int STAT_WAL_PAGES_WRITTEN = 19;
+  private static final int STAT_WAL_BYTES_WRITTEN = 20;
   // #6526: monotonic, and it belongs INSIDE the retained range - a durability-flag flipper is exactly the kind of
   // caller (a bulk load through GraphBatch) that opens a database, does its work and closes it, so a counter that
   // went back to zero on that close would be zero every time anybody looked at it.
-  private static final int STAT_ASYNC_BOUNDARY_COMMITS = 20;
+  private static final int STAT_ASYNC_BOUNDARY_COMMITS = 21;
   // #10509: the group commit (commits that shared a WAL flush, and the flushes) and the commit file locks (releases and their
   // hold time, hand-offs to a waiting commit and their time). Monotonic, the times in microseconds: their rates divide into
   // the average hold and hand-off, which is what a queue of commits on one type grows on
-  private static final int STAT_WAL_GROUP_COMMITS = 21;
-  private static final int STAT_WAL_GROUP_COMMIT_SYNCS = 22;
-  private static final int STAT_COMMIT_LOCK_HOLDS = 23;
-  private static final int STAT_COMMIT_LOCK_HOLD_MICROS = 24;
-  private static final int STAT_COMMIT_LOCK_HAND_OFFS = 25;
-  private static final int STAT_COMMIT_LOCK_HAND_OFF_MICROS = 26;
-  private static final int MONOTONIC_STATS        = 27;
-  private static final int STAT_WAL_TOTAL_FILES   = 27;
-  private static final int STAT_OPEN_FILES        = 28;
-  private static final int STAT_MAX_OPEN_FILES    = 29;
-  private static final int STAT_ASYNC_QUEUE       = 30;
-  private static final int STAT_ASYNC_PARALLEL    = 31;
+  private static final int STAT_WAL_GROUP_COMMITS = 22;
+  private static final int STAT_WAL_GROUP_COMMIT_SYNCS = 23;
+  private static final int STAT_COMMIT_LOCK_HOLDS = 24;
+  private static final int STAT_COMMIT_LOCK_HOLD_MICROS = 25;
+  private static final int STAT_COMMIT_LOCK_HAND_OFFS = 26;
+  private static final int STAT_COMMIT_LOCK_HAND_OFF_MICROS = 27;
+  private static final int MONOTONIC_STATS        = 28;
+  private static final int STAT_WAL_TOTAL_FILES   = 28;
+  private static final int STAT_OPEN_FILES        = 29;
+  private static final int STAT_MAX_OPEN_FILES    = 30;
+  private static final int STAT_ASYNC_QUEUE       = 31;
+  private static final int STAT_ASYNC_PARALLEL    = 32;
   // #6526 review round 4: instantaneous, and firmly on this side of MONOTONIC_STATS - it returns to zero as the
   // retired workers finish, so carrying it across a close would make a gauge that only ever grows.
-  private static final int STAT_ASYNC_RETIRING    = 32;
-  private static final int STATS_COUNT            = 33;
+  private static final int STAT_ASYNC_RETIRING    = 33;
+  private static final int STATS_COUNT            = 34;
   // How many files pageConflictsByFile lists
   private static final int PAGE_CONFLICTS_TOP     = 20;
 
@@ -441,6 +443,9 @@ public class Profiler {
     json.put("writeTx", new JSONObject().put("count", writeTx));
     json.put("readTx", new JSONObject().put("count", readTx));
     json.put("txRollbacks", new JSONObject().put("count", txRollbacks));
+    // Issue 5 of the SPORK stress report: what a conflict costs in re-execution, as opposed to concurrentModificationExceptions,
+    // which also counts the page conflicts edgeAppendMerges and txPageSlotMerges absorbed without any retry
+    json.put("txRetries", new JSONObject().put("count", dbStats[STAT_TX_RETRIES]));
     json.put("createRecord", new JSONObject().put("count", createRecord));
     json.put("readRecord", new JSONObject().put("count", readRecord));
     json.put("updateRecord", new JSONObject().put("count", updateRecord));

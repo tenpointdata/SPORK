@@ -2901,7 +2901,9 @@ public class TransactionContext implements Transaction {
       final byte[] baseBody = insertedHere ? null : buffer.baseBodyOf(slot);
       if (!bucket.rebaseRecordOnPage(committed, slot, finalBody, baseBody, buffer.kindOf(slot)))
         throw new ConcurrentModificationException(
-            "Slot rebase not possible on page " + pageId + " slot " + slot + " (concurrent change to the same record). Please retry the operation");
+            "Slot rebase not possible on page " + pageId + " slot " + slot + (insertedHere ?
+                " (the slot of the inserted record was taken by a concurrent commit)" :
+                " (concurrent change to the same record)") + ". Please retry the operation");
     }
 
     // #5608: MUST stay here, in the method that produces the rebased page. A shrinking update or a delete replayed

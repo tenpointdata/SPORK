@@ -44,9 +44,14 @@ import java.util.concurrent.atomic.*;
  *   <li>{@code conflicts}: a page of the file was at a newer version than the one the transaction read
  *   ({@link PageManager#checkPageVersion} / {@link PageManager#updatePageVersion}). Exactly the events the JVM-wide
  *   counter counts.</li>
- *   <li>{@code merged}: of those, the ones a commit-time merge (edge-append or slot merge) absorbed. The difference is
- *   the conflicts that failed their transaction and sent it to a retry: that is the part that costs a re-execution.</li>
+ *   <li>{@code merged}: of those, the ones a commit-time merge (edge-append or slot merge) absorbed. The difference
+ *   ({@code failed}) is the conflicts of commit attempts that did not complete: the page could not be merged, or the
+ *   attempt failed on another page before this one was merged. One failed attempt therefore usually charges several
+ *   files; how many attempts failed is {@code txRetries} in the profiler.</li>
  * </ul>
+ * <p>
+ * Read {@code merged} next to {@code conflicts} before drawing a conclusion from the JVM-wide counter: under concurrent
+ * inserts into shared bucket pages and edge appends to shared vertices, nearly all of it is merged and costs no retry.
  * <p>
  * COST: nothing on a commit without conflicts. Every call is on the conflict path, which already builds an exception
  * message. The per-file entry is created (and its name and kind resolved from the schema) on the file's first conflict
@@ -86,7 +91,7 @@ public final class PageConflictStats {
       return merged.sum();
     }
 
-    /** Conflicts no merge absorbed: each one failed a commit attempt. */
+    /** Conflicts no merge absorbed: each belongs to a commit attempt that failed. */
     public long getFailed() {
       return Math.max(0L, conflicts.sum() - merged.sum());
     }
@@ -180,7 +185,7 @@ public final class PageConflictStats {
    * Names the file and says what it holds. Resolved once per file, from the schema as it is at the first conflict;
    * never throws (an unresolvable file is reported by id).
    */
-  static Entry describe(final DatabaseInternal database, final int fileId) {
+  public static Entry describe(final DatabaseInternal database, final int fileId) {
     String fileName = "file#" + fileId;
     String kind = "unknown";
     String detail = null;

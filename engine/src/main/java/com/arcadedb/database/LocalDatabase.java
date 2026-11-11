@@ -2666,8 +2666,12 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
         if (!retryPolicy.mayRetry(e))
           throw e;
 
-        if (retry < attempts - 1)
+        if (retry < attempts - 1) {
+          // Issue 5 of the SPORK stress report: the block runs again from the start. This, not the page-conflict
+          // counter (most of whose conflicts a commit-time merge absorbs), is what a conflict costs in re-execution
+          stats.txRetries.incrementAndGet();
           delayBetweenRetries(retry, retryDelayBase, retryDelay);
+        }
 
       } catch (final Throwable e) {
         // #10135: the same ownership rule as the arm above. A call that JOINED the caller's transaction owns nothing,
