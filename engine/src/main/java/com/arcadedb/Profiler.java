@@ -22,11 +22,13 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.LocalDatabase;
 import com.arcadedb.database.async.DatabaseAsyncExecutorImpl;
 import com.arcadedb.engine.FileManager;
+import com.arcadedb.engine.PageConflictStats;
 import com.arcadedb.engine.PageManager;
 import com.arcadedb.engine.ScanReadAheadBudget;
 import com.arcadedb.log.LogManager;
 import com.arcadedb.query.sql.executor.QueryAdmissionGate;
 import com.arcadedb.query.sql.executor.QueryHeapBudget;
+import com.arcadedb.serializer.json.JSONArray;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.utility.FileUtils;
 import com.sun.management.OperatingSystemMXBean;
@@ -100,6 +102,8 @@ public class Profiler {
   // retired workers finish, so carrying it across a close would make a gauge that only ever grows.
   private static final int STAT_ASYNC_RETIRING    = 32;
   private static final int STATS_COUNT            = 33;
+  // How many files pageConflictsByFile lists
+  private static final int PAGE_CONFLICTS_TOP     = 20;
 
   /**
    * Registered database INSTANCES, compared by identity.
@@ -293,6 +297,25 @@ public class Profiler {
   }
 
   /**
+   * The files of the open databases with the most page-version conflicts, most first: database, file, kind (bucket,
+   * edge list, unique/not-unique/full-text index), the conflicts, how many a commit-time merge absorbed, and how many
+   * failed their commit. Counted since each database was opened. See {@link PageConflictStats}.
+   */
+  JSONArray collectPageConflictsByFile(final int limit) {
+    final List<Object[]> rows = new ArrayList<>();
+    for (final DatabaseInternal db : databases)
+      if (db instanceof LocalDatabase local)
+        for (final PageConflictStats.Entry e : local.getPageConflictStats().getTop(limit))
+          rows.add(new Object[] { local.getName(), e, e.getConflicts() });
+    rows.sort((a, b) -> Long.compare((Long) b[2], (Long) a[2]));
+
+    final JSONArray array = new JSONArray();
+    for (int i = 0; i < rows.size() && i < limit; i++)
+      array.put(((PageConflictStats.Entry) rows.get(i)[1]).toJSON().put("database", (String) rows.get(i)[0]));
+    return array;
+  }
+
+  /**
    * The database's asynchronous executor <b>if it already has one</b>, and {@code null} otherwise. Every database in
    * the registry is a {@link LocalDatabase} - it is what registers itself - so the check is a formality that keeps
    * this class honest rather than a cast that assumes.
@@ -411,6 +434,9 @@ public class Profiler {
     // and, next to it, the reads that had to restart because the record itself had moved.
     json.put("chunkChainReadRevalidations", new JSONObject().put("count", chunkChainReadRevalidations));
     json.put("chunkChainReadRetries", new JSONObject().put("count", chunkChainReadRetries));
+    // Issue 5 of the SPORK stress report: WHERE the conflicts above happen. No count/value/space/perc member on purpose,
+    // so it is not mistaken for a scalar stat by readers that render every entry generically.
+    json.put("pageConflictsByFile", new JSONObject().put("top", collectPageConflictsByFile(PAGE_CONFLICTS_TOP)));
 
     json.put("writeTx", new JSONObject().put("count", writeTx));
     json.put("readTx", new JSONObject().put("count", readTx));
