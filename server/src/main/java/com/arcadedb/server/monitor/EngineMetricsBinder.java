@@ -136,6 +136,9 @@ public final class EngineMetricsBinder implements MeterBinder {
     counter(registry, "arcadedb.engine.tx.write", "Write transactions", "writeTx");
     counter(registry, "arcadedb.engine.tx.read", "Read transactions", "readTx");
     counter(registry, "arcadedb.engine.tx.rollbacks", "Transaction rollbacks", "txRollbacks");
+    // Issue 5 of the SPORK stress report: the transaction blocks a retryable conflict made run again. Most page conflicts
+    // counted by arcadedb.engine.mvcc.conflicts are absorbed by the page merges and never cost a retry; this is the part that did
+    counter(registry, "arcadedb.engine.tx.retries", "Transaction blocks re-run after a retryable conflict", "txRetries");
     counter(registry, "arcadedb.engine.queries", "Queries executed", "queries");
     counter(registry, "arcadedb.engine.commands", "Commands executed", "commands");
 

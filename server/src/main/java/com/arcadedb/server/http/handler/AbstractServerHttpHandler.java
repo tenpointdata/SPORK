@@ -432,10 +432,17 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
    * enforces it. Names the setting so an operator reading only the error body knows which knob decided.
    */
   protected static ResultSetTooLargeException resultSetTooLarge(final int maxResultRows) {
+    return resultSetTooLarge(maxResultRows, GlobalConfiguration.SERVER_HTTP_QUERY_MAX_RESULT_ROWS);
+  }
+
+  /**
+   * The same refusal, naming the setting that set the ceiling: {@code arcadedb.server.httpQueryElevatedMaxResultRows}
+   * for a caller the elevated ceiling applies to.
+   */
+  protected static ResultSetTooLargeException resultSetTooLarge(final int maxResultRows, final GlobalConfiguration setting) {
     return new ResultSetTooLargeException(
         "The result exceeds the maximum of " + maxResultRows + " rows a single HTTP response may carry ("
-            + GlobalConfiguration.SERVER_HTTP_QUERY_MAX_RESULT_ROWS.getKey()
-            + "): narrow the query, page it with a smaller 'limit', or raise the setting", maxResultRows);
+            + setting.getKey() + "): narrow the query, page it with a smaller 'limit', or raise the setting", maxResultRows);
   }
 
   /**

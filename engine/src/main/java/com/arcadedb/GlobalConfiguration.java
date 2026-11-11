@@ -2226,6 +2226,23 @@ public enum GlobalConfiguration {
       memory). Default is 1000000""",
       Integer.class, 1_000_000),
 
+  SERVER_HTTP_QUERY_ELEVATED_MAX_RESULT_ROWS("arcadedb.server.httpQueryElevatedMaxResultRows", SCOPE.SERVER,
+      """
+      Higher ceiling on the rows of a single HTTP query/command response, available only to a caller trusted with the \
+      database's resources: the server administrator (root), or a user whose group grants `updateDatabaseSettings` on \
+      the database queried. For such a caller it replaces 'arcadedb.server.httpQueryMaxResultRows', so a request \
+      `limit` (or a LIMIT in the query) above the ordinary ceiling is honored up to this value; every other caller \
+      keeps the ordinary ceiling. It lets one trusted client read a large graph neighbourhood in one query (a \
+      traversal cannot be paged without re-running it per page) without raising the ceiling for every tenant. A \
+      caller that states no limit is unaffected: 'arcadedb.server.httpQueryDefaultLimit' stays bounded by the \
+      ordinary ceiling. The buffered `application/json` encoding holds the whole response on the heap, outside the \
+      'arcadedb.queryMaxHeapRAM' budget; prefer `Accept: application/x-ndjson` for large reads, which holds one row \
+      at a time. Set to a NEGATIVE value (-1 is the default) to follow 'arcadedb.server.httpQueryMaxResultRows', so \
+      nothing changes unless an operator sets it. Set to 0 for unlimited for the trusted callers. A positive value \
+      below the ordinary ceiling never lowers it, and when the ordinary ceiling is unlimited this setting has \
+      nothing to raise""",
+      Integer.class, -1),
+
   SERVER_HTTP_STREAMING_READ_TIMEOUT("arcadedb.server.httpStreamingReadTimeout", SCOPE.SERVER,
       """
       Budget in milliseconds granted to endpoints that consume the request body while working (today only \
