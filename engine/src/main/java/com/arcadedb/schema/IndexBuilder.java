@@ -253,6 +253,24 @@ public abstract class IndexBuilder<T extends Index> {
             + "requested name");
   }
 
+  /**
+   * The sentence that tells a caller asking for a second index of ANOTHER kind on an already indexed property set why that
+   * cannot be done and what to do instead. A type keeps one index per property set ({@code indexesByProperties} is keyed by
+   * the property list, and the query planner, the unique-key checks and the schema reload all look an index up that way),
+   * so a UNIQUE and a FULL_TEXT index on the same property cannot coexist: the second would be unreachable, or would replace
+   * the first on reload. Only added when the kinds differ, since a same-kind request is a plain duplicate.
+   */
+  public static String onePerPropertySetHint(final Index existing, final Schema.INDEX_TYPE requestedType,
+      final boolean requestedUnique, final List<String> requestedProperties) {
+    if (existing.getType() == requestedType && existing.isUnique() == requestedUnique)
+      return "";
+    return ". A type holds one index per property set, so a " + describeDefinition(requestedType, requestedUnique)
+        + " index cannot be added next to '" + existing.getName() + "' (" + describeDefinition(existing.getType(),
+        existing.isUnique()) + "): to have both, put the second index on another property that holds the same value "
+        + "(for example a copy of " + requestedProperties + " kept in sync by the application), or drop '" + existing.getName()
+        + "' first";
+  }
+
   private static String describeDefinition(final Schema.INDEX_TYPE indexType, final boolean unique) {
     return indexType + " (unique=" + unique + ")";
   }

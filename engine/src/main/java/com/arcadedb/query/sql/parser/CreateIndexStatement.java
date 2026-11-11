@@ -384,7 +384,13 @@ public class CreateIndexStatement extends DDLStatement {
         rs.add(result);
         return rs;
       } else {
-        throw new AlreadyExistsException(AlreadyExistsException.Kind.INDEX, "Index '" + indexName + "' already exists");
+        // The name derived for an unnamed statement is the name of the index already on these properties: say what it is
+        // when it is of another kind, or a request for a FULL_TEXT index beside a UNIQUE one reads as a plain duplicate
+        final Index existing = database.getSchema().getIndexByName(indexName);
+        throw new AlreadyExistsException(AlreadyExistsException.Kind.INDEX, "Index '" + indexName + "' already exists"
+            + (userProvidedName || existing == null || !existing.getPropertyNames().equals(List.of(fields)) ?
+            "" :
+            IndexBuilder.onePerPropertySetHint(existing, indexType, unique, List.of(fields))));
       }
     }
 

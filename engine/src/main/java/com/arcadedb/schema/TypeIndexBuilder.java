@@ -800,7 +800,8 @@ public class TypeIndexBuilder extends IndexBuilder<TypeIndex> {
           "Found the existent index '" + existingTypeIndex.getName() + "' defined on the properties '" + Arrays.asList(
               metadata.propertyNames) + "' for type '" + metadata.typeName + "'" + (satisfied ?
               ". It already provides what was requested: use IF NOT EXISTS to make this statement idempotent" :
-              ". Drop it first if the definition has to change"));
+              ". Drop it first if the definition has to change" + onePerPropertySetHint(existingTypeIndex, indexType, unique,
+                  metadata.propertyNames)));
   }
 
   /**
