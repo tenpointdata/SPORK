@@ -20,7 +20,8 @@ package com.arcadedb.query.sql.executor;
 
 import com.arcadedb.TestHelper;
 import com.arcadedb.database.RID;
-import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.CommandSemanticException;
+import com.arcadedb.exception.InvalidPropertyTypeException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -168,7 +169,7 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void incrementByANonNumberIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " INCREMENT n = 'x'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("INCREMENT")
         .hasMessageContaining("String");
     assertThat(row(1).<Integer>getProperty("n")).isEqualTo(1);
@@ -177,7 +178,7 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void incrementANonNumberIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " INCREMENT s = 1"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("INCREMENT")
         .hasMessageContaining("'s'");
     assertThat(row(1).<String>getProperty("s")).isEqualTo("text");
@@ -231,7 +232,7 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void addToAScalarIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " ADD s = 'x'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("ADD")
         .hasMessageContaining("'s'");
   }
@@ -239,14 +240,14 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void addToAMapIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " ADD attrs = 'x'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("PUT");
   }
 
   @Test
   void addWithACompoundOperatorIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " ADD tags += 'x'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(CommandSemanticException.class)
         .hasMessageContaining("ADD");
   }
 
@@ -283,7 +284,7 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void putIntoANonMapIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " PUT tags = 'k', 'v'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("PUT")
         .hasMessageContaining("'tags'");
   }
@@ -291,7 +292,7 @@ class UpdateIncrementAddPutTest extends TestHelper {
   @Test
   void putANullKeyIsRefused() {
     assertThatThrownBy(() -> update("UPDATE " + rid + " PUT attrs = null, 'v'"))
-        .isInstanceOf(CommandExecutionException.class)
+        .isInstanceOf(InvalidPropertyTypeException.class)
         .hasMessageContaining("key");
   }
 

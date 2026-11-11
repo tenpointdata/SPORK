@@ -18,7 +18,7 @@
  */
 package com.arcadedb.query.sql.executor;
 
-import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.CommandSemanticException;
 import com.arcadedb.exception.TimeoutException;
 import com.arcadedb.query.sql.parser.UpdateIncrementItem;
 import com.arcadedb.query.sql.parser.UpdateItem;
@@ -54,7 +54,7 @@ public class UpdateIncrementAddPutStep extends AbstractExecutionStep {
       items = op.getUpdateItems().toArray(new UpdateItem[0]);
       for (final UpdateItem item : items)
         if (item.getOperator() != UpdateItem.OPERATOR_EQ)
-          throw new CommandExecutionException("UPDATE ... ADD takes 'property = value', not a compound operator: " + item);
+          throw new CommandSemanticException("UPDATE ... ADD takes 'property = value', not a compound operator: " + item);
       putItems = null;
     }
     case UpdateOperations.TYPE_PUT -> {

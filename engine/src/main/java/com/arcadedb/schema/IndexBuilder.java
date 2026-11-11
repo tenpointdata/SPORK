@@ -24,6 +24,7 @@ import com.arcadedb.database.DatabaseContext;
 import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.database.TransactionContext;
 import com.arcadedb.engine.Bucket;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.IndexInternal;
@@ -193,7 +194,7 @@ public abstract class IndexBuilder<T extends Index> {
    * {@link IllegalArgumentException} on purpose: the HTTP layer maps it to a 400, which is what a schema request the
    * server can read but cannot honour is.
    */
-  public static IllegalArgumentException conflictWithExistingIndex(final Index existing,
+  public static IndexDefinitionConflictException conflictWithExistingIndex(final Index existing,
       final Schema.INDEX_TYPE requestedType, final boolean requestedUnique, final String requestedTypeName,
       final List<String> requestedProperties) {
     return conflictWithExistingIndex(existing, requestedType, requestedUnique, requestedTypeName, requestedProperties,
@@ -205,11 +206,11 @@ public abstract class IndexBuilder<T extends Index> {
    * {@link IndexMetadata#findUserSettingMismatches}. Empty when the request was refused on its structural definition
    * alone, which is the only case the overload above covers.
    */
-  public static IllegalArgumentException conflictWithExistingIndex(final Index existing,
+  public static IndexDefinitionConflictException conflictWithExistingIndex(final Index existing,
       final Schema.INDEX_TYPE requestedType, final boolean requestedUnique, final String requestedTypeName,
       final List<String> requestedProperties, final List<String> settingMismatches) {
     final boolean inherited = !existing.getTypeName().equals(requestedTypeName);
-    return new IllegalArgumentException(
+    return new IndexDefinitionConflictException(
         "Cannot create the index on type '" + requestedTypeName + "' properties " + requestedProperties + " as "
             + describeDefinition(requestedType, requestedUnique) + " because the index '" + existing.getName()
             + "' already exists on " + (inherited ? "the parent type '" + existing.getTypeName() + "' and " : "")
@@ -241,10 +242,10 @@ public abstract class IndexBuilder<T extends Index> {
    * <p>
    * {@link IllegalArgumentException} for the same reason as its sibling: the HTTP layer maps it to a 400.
    */
-  public static IllegalArgumentException conflictWithExistingIndexName(final Index existing, final String requestedName,
+  public static IndexDefinitionConflictException conflictWithExistingIndexName(final Index existing, final String requestedName,
       final String requestedTypeName, final List<String> requestedProperties) {
     final boolean inherited = !existing.getTypeName().equals(requestedTypeName);
-    return new IllegalArgumentException(
+    return new IndexDefinitionConflictException(
         "Cannot create the index '" + requestedName + "' on type '" + requestedTypeName + "' properties "
             + requestedProperties + " because those properties are already indexed by '" + existing.getName() + "'"
             + (inherited ? " on the parent type '" + existing.getTypeName() + "'" : "")

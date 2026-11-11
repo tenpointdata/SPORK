@@ -23,6 +23,7 @@ package com.arcadedb.query.sql.parser;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.InvalidPropertyTypeException;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.MultiValue;
 import com.arcadedb.query.sql.executor.Result;
@@ -189,12 +190,12 @@ public class UpdateItem extends SimpleNode {
     if (operand == null)
       return;
     if (!(operand instanceof Number))
-      throw new CommandExecutionException(
+      throw new InvalidPropertyTypeException(
           "Cannot INCREMENT '" + targetName() + "': the increment is a " + operand.getClass().getSimpleName() + ", not a number");
 
     final Object current = readCurrent(doc, context);
     if (current != null && !(current instanceof Number))
-      throw new CommandExecutionException(
+      throw new InvalidPropertyTypeException(
           "Cannot INCREMENT '" + targetName() + "': it holds a " + current.getClass().getSimpleName() + ", not a number");
 
     write(doc, context, current == null ? operand : MathExpression.Operator.PLUS.apply(current, operand));
@@ -215,13 +216,13 @@ public class UpdateItem extends SimpleNode {
     if (current == null)
       updated = new ArrayList<>();
     else if (current instanceof Map)
-      throw new CommandExecutionException("Cannot ADD to '" + targetName() + "': it holds a map, use PUT to set one of its entries");
+      throw new InvalidPropertyTypeException("Cannot ADD to '" + targetName() + "': it holds a map, use PUT to set one of its entries");
     else if (current instanceof Collection<?> coll)
       updated = (Collection<Object>) MultiValue.copy(coll);
     else if (current.getClass().isArray())
       updated = new ArrayList<>(MultiValue.getMultiValueAsList(current));
     else
-      throw new CommandExecutionException(
+      throw new InvalidPropertyTypeException(
           "Cannot ADD to '" + targetName() + "': it holds a " + current.getClass().getSimpleName() + ", not a collection");
 
     MultiValue.add(updated, value);

@@ -2829,7 +2829,8 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
    * duplicate-key details; they are bounded, non-sensitive values and are therefore emitted in every mode. The one
    * exception is the duplicated-key VALUES, which {@code classifyError} replaces in production (issue #7760). Only the
    * free-form cause chain ({@code detail}), which can carry file paths and engine internals, is concealed in
-   * production ({@code verbose == false}) so it is never leaked to a client probing endpoints. Package-private for
+   * production ({@code verbose == false}) so it is never leaked to a client probing endpoints, except the message of a
+   * client error, which says what to change in the statement ({@link #clientErrorDetail}). Package-private for
    * direct unit testing.
    */
   String buildErrorBody(final boolean verbose, final String errorMessage, final Throwable e, final String exceptionArgs,
@@ -2845,11 +2846,44 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
       json.put("exceptionArgs", exceptionArgs);
 
     // The cause chain is the only free-form field: conceal it outside development/test to avoid leaking
-    // internal file paths and engine errors to a client probing endpoints.
-    if (verbose && e != null)
-      json.put("detail", encodeError(buildDetailChain(e)));
+    // internal file paths and engine errors to a client probing endpoints. A client error is the exception: its own
+    // message is the only thing that tells the caller what to change, so it is kept (never its causes).
+    if (e != null) {
+      final String detail = verbose ? buildDetailChain(e) : clientErrorDetail(e);
+      if (detail != null)
+        json.put("detail", encodeError(detail));
+    }
 
     return json.toString();
+  }
+
+  /**
+   * The longest client-error message shown in production mode. A parse error can quote the statement it could not read, and
+   * a statement can be megabytes long: the start of the message is what says what is wrong.
+   */
+  static final int MAX_CLIENT_ERROR_DETAIL_LENGTH = 2048;
+
+  /**
+   * The message production mode keeps for {@code e}, or {@code null} to conceal it. Kept only for the statement errors the
+   * caller has to fix and can never be retried as written: a statement that cannot be parsed or fails semantic validation,
+   * a schema object name that is taken, an index the schema cannot add next to an existing one, an arithmetic error or a
+   * value of the wrong type for the operation, a write on an idempotent-only path. Their messages are written by the engine
+   * for the caller and are built from the statement and from schema names, not from files, configuration or stored data.
+   * <p>
+   * Only the message of {@code e} itself, never the causes, and only for these exact families: a plain
+   * {@link IllegalArgumentException} or {@link CommandExecutionException} can carry anything, from a file path to a JDK
+   * internal, so they stay concealed (issue #5037), and {@link DuplicatedKeyException} names the stored key values, which
+   * production mode replaces in {@code exceptionArgs} for that reason (issue #7760). Package-private for unit testing.
+   */
+  static String clientErrorDetail(final Throwable e) {
+    if (!(e instanceof CommandParsingException || e instanceof FullTextQueryParseException || e instanceof AlreadyExistsException
+        || e instanceof IndexDefinitionConflictException || e instanceof ArithmeticErrorException
+        || e instanceof InvalidPropertyTypeException || e instanceof QueryNotIdempotentException))
+      return null;
+    final String message = e.getMessage();
+    if (message == null || message.isEmpty())
+      return null;
+    return message.length() > MAX_CLIENT_ERROR_DETAIL_LENGTH ? message.substring(0, MAX_CLIENT_ERROR_DETAIL_LENGTH) + "..." : message;
   }
 
   /**

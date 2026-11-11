@@ -25,6 +25,7 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.exception.CommandSQLParsingException;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.TypeIndex;
@@ -348,7 +349,7 @@ public class CreateIndexStatement extends DDLStatement {
         // index on a SUB type covers strictly fewer buckets than the request, so it does not satisfy it.
         if (!coversRequestedType(database, existing, typeName)
             || !existing.getPropertyNames().equals(requestedProperties))
-          throw new IllegalArgumentException(
+          throw new IndexDefinitionConflictException(
               "Cannot create the index '" + indexName + "' on type '" + typeName + "' properties "
                   + requestedProperties + " because an index with that name already exists on type '" + existing.getTypeName()
                   + "' properties " + existing.getPropertyNames() + ". Drop it first or choose a different index name");

@@ -18,7 +18,13 @@
  */
 package com.arcadedb.server.http.handler;
 
+import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.CommandSQLParsingException;
+import com.arcadedb.exception.CommandSemanticException;
+import com.arcadedb.exception.DuplicatedKeyException;
+import com.arcadedb.exception.IndexDefinitionConflictException;
+import com.arcadedb.exception.InvalidPropertyTypeException;
 import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.server.http.HttpServer;
 import com.arcadedb.server.http.handler.AbstractServerHttpHandler.ErrorClassification;
@@ -78,6 +84,50 @@ class AbstractServerHttpHandlerErrorBodyTest {
     assertThat(detail).contains("outer message");
     assertThat(detail).contains("->");
     assertThat(detail).contains("root cause detail");
+  }
+
+  @Test
+  void productionModeKeepsTheMessageOfAClientErrorButNotItsCauses() {
+    final CommandSQLParsingException parsing = new CommandSQLParsingException("Syntax error at line 1: SELEC",
+        new IllegalStateException("internal file path /var/lib/arcadedb/secret"));
+
+    final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Cannot execute command", parsing, null, null));
+
+    assertThat(json.getString("detail")).isEqualTo("Syntax error at line 1: SELEC");
+    assertThat(json.toString()).doesNotContain("/var/lib/arcadedb");
+  }
+
+  @Test
+  void productionModeKeepsTheMessageOfEachClientErrorFamily() {
+    for (final Throwable clientError : new Throwable[] {
+        new AlreadyExistsException(AlreadyExistsException.Kind.INDEX, "Index 'T[p]' already exists"),
+        new IndexDefinitionConflictException("Cannot create the index"),
+        new InvalidPropertyTypeException("Cannot INCREMENT 's'"),
+        new CommandSemanticException("UnknownFunction") }) {
+      final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Cannot execute command", clientError, null, null));
+      assertThat(json.getString("detail")).as(clientError.getClass().getSimpleName()).isEqualTo(clientError.getMessage());
+    }
+  }
+
+  @Test
+  void productionModeConcealsEveryOtherFamily() {
+    for (final Throwable other : new Throwable[] {
+        new IllegalArgumentException("internal file path /var/lib/arcadedb/secret"),
+        new CommandExecutionException("Error on /var/lib/arcadedb/secret"),
+        new DuplicatedKeyException("idx", "secret-key", null),
+        new RuntimeException("secret") }) {
+      final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Cannot execute command", other, null, null));
+      assertThat(json.has("detail")).as(other.getClass().getSimpleName()).isFalse();
+    }
+  }
+
+  @Test
+  void productionModeTruncatesALongClientErrorMessage() {
+    final String longMessage = "x".repeat(AbstractServerHttpHandler.MAX_CLIENT_ERROR_DETAIL_LENGTH * 3);
+    final JSONObject json = new JSONObject(
+        handler.buildErrorBody(false, "Cannot execute command", new CommandSQLParsingException(longMessage), null, null));
+
+    assertThat(json.getString("detail")).hasSize(AbstractServerHttpHandler.MAX_CLIENT_ERROR_DETAIL_LENGTH + 3);
   }
 
   @Test

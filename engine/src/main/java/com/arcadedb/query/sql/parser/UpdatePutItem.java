@@ -21,7 +21,7 @@
 package com.arcadedb.query.sql.parser;
 
 import com.arcadedb.database.Identifiable;
-import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.InvalidPropertyTypeException;
 import com.arcadedb.query.sql.executor.MultiValue;
 import com.arcadedb.query.sql.executor.ResultInternal;
 
@@ -71,7 +71,7 @@ public class UpdatePutItem extends SimpleNode {
     final Object mapKey = MathExpression.extractScalarFromResultSet(keyValue);
     final String fieldName = left.getStringValue();
     if (mapKey == null)
-      throw new CommandExecutionException("Cannot PUT into '" + fieldName + "': the key is null");
+      throw new InvalidPropertyTypeException("Cannot PUT into '" + fieldName + "': the key is null");
 
     final Object current = doc.getProperty(fieldName);
     final Map<Object, Object> updated;
@@ -80,7 +80,7 @@ public class UpdatePutItem extends SimpleNode {
     else if (current instanceof Map<?, ?> map)
       updated = (Map<Object, Object>) MultiValue.copy(map);
     else
-      throw new CommandExecutionException(
+      throw new InvalidPropertyTypeException(
           "Cannot PUT into '" + fieldName + "': it holds a " + current.getClass().getSimpleName() + ", not a map");
 
     updated.put(mapKey instanceof Identifiable identifiable ? identifiable.getIdentity().toString() : mapKey.toString(),
