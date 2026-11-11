@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-09 09:06 MST, by local-agent-mode-eng-journal: Built HANDOFF open work 34: every SHARED evidence row of identity.compare, cohesion, candidates and features now names the records behind it (recordsA / recordsB as {record, at} per member, cut at the new evidenceRecord… Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-11 19:30 UTC, by a Claude Code cloud session: worked the 2026-11-11 sarah-clusters stress report (4-node cluster, 1.2M uploads, no data lost). Branch `optimization`: issue 4 measured (leader holds commit file locks across the Raft round trip; pipelining designed, not landed), issue 5 attributed (counted CMEs are ~95% merged; real retries 0.05-0.2/upload, all on hub edge-list heads; new `txRetries` and `pageConflictsByFile` counters), issue 7 elevated row ceiling, issue 6 read-your-writes on followers pinned. Branch `fix/sql-errors`: UPDATE INCREMENT/ADD/PUT run, clear one-index-per-property-set refusal, client-error detail in production. Open work 48 to 53. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -347,6 +347,34 @@ anchor) and the open questions back to the analyst are in
     rejected), versioned so a reassessment supersedes, with the actor Entry account and audit entry, and the fields
     that need the product decision left open. Owner decision, narrower than 39: reserve the type and its key now so the
     product decision can be made later without a migration.
+
+### Stress report 2026-11-11 (sarah-clusters, 4-node cluster df1db5 to df1db8)
+
+The report (8 issues) was worked on two branches off `main`: `optimization` (issues 4 to 7) and `fix/sql-errors` (1 to 3),
+both pushed and green on their targeted lanes, neither merged yet. Design and guidance: 
+`docs/spork/workstreams/ha-commit-pipelining.md` and `docs/spork/workstreams/http-client-guidance.md`.
+
+48. **Leader crash after about 15 h of sustained writes (report issue 8).** df1db5 dropped all connections at
+    2026-11-11 06:23:49 UTC and was back as leader by 06:35; no data lost. Blocked on the server log, journal / OOM
+    killer output and any `hs_err_pid*.log` from df1db5 and the HA log of df1db6. Fix branch `fix/leader-crash` once
+    the cause is known.
+49. **HA same-file commit pipelining (report issue 4).** A leader commit keeps its file commit locks from phase 1 to
+    `completeCommit`, across the Raft round trip, so one bucket caps at 1 / round trip. Design in
+    `ha-commit-pipelining.md`, blocked on the six engine invariants listed there. Relief today: more buckets per type
+    on HA databases (`typeDefaultBuckets` 8 to 16 before the schema); that operator note belongs in
+    `docs/spork/config/README.md` (architecture session).
+50. **Hub edge-list head conflicts (report issue 5).** Every whole-script retry in the in-JVM reproduction
+    (`MultiTypeUploadConflictBenchmark`) is two transactions flipping the same hub vertex's edge-list head. Options:
+    replay the head flip at commit under the edge-list lock, or a per-type initial chunk size (`edgeListInitialChunkSize=512`
+    cut retries to 0.002/upload but is JVM-wide; see C7 and E24). First read `txRetries` and
+    `pageConflictsByFile.top` on the cluster to confirm the lab numbers.
+51. **Heap per upload (report issue 5).** About two 64 KB copies of every touched page per commit, 14 to 25 MB per
+    upload with zero conflicts. Copy only the touched range, or smaller bucket pages.
+52. **More client errors to surface (report issue 3 follow-up).** Plan-time `CommandExecutionException` refusals are
+    still a bare 500 in production; move the ones a caller can fix to client-error types. `PageConflictStats` also has
+    no HTTP reset route.
+53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
+    `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
 
 ### Waiting on the owner (gates)
 
