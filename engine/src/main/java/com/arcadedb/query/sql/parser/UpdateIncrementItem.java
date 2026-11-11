@@ -55,6 +55,18 @@ public class UpdateIncrementItem extends SimpleNode {
     return this;
   }
 
+  /**
+   * The item as the {@code SET f += n} it amounts to, which {@link UpdateItem#applyIncrement} runs with the INCREMENT checks.
+   */
+  public UpdateItem toUpdateItem() {
+    final UpdateItem item = new UpdateItem();
+    item.left = left;
+    item.leftModifier = leftModifier;
+    item.operator = UpdateItem.OPERATOR_PLUSASSIGN;
+    item.right = right;
+    return item;
+  }
+
   public UpdateIncrementItem copy() {
     final UpdateIncrementItem result = new UpdateIncrementItem();
     result.left = left == null ? null : left.copy();

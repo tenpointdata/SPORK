@@ -20,6 +20,12 @@
 /* JavaCCOptions:MULTI=true,NODE_USES_PARSER=false,VISITOR=true,TRACK_TOKENS=true,NODE_PREFIX=O,NODE_EXTENDS=,NODE_FACTORY=,SUPPORT_USERTYPE_VISIBILITY_PUBLIC=true */
 package com.arcadedb.query.sql.parser;
 
+import com.arcadedb.database.Identifiable;
+import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.query.sql.executor.MultiValue;
+import com.arcadedb.query.sql.executor.ResultInternal;
+
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
@@ -45,6 +51,41 @@ public class UpdatePutItem extends SimpleNode {
   public UpdatePutItem setValue(final Expression value) {
     this.value = value;
     return this;
+  }
+
+  public Expression getKey() {
+    return key;
+  }
+
+  public Expression getValue() {
+    return value;
+  }
+
+  /**
+   * {@code UPDATE ... PUT f = k, v}: puts the entry into the map {@code f} holds, as in OrientDB. A missing or null field becomes a
+   * map, an existing key is replaced, and the key is stored as a string, as every map literal and JSON object keys it. The map is
+   * copied, never edited in place, so the record sees the change (#4730). A field holding anything but a map is refused, and so is
+   * a NULL key.
+   */
+  public void applyUpdate(final ResultInternal doc, final Object keyValue, final Object valueValue) {
+    final Object mapKey = MathExpression.extractScalarFromResultSet(keyValue);
+    final String fieldName = left.getStringValue();
+    if (mapKey == null)
+      throw new CommandExecutionException("Cannot PUT into '" + fieldName + "': the key is null");
+
+    final Object current = doc.getProperty(fieldName);
+    final Map<Object, Object> updated;
+    if (current == null)
+      updated = new LinkedHashMap<>();
+    else if (current instanceof Map<?, ?> map)
+      updated = (Map<Object, Object>) MultiValue.copy(map);
+    else
+      throw new CommandExecutionException(
+          "Cannot PUT into '" + fieldName + "': it holds a " + current.getClass().getSimpleName() + ", not a map");
+
+    updated.put(mapKey instanceof Identifiable identifiable ? identifiable.getIdentity().toString() : mapKey.toString(),
+        UpdateItem.extractFromResult(MathExpression.extractScalarFromResultSet(valueValue)));
+    doc.setProperty(fieldName, updated);
   }
 
   public void toString(final Map<String, Object> params, final StringBuilder builder) {
