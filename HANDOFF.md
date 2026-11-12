@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-11 19:30 UTC, by a Claude Code cloud session: worked the 2026-11-11 sarah-clusters stress report (4-node cluster, 1.2M uploads, no data lost). Branch `optimization`: issue 4 measured (leader holds commit file locks across the Raft round trip; pipelining designed, not landed), issue 5 attributed (counted CMEs are ~95% merged; real retries 0.05-0.2/upload, all on hub edge-list heads; new `txRetries` and `pageConflictsByFile` counters), issue 7 elevated row ceiling, issue 6 read-your-writes on followers pinned. Branch `fix/sql-errors`: UPDATE INCREMENT/ADD/PUT run, clear one-index-per-property-set refusal, client-error detail in production. Open work 48 to 53. Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-12 23:00 UTC, by a Claude Code cloud session: fixed the 2026-11-12 df1db5-8 incident (follower divergence after LSM compaction, then a silent 12-hour resync loop) on branch `fix/incident-2026-11-12`, which merges `fix/compaction-replication` (item 1), `fix/resync-loop` (2 to 4) and `fix/ha-operability` (5 to 7). Open work 54 to 59. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -375,6 +375,44 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     no HTTP reset route.
 53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
     `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
+
+### Incident 2026-11-12 (df1db5-8: divergence after compaction, silent resync loop)
+
+Report and evidence came from the stress run on build `13fe8cb`. All seven items are fixed on `fix/incident-2026-11-12`:
+1. **A commit replicated before the compaction that created its file** (P0): a commit that passed the compaction-session
+   check before the session opened could write the new mutable LSM file after the swap and reach the Raft log ahead of
+   the `SCHEMA_ENTRY` that creates that file, so followers skipped its page and later hit a WAL version gap. The new file
+   now stays locked until the compaction is published (`DatabaseInternal.keepFileLockedUntilCompactionIsPublished`).
+   Pinned by `CompactionSwapConcurrentCommitHATest`; rule written into `ha-raft/CLAUDE.md`.
+2. **The 12-hour loop**: `downloadAllDatabasesFrom` iterated the live `getDatabaseNames()` view while each install
+   removed and re-put the database, so two keys in one hash bin ping-ponged forever. Now a sorted copy, a targeted
+   resync of only the diverged database, INFO logging of every step, and `ResyncLoopGuard` (SEVERE alert plus
+   exponential back-off, `ha.resyncLoopMaxAttempts` / `ha.resyncLoopBackoffBase`). `ResyncLoopIncidentTest`.
+3. The leader reports each peer's quarantined databases; `replicaStatus` is `QUARANTINED`, not `HEALTHY`.
+4. A quarantined copy refuses client reads with 503 and `Retry-After: 10` (bookmarked reads included).
+5. A forwarded command relays the leader's typed answer (e.g. 503 admission refusal with `Retry-After`) instead of a
+   bare 500; commit failures carry a cause category in `exceptionArgs`.
+6. Full log level names (`SEVERE`, not `SEVER`); each record ends with its line separator, which was what delayed
+   journald by one record. Snapshot install logging names the database.
+7. `ha.serverRole=replica` documented as last choice for leader, not ineligible; the build number is `git rev-parse HEAD`.
+
+Client-visible changes: follower answers now relay leader statuses, quarantined reads are 503, log parsers must accept
+the full level names (`SupportLogCollector` reads both).
+
+54. **Extend item 1's rule to index builds (HANDOFF item 33).** Same class of hazard, different path: hold a new index
+    file's lock from registration to the build session's last entry, so writers fail retryably after
+    `COMMIT_LOCK_TIMEOUT` instead of shipping pages for a file the followers do not have yet.
+55. **`ArcadeDBServer.getDatabaseNames()` returns a live view.** About 20 call sites iterate it; none of the others
+    remove and re-put inside the loop, but any future one reproduces the incident loop. Return a copy, or document it.
+56. **`ClusterTransactionException.Cause.DATABASE_QUARANTINED` is defined but nothing raises it**, and a forwarded
+    write on a quarantined follower still answers normally. Decide whether such writes should refuse.
+57. **Leader choice on df1db5-8.** `replica` only sets priority 0. Give df1db6/df1db7 a priority between 0 and 10 in
+    `ha.serverList`; a true non-voting role is Ratis `LISTENER` (E4 in the architecture).
+58. **Writers wait for a compaction's publication.** With item 1's fix, a commit into an index being compacted waits
+    until the compaction entry is published; a publication longer than `COMMIT_LOCK_TIMEOUT` (5 s) gives retryable
+    lock timeouts. Measure on the cluster with the largest indexes.
+59. **Resync back-off defaults** (3 attempts, 60 s base, 1 h cap) are untested at production scale; tune after the
+    next stress run.
 
 ### Waiting on the owner (gates)
 
