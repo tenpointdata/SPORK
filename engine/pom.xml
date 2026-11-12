@@ -91,6 +91,7 @@
         <spatial4j.version>0.8</spatial4j.version>
         <jts-core.version>1.20.0</jts-core.version>
         <buildnumber-maven-plugin.version>3.3.1</buildnumber-maven-plugin.version>
+        <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
         <!-- Drives both the antlr4-maven-plugin that generates the engine's own grammar
              and the matching antlr4-runtime, so the generator and runtime versions must
              stay equal. Free to track the latest ANTLR and should keep doing so.
@@ -105,16 +106,55 @@
 
     <build>
         <plugins>
+            <!-- The build number is the commit that is checked out (incident 2026-11-12). buildnumber-maven-plugin
+                 asks the SCM provider for it, and maven-scm's gitexe provider answers with
+                 'git log -1' with merges skipped: on a merge commit - what main is after every branch merge - it named the
+                 newest NON-merge ancestor instead (13fe8cb92 built, b0a646f01 reported). The plugin still provides
+                 the timestamp and the branch, and its revision under its own name (scmRevision) as the fallback;
+                 buildNumber itself is 'git rev-parse HEAD', set in the next phase by antrun. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>buildnumber-maven-plugin</artifactId>
                 <version>${buildnumber-maven-plugin.version}</version>
+                <configuration>
+                    <buildNumberPropertyName>scmRevision</buildNumberPropertyName>
+                </configuration>
                 <executions>
                     <execution>
                         <phase>validate</phase>
                         <goals>
                             <goal>create</goal>
                         </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>${maven-antrun-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>build-number-from-head</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <exportAntProperties>true</exportAntProperties>
+                            <target>
+                                <!-- Not a git checkout, or no git on the PATH (a source archive): the SCM's revision,
+                                     whatever the plugin above could find -->
+                                <exec executable="git" dir="${project.basedir}" outputproperty="git.head.output"
+                                      errorproperty="git.head.error" resultproperty="git.head.result"
+                                      failonerror="false" failifexecutionfails="false">
+                                    <arg value="rev-parse"/>
+                                    <arg value="HEAD"/>
+                                </exec>
+                                <condition property="buildNumber" value="${git.head.output}" else="${scmRevision}">
+                                    <equals arg1="${git.head.result}" arg2="0"/>
+                                </condition>
+                            </target>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
