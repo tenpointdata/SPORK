@@ -1597,9 +1597,14 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       if (queryEngine.isExecutedByTheLeader() || analyzed.isDDL() || !analyzed.isIdempotent()) {
         if (!runsInTheClientTransaction(queryEngine, analyzed))
           return forwardCommandToLeaderViaRaft(language, query, null, args);
+        // Runs here, inside the client's transaction, so it reads this node's copy (SPORK incident 2026-11-12)
+        refuseClientReadOfQuarantinedCopy();
         ForwardedRequestIdContext.markExecutedLocally();
         return proxied.command(language, query, configuration, args);
       }
+      // A write forwarded above does not read this node's copy and stays available; a statement answered from it is
+      // refused while the copy is quarantined (SPORK incident 2026-11-12)
+      refuseClientReadOfQuarantinedCopy();
       // Read-only command executed locally on this follower: honor the read-consistency header
       // exactly like query() does. /api/v1/command can carry read-only statements (a SELECT), and
       // a LINEARIZABLE/READ_YOUR_WRITES caller must not get a silently weaker guarantee than via
@@ -2299,69 +2304,69 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
 
   @Override
   public void scanType(final String typeName, final boolean polymorphic, final DocumentCallback callback) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     proxied.scanType(typeName, polymorphic, callback);
   }
 
   @Override
   public void scanType(final String typeName, final boolean polymorphic, final DocumentCallback callback,
       final ErrorRecordCallback errorRecordCallback) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     proxied.scanType(typeName, polymorphic, callback, errorRecordCallback);
   }
 
   @Override
   public void scanBucket(final String bucketName, final RecordCallback callback) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     proxied.scanBucket(bucketName, callback);
   }
 
   @Override
   public void scanBucket(final String bucketName, final RecordCallback callback,
       final ErrorRecordCallback errorRecordCallback) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     proxied.scanBucket(bucketName, callback, errorRecordCallback);
   }
 
   @Override
   public boolean existsRecord(final RID rid) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.existsRecord(rid);
   }
 
   @Override
   public Record lookupByRID(final RID rid, final boolean loadContent) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.lookupByRID(rid, loadContent);
   }
 
   @Override
   public Record[] lookupByRIDs(final RID[] rids, final boolean loadContent) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.lookupByRIDs(rids, loadContent);
   }
 
   @Override
   public Iterator<Record> iterateType(final String typeName, final boolean polymorphic) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.iterateType(typeName, polymorphic);
   }
 
   @Override
   public Iterator<Record> iterateBucket(final String bucketName) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.iterateBucket(bucketName);
   }
 
   @Override
   public IndexCursor lookupByKey(final String type, final String keyName, final Object keyValue) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.lookupByKey(type, keyName, keyValue);
   }
 
   @Override
   public IndexCursor lookupByKey(final String type, final String[] keyNames, final Object[] keyValues) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.lookupByKey(type, keyNames, keyValues);
   }
 
@@ -2372,13 +2377,13 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
 
   @Override
   public long countType(final String typeName, final boolean polymorphic) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.countType(typeName, polymorphic);
   }
 
   @Override
   public long countBucket(final String bucketName) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     return proxied.countBucket(bucketName);
   }
 
@@ -2485,21 +2490,21 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
 
   @Override
   public ResultSet query(final String language, final String query) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     waitForReadConsistency();
     return proxied.query(language, query);
   }
 
   @Override
   public ResultSet query(final String language, final String query, final Object... args) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     waitForReadConsistency();
     return proxied.query(language, query, args);
   }
 
   @Override
   public ResultSet query(final String language, final String query, final Map<String, Object> args) {
-    refuseClientWhileDirectoryIsReplaced();
+    refuseClientRead();
     waitForReadConsistency();
     return proxied.query(language, query, args);
   }
@@ -2599,6 +2604,52 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       throw new NeedRetryException("Database '" + getName() + "' cannot serve this request yet: the cluster's "
           + "first-formation bootstrap is still deciding whether the copy on this server is the one the cluster keeps. "
           + "Retry shortly, or send the request to another server of the cluster");
+  }
+
+  /** The gate of a request that reads this node's copy: {@link #refuseClientWhileDirectoryIsReplaced} first, then the quarantine. */
+  private void refuseClientRead() {
+    refuseClientWhileDirectoryIsReplaced();
+    refuseClientReadOfQuarantinedCopy();
+  }
+
+  /** Seconds a client refused for a quarantined copy is told to wait: a targeted resync of one database takes that order. */
+  static final long QUARANTINED_COPY_RETRY_AFTER_SECONDS = 10L;
+
+  /**
+   * Refuses a CLIENT read of this database while this node holds it quarantined (SPORK incident 2026-11-12, item 4): the
+   * copy is short of at least one committed entry - the quarantine skips it and lets every later entry advance the
+   * applied index past it - so it must never answer a read, whatever the consistency asked. An
+   * {@code X-ArcadeDB-Read-After} bookmark proved nothing here: the applied index it waits for is reached by the entries
+   * the quarantine SKIPS, so the wait returned and the read was served from a copy missing the very write the bookmark
+   * names.
+   * <p>
+   * <b>Refused, not forwarded to the leader.</b> A 503 with {@code Retry-After} is the answer every client and load
+   * balancer already handles for a node that cannot serve (the readiness probe of a quarantined node is 503 too), and it
+   * sends the read to a healthy replica rather than onto the leader: forwarding every read of every quarantined follower
+   * would have moved the whole read load of three followers onto the leader for the twelve hours of the incident, and a
+   * read forwarded through this wrapper would need a second transport for result sets that exist only for commands. The
+   * WRITES of a quarantined node keep being forwarded: they do not read this copy.
+   * <p>
+   * Engine paths ({@link ProtocolContext#INTERNAL}: the apply thread, the install, the reconciler) are never refused.
+   * One map read on a healthy node, behind a latched volatile test.
+   */
+  private void refuseClientReadOfQuarantinedCopy() {
+    final RaftHAServer raft = raftHAServer;
+    if (raft == null)
+      return;
+    final ArcadeStateMachine stateMachine = raft.getStateMachine();
+    if (stateMachine == null)
+      return;
+    final DivergenceCause cause = stateMachine.quarantineCause(getName());
+    if (cause == null)
+      return;
+    if (ProtocolContext.INTERNAL.equals(ProtocolContext.get()))
+      return;
+    final ResyncLoopGuard.Episode episode = stateMachine.getResyncLoopGuard().episodeOf(getName());
+    throw new RetryLaterException("Database '" + getName() + "' is quarantined on this server (" + cause.getDescription()
+        + "): its copy is missing committed entries, so it does not answer reads until a resync from the leader "
+        + "replaces it" + (episode != null ? " (resync attempts so far: " + episode.attempts() + ")" : "")
+        + ". Retry on another server of the cluster, or here after the resync", QUARANTINED_COPY_RETRY_AFTER_SECONDS);
   }
 
   private void waitForReadConsistency() {
