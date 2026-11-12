@@ -55,13 +55,26 @@ public class LogFormatter extends Formatter {
    */
   private static final Pattern SAFE_PRINTF_PATTERN = Pattern.compile("%[%bBhHsScCdoxXeEfgGaA]");
 
+  /**
+   * The width of the level column: the longest JUL level name, {@code WARNING}. The full name is written, padded to it, so
+   * a {@code grep SEVERE} or {@code grep WARNING} finds the lines; the column used to be cut to five characters, which
+   * wrote {@code SEVER} and {@code WARNI} (incident 2026-11-12).
+   */
+  protected static final String LEVEL_FORMAT = " %-7s ";
+
+  /**
+   * The record, ENDED by a line separator. It used to be written at the START of the next record instead, so the last line
+   * of every record stayed unterminated until the next one was logged: a reader that splits on lines - journald on the
+   * console, {@code tail -f | grep} on the file - got each line only when another record followed, up to minutes late on a
+   * quiet server (incident 2026-11-12, a line logged at 06:22:45 reached the journal at 06:23:49).
+   */
   @Override
   public String format(final LogRecord record) {
     final String formatted = customFormatMessage(record);
 
     final Throwable current = record.getThrown();
     if (current == null)
-      return formatted;
+      return formatted + EOL;
 
     final StringBuilder buffer = new StringBuilder(512);
     buffer.append(formatted);
@@ -112,10 +125,9 @@ public class LogFormatter extends Formatter {
     final String requester = getSourceClassSimpleName(iRecord.getLoggerName());
 
     final StringBuilder buffer = new StringBuilder(512);
-    buffer.append(EOL);
     buffer.append(dateFormat.format(LocalDateTime.now()));
 
-    buffer.append(" %-5.5s ".formatted(level.getName()));
+    buffer.append(LEVEL_FORMAT.formatted(level.getName()));
 
     if (requester != null) {
       buffer.append("[");

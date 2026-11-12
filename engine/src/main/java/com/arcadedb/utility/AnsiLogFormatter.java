@@ -40,7 +40,6 @@ public class AnsiLogFormatter extends LogFormatter {
     final String requester = getSourceClassSimpleName(iRecord.getLoggerName());
 
     final StringBuilder buffer = new StringBuilder(512);
-    buffer.append(EOL);
 
     if (AnsiCode.supportsColors())
       buffer.append("$ANSI{cyan ");
@@ -61,7 +60,7 @@ public class AnsiLogFormatter extends LogFormatter {
         buffer.append("$ANSI{white ");
     }
 
-    buffer.append(" %-5.5s ".formatted(level.getName()));
+    buffer.append(LEVEL_FORMAT.formatted(level.getName()));
     if (AnsiCode.supportsColors())
       buffer.append("}");
 

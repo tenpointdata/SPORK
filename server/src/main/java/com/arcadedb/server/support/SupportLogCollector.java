@@ -463,7 +463,10 @@ public class SupportLogCollector {
     return value;
   }
 
-  /** The level after the timestamp, normalised: the log writes it on five characters ({@code SEVER}, {@code WARNI}). */
+  /**
+   * The level after the timestamp, normalised. The log writes the full name since incident 2026-11-12; files written before
+   * carry it cut to five characters ({@code SEVER}, {@code WARNI}), which are still read.
+   */
   static String parseLevel(final String line) {
     int pos = 19;
     final int n = line.length();
