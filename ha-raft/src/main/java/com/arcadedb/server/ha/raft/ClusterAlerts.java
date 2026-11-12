@@ -18,6 +18,7 @@
  */
 package com.arcadedb.server.ha.raft;
 
+import com.arcadedb.GlobalConfiguration;
 import com.arcadedb.database.Database;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.serializer.json.JSONArray;
@@ -274,6 +275,11 @@ public class ClusterAlerts {
       // every node's local-resync alert below waits on something that cannot happen. Said once, with the way out.
       if (raftHA != null)
         addNoHealthyCopyAlert(raftHA.getDatabasesQuarantinedOnEveryVoter(), visibleDatabases, alerts);
+      // A resync re-downloading a database again and again without completing (SPORK incident 2026-11-12, item 2)
+      addResyncLoopAlert(stateMachine.getResyncLoopGuard().tripped(), visibleDatabases, alerts);
+      // On the leader: followers that hold a database quarantined, which Raft's matchIndex cannot show (item 3)
+      if (raftHA != null && raftHA.isLeader())
+        addPeerQuarantineAlert(followerSamples, raftHA.getPeerCapabilityRegistry(), visibleDatabases, alerts);
       // The local node's own resync state (issue #7136). Everything above describes the cluster or the
       // databases; this is the only check that answers "is THIS node serving traffic", which is exactly what
       // an operator is asking when they poll the node readiness has taken out of the Service.
@@ -659,6 +665,80 @@ public class ClusterAlerts {
    * per-tenant fact - so {@code visibleDatabases} reduces only the database <em>names</em> in the payload, never
    * whether the alert fires. A caller that may see no database at all still learns that the node is resyncing.
    */
+  /**
+   * Pure alert builder (package-private for unit testing): a {@code resync-loop} alert, critical, when this node has
+   * re-downloaded a visible database more than {@code arcadedb.ha.resyncLoopMaxAttempts} times without the resync that
+   * asked for it completing (SPORK incident 2026-11-12: 12 hours, about 550 downloads of a healthy 10.8 GB database per
+   * follower, and not one line about it). Names each database, how many times, why it was last requested, how the last
+   * attempt ended, and how long its back-off still runs.
+   */
+  static void addResyncLoopAlert(final List<ResyncLoopGuard.Episode> tripped, final Set<String> visibleDatabases,
+      final JSONArray alerts) {
+    if (tripped.isEmpty())
+      return;
+    final JSONArray databases = new JSONArray();
+    final long now = System.currentTimeMillis();
+    for (final ResyncLoopGuard.Episode e : tripped) {
+      if (visibleDatabases != null && !visibleDatabases.contains(e.database()))
+        continue;
+      databases.put(new JSONObject()
+          .put("database", e.database())
+          .put("attempts", e.attempts())
+          .put("lastCause", e.lastCause() != null ? e.lastCause() : "")
+          .put("lastOutcome", e.lastOutcome() != null ? e.lastOutcome() : "")
+          .put("backoffRemainingMs", Math.max(0L, e.backoffUntilMs() - now)));
+    }
+    if (databases.length() == 0)
+      return;
+    alerts.put(new JSONObject()
+        .put("id", "resync-loop")
+        .put("severity", SEVERITY_CRITICAL)
+        .put("title", "A resync keeps re-downloading the same database without completing")
+        .put("message", "This node re-downloaded the database(s) below from the leader more times than "
+            + GlobalConfiguration.HA_RESYNC_LOOP_MAX_ATTEMPTS.getKey() + " allows without the resync that asked for "
+            + "them completing. Each further attempt now waits an exponentially growing back-off instead of "
+            + "re-downloading at line rate. The lastOutcome of each says how its last attempt ended.")
+        .put("recommendation", "Read this node's log for 'Resync of database' lines: each attempt logs its cause, outcome, "
+            + "bytes and duration. A failure that repeats (disk space, a leader that cannot serve the database) has to "
+            + "be fixed where it happens; then force one resync with POST /api/v1/cluster/resync/{database}.")
+        .put("details", new JSONObject().put("databases", databases)));
+  }
+
+  /**
+   * Pure alert builder (package-private for unit testing), for the LEADER: a {@code peer-databases-quarantined} alert,
+   * critical, naming every follower that reports a visible database quarantined (SPORK incident 2026-11-12, item 3). Its
+   * {@code replicaStatus} reads {@code QUARANTINED} too; this says which databases, and that the follower serves no read
+   * of them until its resync completes.
+   */
+  static void addPeerQuarantineAlert(final List<FollowerSample> followerSamples, final PeerCapabilityRegistry registry,
+      final Set<String> visibleDatabases, final JSONArray alerts) {
+    if (registry == null || followerSamples == null || followerSamples.isEmpty())
+      return;
+    final JSONArray peers = new JSONArray();
+    for (final FollowerSample sample : followerSamples) {
+      final PeerCapabilityRegistry.ResyncReport report = registry.resyncReportOf(sample.peerId());
+      if (report == null)
+        continue;
+      final List<String> quarantined = visible(report.quarantinedDatabases(), visibleDatabases);
+      if (quarantined.isEmpty())
+        continue;
+      peers.put(new JSONObject().put("peerId", sample.peerId()).put("databases", namesArray(quarantined))
+          .put("observedAtMs", report.observedAtMs()));
+    }
+    if (peers.length() == 0)
+      return;
+    alerts.put(new JSONObject()
+        .put("id", "peer-databases-quarantined")
+        .put("severity", SEVERITY_CRITICAL)
+        .put("title", "Followers hold databases quarantined")
+        .put("message", "The followers below reported databases they hold quarantined: their copy is missing committed "
+            + "entries, they apply nothing to it and refuse every read of it until a resync from this leader replaces "
+            + "it. Raft's replication lag cannot show this, since the quarantine still acknowledges the entries.")
+        .put("recommendation", "Watch peers[].databaseResync in this document for the resync state of each. If it does "
+            + "not progress, read the follower's log and its own GET /api/v1/cluster (localResync, resync-loop alert).")
+        .put("details", new JSONObject().put("peers", peers)));
+  }
+
   static void addLocalResyncAlert(final LocalResyncState state, final Set<String> visibleDatabases,
       final JSONArray alerts) {
     if (state == null || !state.inProgress())

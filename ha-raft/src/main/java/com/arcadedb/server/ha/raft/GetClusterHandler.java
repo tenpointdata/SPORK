@@ -249,6 +249,11 @@ public class GetClusterHandler extends AbstractServerHttpHandler {
     final ClusterMembership membership = ClusterMembership.of(raftHAServer.getRaftGroup().getPeers(),
         raftHAServer.getLivePeers());
 
+    // Scoped to the caller here already, because a peer's resync report below names databases (SPORK incident
+    // 2026-11-12, item 3). See the database list further down for why reserved names are dropped.
+    final Set<String> authorizedDatabases = filterAuthorizedDatabases(user, httpServer.getServer().getDatabaseNames());
+    authorizedDatabases.removeIf(ArcadeDBServer::isReservedDatabaseName);
+
     final JSONArray peers = new JSONArray();
     for (final RaftPeer peer : membership.peers()) {
       final JSONObject peerJson = new JSONObject();
@@ -284,6 +289,9 @@ public class GetClusterHandler extends AbstractServerHttpHandler {
           raftHAServer.getAdvertisedCapabilities());
       if (!published)
         putPeerCapabilitiesUnknown(peerJson, raftHAServer.getPeerCapabilityRegistry().unknownOf(peerId));
+      if (!peer.getId().equals(localPeerId))
+        putPeerDatabaseResync(peerJson, raftHAServer.getPeerCapabilityRegistry().resyncReportOf(peerId),
+            authorizedDatabases, System.currentTimeMillis());
 
       final HAReplicationStatsProvider.FollowerSample health = followerHealth.get(peerId);
       if (!peerIsLeader && health != null) {
@@ -313,9 +321,6 @@ public class GetClusterHandler extends AbstractServerHttpHandler {
     // presence matrix and the bootstrap-state RPC both skip them, and offering Studio a per-database action
     // row for one would be meaningless. Dropped once, here, rather than inside the loop below, so that the
     // databases array and the alerts payload built from the same set agree on what exists.
-    final Set<String> authorizedDatabases = filterAuthorizedDatabases(user, httpServer.getServer().getDatabaseNames());
-    authorizedDatabases.removeIf(ArcadeDBServer::isReservedDatabaseName);
-
     final JSONArray databases = new JSONArray();
     for (final String dbName : authorizedDatabases) {
       final JSONObject dbJson = new JSONObject();
@@ -407,6 +412,34 @@ public class GetClusterHandler extends AbstractServerHttpHandler {
             replicationPathUnproven, leaderUnreachable));
 
     return new ExecutionResponse(200, response.toString());
+  }
+
+  /**
+   * Writes what {@code report} says about a peer's databases (SPORK incident 2026-11-12, item 3): {@code
+   * quarantinedDatabases}, always (empty when none, so a client can tell "none" from "this build does not report it"),
+   * and {@code databaseResync} when the peer reported anything - per database its applied index, cause and resync
+   * state, plus {@code observedAtMs} / {@code ageMs}, since the report survives a probe the peer could not answer (it
+   * answers 503 while it swaps a snapshot in). Database names are reduced to {@code visibleDatabases}. Package-private
+   * so the shape can be pinned without a live cluster.
+   */
+  static void putPeerDatabaseResync(final JSONObject peerJson, final PeerCapabilityRegistry.ResyncReport report,
+      final Set<String> visibleDatabases, final long nowMs) {
+    if (report == null) {
+      peerJson.put("quarantinedDatabases", new JSONArray());
+      return;
+    }
+    peerJson.put("quarantinedDatabases",
+        ClusterAlerts.namesArray(ClusterAlerts.visible(report.quarantinedDatabases(), visibleDatabases)));
+    final JSONObject databases = new JSONObject();
+    final JSONObject reported = report.report().getJSONObject("databases", new JSONObject());
+    for (final String name : reported.keySet())
+      if (visibleDatabases.contains(name))
+        databases.put(name, reported.getJSONObject(name, new JSONObject()));
+    peerJson.put("databaseResync", new JSONObject()
+        .put("appliedIndex", report.report().getLong("appliedIndex", -1L))
+        .put("databases", databases)
+        .put("observedAtMs", report.observedAtMs())
+        .put("ageMs", Math.max(0L, nowMs - report.observedAtMs())));
   }
 
   /** The {@code localInPlaceRestarts} member (issue #9429): both counts, always written. */

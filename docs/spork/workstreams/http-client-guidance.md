@@ -39,6 +39,17 @@ Edge cases a client should handle:
   `503` instead of degrading.
 - A node removed from the Raft configuration refuses bookmarked and linearizable reads at once with a retryable `503`;
   send the read to another node.
+- **A follower whose copy of the database is quarantined refuses every read of that database** (any consistency, with
+  or without the bookmark) with `503`, `Retry-After: 10` and a body naming the database and the reason ("is quarantined
+  on this server (...)"). Send the read to another node. A quarantine means the follower's copy is missing committed
+  entries (a WAL version gap or an apply error) until a resync from the leader replaces it; before the fix of the
+  2026-11-12 incident the bookmark did NOT protect against it - the follower's applied index moves past the entries a
+  quarantine skips, so the bookmark wait returned at once and the read was served from the stale copy. While the
+  database's copy is being replaced by a resync the same read is refused with `503` too ("is being replaced"). Writes
+  sent to such a follower are still forwarded to the leader. Other databases on that follower are unaffected. Which
+  follower holds which database quarantined is in the leader's `GET /api/v1/cluster`: the peer's `replicaStatus` is
+  `QUARANTINED`, with `quarantinedDatabases` and `databaseResync` beside it. Pinned by
+  `ha-raft/src/test/java/com/arcadedb/server/ha/raft/QuarantinedReplicaStatusAndReadsIT.java`.
 - A bookmarked read that waits holds its admission slot on that follower while it waits (section 4).
 - `eventual` (or no bookmark at all with `eventual` configured) is the cheapest read and can miss the client's own
   recent writes.
@@ -99,7 +110,7 @@ Safe to retry as is (nothing was applied):
 
 | Status | When |
 |---|---|
-| `503` | a transient conflict that outlived the server-side retries (`NeedRetryException`, including `ConcurrentModificationException` and `QuorumNotReachedException`, which on the leader means the entry was NOT replicated); the admission gate refused it (`QueryAdmissionException`, section 4); the heap budget refused it (`QueryHeapBudgetExceededException`); a snapshot install or a database being reinstalled. Honour `Retry-After` when present, and back off with jitter otherwise |
+| `503` | a transient conflict that outlived the server-side retries (`NeedRetryException`, including `ConcurrentModificationException` and `QuorumNotReachedException`, which on the leader means the entry was NOT replicated); the admission gate refused it (`QueryAdmissionException`, section 4); the heap budget refused it (`QueryHeapBudgetExceededException`); a snapshot install or a database being reinstalled; a read of a database this node holds quarantined (section 1). Honour `Retry-After` when present, and back off with jitter otherwise |
 | `400` naming a leader address | `ServerIsNotTheLeaderException`: send it to the named leader |
 | `409` "request still in flight" with `Retry-After` | an identical request (same `X-Request-Id`, method, path, database and body) is still running on that server; retrying with the same `X-Request-Id` later returns its answer |
 

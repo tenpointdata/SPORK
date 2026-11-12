@@ -81,6 +81,14 @@ public class PostCapabilitiesHandler extends AbstractServerHttpHandler {
   static final String QUARANTINED = "quarantined";
 
   /**
+   * The document's per-database resync state (SPORK incident 2026-11-12, item 3): {@code appliedIndex}, and under
+   * {@code databases} one entry per database this node holds quarantined, behind a read floor or in a resync that has
+   * not completed, with its applied index, cause and resync state. Absent on a healthy node. Read by every peer's
+   * capability poll, so the leader reports it per peer in {@code GET /api/v1/cluster}.
+   */
+  static final String DATABASE_RESYNC = "databaseResync";
+
+  /**
    * The document's map of the HTTP addresses this node holds for the OTHER members of its configuration - declared by an
    * operator, here or on another node, or confirmed by a probe the member answered - keyed by peer id (issue #9255).
    * Absent when it holds none. The caller does not believe it: each address is a candidate until the member it names
@@ -130,11 +138,16 @@ public class PostCapabilitiesHandler extends AbstractServerHttpHandler {
       }
 
     final ArcadeStateMachine stateMachine = raftHAServer.getStateMachine();
-    return new ExecutionResponse(200,
-        advertisement(raftHAServer.getLocalPeerId().toString(), raftHAServer.getAdvertisedCapabilities(),
-            stateMachine != null && stateMachine.hasLeaderServiceGap(),
-            stateMachine != null ? stateMachine.getQuarantinedDatabaseNames() : Set.of(),
-            raftHAServer.getRelayablePeerHttpAddresses()).toString());
+    final JSONObject document = advertisement(raftHAServer.getLocalPeerId().toString(),
+        raftHAServer.getAdvertisedCapabilities(), stateMachine != null && stateMachine.hasLeaderServiceGap(),
+        stateMachine != null ? stateMachine.getQuarantinedDatabaseNames() : Set.of(),
+        raftHAServer.getRelayablePeerHttpAddresses());
+    // The per-database resync state the leader reports for this peer in GET /api/v1/cluster (SPORK incident
+    // 2026-11-12, item 3). Written only when there is something to say, so a healthy node's answer is unchanged.
+    final JSONObject resync = stateMachine != null ? stateMachine.getDatabaseResyncReport() : null;
+    if (resync != null)
+      document.put(DATABASE_RESYNC, resync);
+    return new ExecutionResponse(200, document.toString());
   }
 
   /**

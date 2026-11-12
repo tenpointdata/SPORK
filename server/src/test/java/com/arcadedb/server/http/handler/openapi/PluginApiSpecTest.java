@@ -159,7 +159,9 @@ class PluginApiSpecTest {
         "id", "address", "httpAddress", "httpAddressAmbiguous", "role", "matchIndex", "nextIndex",
         "replicationLag", "lastContactMs", "replicaStatus", "laggingForMs", "lagging", "replicationRttMs",
         "capabilitiesUnknownReason", "capabilitiesUnknownKind",
-        "replicationRttP99Ms", "capabilities", "version");
+        "replicationRttP99Ms", "capabilities", "version",
+        // SPORK incident 2026-11-12, item 3: what the peer reports about its databases behind the cluster
+        "quarantinedDatabases", "databaseResync");
     // The same four names PeerCapabilityRegistry.UnknownKind declares, which Issue8655CapabilityUnknownKindTest pins
     // from the other side: Studio gates on the literal, so a renamed constant must break a test, not the gate.
     assertThat(peerItemSchema.getProperties().get("capabilitiesUnknownKind").getEnum())
