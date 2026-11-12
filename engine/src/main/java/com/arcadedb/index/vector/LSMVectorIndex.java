@@ -951,7 +951,8 @@ public class LSMVectorIndex implements Index, IndexInternal {
 
       return true;
     } finally {
-      if (newFileId > -1)
+      // Under HA the open compaction session keeps the new file locked until it is published (see LSMTreeIndex.splitIndex)
+      if (newFileId > -1 && !database.getWrappedDatabaseInstance().keepFileLockedUntilCompactionIsPublished(newFileId))
         database.getTransactionManager().unlockFile(newFileId, Thread.currentThread());
       if (locked == LockManager.LOCK_STATUS.YES)
         database.getTransactionManager().unlockFile(oldFileId, Thread.currentThread());

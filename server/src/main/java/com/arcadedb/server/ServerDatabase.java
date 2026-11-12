@@ -246,6 +246,11 @@ public class ServerDatabase implements DatabaseInternal {
   }
 
   @Override
+  public boolean keepFileLockedUntilCompactionIsPublished(final int fileId) {
+    return current().keepFileLockedUntilCompactionIsPublished(fileId);
+  }
+
+  @Override
   public void recordTimeSeriesSealedChange(final String typeName, final int shardIndex, final String sealedFileName,
       final byte[] sealedBytes) {
     current().recordTimeSeriesSealedChange(typeName, shardIndex, sealedFileName, sealedBytes);

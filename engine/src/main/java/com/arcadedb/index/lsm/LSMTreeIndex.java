@@ -244,7 +244,9 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
         continue;
 
       final int fileId = retired.getFileId();
-      final LockManager.LOCK_STATUS locked = getDatabase().getTransactionManager().tryLockFile(fileId, 0,
+      // A bounded try, never the unbounded wait 0 means: a commit can hold this lock while it waits for the new mutable
+      // file, whose lock a replicated compaction keeps on this thread until it is published (incident 2026-11-12)
+      final LockManager.LOCK_STATUS locked = getDatabase().getTransactionManager().tryLockFile(fileId, 1,
           Thread.currentThread());
       if (locked == LockManager.LOCK_STATUS.NO)
         // a committing transaction still holds the file lock: retry at the next round
@@ -1074,8 +1076,11 @@ public class LSMTreeIndex implements RangeIndex, IndexInternal {
       return result;
 
     } finally {
-      final Integer lockedFileId = lockedNewFileId.get();
-      database.getTransactionManager().unlockFile(lockedFileId, Thread.currentThread());
+      final int lockedFileId = lockedNewFileId.get();
+      // Under HA the open compaction session keeps the new file locked until it is published, so no commit writes it in an
+      // entry the other nodes would apply before the file exists there (incident 2026-11-12)
+      if (lockedFileId > -1 && !database.getWrappedDatabaseInstance().keepFileLockedUntilCompactionIsPublished(lockedFileId))
+        database.getTransactionManager().unlockFile(lockedFileId, Thread.currentThread());
 
       if (locked == LockManager.LOCK_STATUS.YES)
         // RELEASE THE DELETED FILE ONLY IF THE LOCK WAS ACQUIRED HERE

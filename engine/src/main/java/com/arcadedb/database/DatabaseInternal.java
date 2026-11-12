@@ -557,6 +557,26 @@ public interface DatabaseInternal extends Database {
   }
 
   /**
+   * Called by a compaction that has just swapped a component file it created into a live index (the new mutable file of
+   * an LSM index, the new data file of a vector index), on the thread running the compaction, with the commit lock of
+   * that file held by that thread. Answers whether the lock now belongs to the compaction session open on this thread,
+   * which then releases it only once the entry publishing the compaction is in the replicated log.
+   * <p>
+   * Under HA a transaction that writes a page of the new file must not reach the log before the entry that creates the
+   * file on the other nodes: they would drop its pages (the file does not exist there yet), install the file at the
+   * version the leader serialized it at, and fail the next write to the page with a version gap. Keeping the file's commit
+   * lock until the publication makes such a transaction wait in its phase 1 and compute its pages against the published
+   * file. The default answers false: off HA, and outside a compaction session, the caller releases the lock itself.
+   *
+   * @param fileId id of a file the compaction created, whose commit lock the calling thread holds
+   *
+   * @return true when the session took the lock over, false when the caller must release it
+   */
+  default boolean keepFileLockedUntilCompactionIsPublished(final int fileId) {
+    return false;
+  }
+
+  /**
    * Returns true if this node is the current leader (or always true when not replicated, i.e. standalone).
    * Used by engine-internal background work (e.g. the TimeSeries maintenance scheduler) to keep
    * destructive maintenance leader-only without a compile dependency on the HA module.

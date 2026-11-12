@@ -110,6 +110,26 @@ Since #6220 `TRUNCATE` only batches when **it** owns the transaction - when none
 
 When adding any code path that commits, ask which instance it holds. `Issue5492TruncateBatchNotReplicatedIT` guards the statement path; it asserts the WAL gap counter *before* querying the follower, because the resync reinstalls the follower's database and a stale handle then throws `DatabaseIsClosed`, which reads like infrastructure noise rather than divergence.
 
+## A file a compaction creates stays commit-locked until the compaction is published
+
+A compaction session (`runWithCompactionReplication`) does not take the database write lock: user commits keep running
+while it writes, and the files it creates reach the followers only in the `SCHEMA_ENTRY` it submits AFTER its callback
+returns. `commit()` waits for an open recording session only BEFORE phase 1 (`waitForActiveRecordingSession`), so a
+commit that passed that check before the session opened and then queued on a file lock (under concurrent writers a bucket
+lock is held for a whole replication round trip) takes the index lock after `LSMTreeIndex.splitIndex` swapped the new
+mutable file in, re-resolves the migrated id in `TransactionContext.lockFilesInOrder`, writes the NEW file and ships a
+`TX_ENTRY`. If that entry is ahead of the `SCHEMA_ENTRY`, every follower skips its pages ("Skipping page for missing
+file", INFO), installs the file at the version the leader serialized, and the next write to the page is a
+`WALVersionGapException`: quarantine and full resync on every follower (incident 2026-11-12, item 1).
+
+So the compaction keeps the commit lock of the file it swapped in (`DatabaseInternal.keepFileLockedUntilCompactionIsPublished`,
+called by `LSMTreeIndex.splitIndex` and the `LSMVectorIndex` data-file rewrite) and the session releases it after the
+publication, in its `finally`. A commit that needs the file waits in phase 1 and computes its pages against the published
+file. Any new compaction path that swaps a file users then write must hand its lock over the same way;
+`CompactionSwapConcurrentCommitHATest` drives the interleaving deterministically. Nothing the compaction thread does
+between the swap and the publication may wait for a lock a user commit can hold while waiting for that file: that is why
+`LSMTreeIndex.dropRetiredCompactedIndexes` tries its lock for 1 ms instead of waiting.
+
 ## A follower creates the types a client's transaction needs THROUGH the leader, and re-bases the transaction (#10067)
 
 Since #10040 a write sent to a follower inside a transaction the CLIENT opened (`TransactionContext.isClientManaged()`: Bolt/Postgres `BEGIN`, an HTTP session) runs there instead of being forwarded. An openCypher `CREATE`/`MERGE` of a label with no type yet is not DDL to the analyzer: it creates the type while it executes, a schema change a follower cannot make. `TypeBuilder.create()` therefore asks `DatabaseInternal.createMissingTypeOnTheLeader` BEFORE it takes the schema write lock (the follower has to apply the leader's schema entry before the statement goes on, and that apply needs the same lock), and `RaftReplicatedDatabase` forwards the idempotent `CREATE ... TYPE` the builder renders (`TypeBuilder.toSQL()`). The DATA write stays in the client's transaction. Outside a client transaction the refusal of a schema change stands.

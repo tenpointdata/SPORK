@@ -195,6 +195,13 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
   private static final ThreadLocal<List<RaftLogEntryCodec.TsSealedBlob>> compactionSealedBuffer =
       ThreadLocal.withInitial(ArrayList::new);
   /**
+   * Commit locks of the files a compaction created and swapped into a live index, taken over from the compaction by
+   * {@link #keepFileLockedUntilCompactionIsPublished(int)} and released by {@link #runWithCompactionReplication} once the
+   * entry publishing the compaction is in the log (incident 2026-11-12). Non-null only while a compaction session runs on
+   * THIS thread, for THIS database. The locks are owned by the thread, as the compaction took them.
+   */
+  private final ThreadLocal<List<Integer>>                      compactionHeldFileLocks = new ThreadLocal<>();
+  /**
    * Non-null only while a {@code recordFileChanges} session on THIS thread is shipping its buffered WAL in
    * instalments (issue #6136). Thread-local for the same reason the buffers are, and null everywhere else - notably
    * in {@code runWithCompactionReplication}, which buffers too but produces a bounded amount of it and chunks its
@@ -4033,6 +4040,7 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
     schemaBucketDeltaBuffer.get().clear();
     compactionSealedBuffer.get().clear();
     isSchemaCommitThread.set(Boolean.TRUE);
+    compactionHeldFileLocks.set(new ArrayList<>(2));
     // The term this session is bound to (issue #9547), or below zero while it is bound to none.
     long sessionTerm = NOT_A_READY_LEADER;
     try {
@@ -4084,6 +4092,9 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
         throw t;
       }
     } finally {
+      // First: the compaction is published (or it failed and this node is quarantined), so a commit waiting to write a
+      // file the compaction created may go on, and its entry lands after the one that creates the file everywhere
+      releaseCompactionHeldFileLocks();
       // A bare remove() is enough here, unlike recordFileChanges: a compaction runs on its own scheduler
       // thread and defers (returns false above) whenever a session is already open, so it never nests
       // inside another session whose mark it could clear.
@@ -4098,6 +4109,48 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
         proxied.getFileManager().stopRecordingChanges();
       }
     }
+  }
+
+  /**
+   * Takes over the commit lock of a file the compaction running on this thread created and swapped into a live index, and
+   * keeps it until the entry publishing the compaction is in the log (incident 2026-11-12).
+   * <p>
+   * Why it is needed: a user commit waits for an open recording session only BEFORE its phase 1
+   * ({@link #waitForActiveRecordingSession()}). One that passed that check before the session opened and then queued on
+   * a file lock - under concurrent writers a bucket lock is held for a whole replication round trip - takes the index
+   * lock only after the swap, re-resolves the migrated file id ({@code TransactionContext.lockFilesInOrder}) and writes
+   * its key into the NEW file. Without this lock its {@code TX_ENTRY} could reach the log while this thread was still
+   * serializing the new files for the {@code SCHEMA_ENTRY}: the followers skip the pages of a file they do not have yet
+   * ({@code TransactionManager.applyChanges}), install the file at the version read here, and the next write to that page
+   * is a {@code WALVersionGapException} on every follower. Holding the lock, that commit waits in its phase 1 and computes
+   * its pages against the published file instead, and its entry follows the compaction's.
+   * <p>
+   * Nothing this thread does until the publication needs a lock a waiting commit holds: the pages are read through the
+   * page manager and the leader skips the apply of its own schema entry. A commit of this same thread inside the session
+   * gets the lock as already acquired.
+   */
+  @Override
+  public boolean keepFileLockedUntilCompactionIsPublished(final int fileId) {
+    final List<Integer> held = compactionHeldFileLocks.get();
+    if (held == null)
+      return false;
+    held.add(fileId);
+    return true;
+  }
+
+  private void releaseCompactionHeldFileLocks() {
+    final List<Integer> held = compactionHeldFileLocks.get();
+    compactionHeldFileLocks.remove();
+    if (held == null)
+      return;
+    final Thread owner = Thread.currentThread();
+    for (final int fileId : held)
+      try {
+        proxied.getTransactionManager().unlockFile(fileId, owner);
+      } catch (final RuntimeException e) {
+        LogManager.instance().log(this, Level.SEVERE, "Error releasing the lock of file %d after a compaction of database '%s'", e,
+            fileId, getName());
+      }
   }
 
   /**
