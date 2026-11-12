@@ -115,7 +115,7 @@ class Issue8355UntypedLeader503ReconstructionTest {
     for (final String body : new String[] { null, "", "{}", "{\"error\":\"Service Unavailable\"}",
         "{\"error\":\"upstream connect error\",\"detail\":\"\"}" })
       assertThat(RaftReplicatedDatabase.reconstructLeaderException(503, body, "5")).as("body=%s", body)
-          .isExactlyInstanceOf(TransactionException.class);
+          .isInstanceOf(TransactionException.class).isNotInstanceOf(NeedRetryException.class);
   }
 
   /**
@@ -142,11 +142,11 @@ class Issue8355UntypedLeader503ReconstructionTest {
   @Test
   void aNonJsonBodyOrAnotherUntypedStatusIsStillAFailedTransaction() {
     assertThat(RaftReplicatedDatabase.reconstructLeaderException(503, "<html>Service Unavailable</html>", "5"))
-        .isExactlyInstanceOf(TransactionException.class);
+        .isInstanceOf(TransactionException.class).isNotInstanceOf(NeedRetryException.class);
     assertThat(RaftReplicatedDatabase.reconstructLeaderException(500, PRE_8355_SNAPSHOT_INSTALL_BODY, "5"))
-        .isExactlyInstanceOf(TransactionException.class);
+        .isInstanceOf(TransactionException.class).isNotInstanceOf(NeedRetryException.class);
     assertThat(RaftReplicatedDatabase.reconstructLeaderException(502, "", null))
-        .isExactlyInstanceOf(TransactionException.class);
+        .isInstanceOf(TransactionException.class).isNotInstanceOf(NeedRetryException.class);
   }
 
   /** The two-argument form every existing caller and test uses keeps its meaning: no header, the body's back-off. */

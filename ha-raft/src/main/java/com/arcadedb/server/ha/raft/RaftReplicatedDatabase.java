@@ -60,9 +60,11 @@ import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.exception.CommandParsingException;
 import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.exception.CommandSemanticException;
+import com.arcadedb.exception.DatabaseNotAvailableException;
 import com.arcadedb.exception.DuplicatedKeyException;
 import com.arcadedb.exception.LockTimeoutException;
 import com.arcadedb.exception.NeedRetryException;
+import com.arcadedb.exception.QueryAdmissionException;
 import com.arcadedb.exception.QueryNotIdempotentException;
 import com.arcadedb.exception.SchemaException;
 import com.arcadedb.exception.TimeoutException;
@@ -82,6 +84,7 @@ import com.arcadedb.network.binary.QuorumNotReachedException;
 import com.arcadedb.network.binary.ReplicatedEntryTooLargeException;
 import com.arcadedb.network.binary.ReplicationQueueFullException;
 import com.arcadedb.network.binary.ServerIsNotTheLeaderException;
+import com.arcadedb.remote.RemoteExceptionRebuilder;
 import com.arcadedb.query.QueryEngine;
 import com.arcadedb.query.RunningQuery;
 import com.arcadedb.query.opencypher.optimizer.statistics.GraphStatisticsCache;
@@ -110,6 +113,8 @@ import com.arcadedb.server.HAServerPlugin;
 import com.arcadedb.server.LeaderForwardContext;
 import com.arcadedb.server.PeerRequest;
 import com.arcadedb.server.http.handler.AbstractServerHttpHandler;
+import com.arcadedb.server.http.ClusterTransactionException;
+import com.arcadedb.server.http.ForwardedLeaderErrorException;
 import com.arcadedb.server.http.IdempotencyCache;
 import com.arcadedb.server.http.RequestStillInFlightException;
 import com.arcadedb.server.http.RetryLaterException;
@@ -491,6 +496,14 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
    * race of #8785). Always null in production.
    */
   static volatile Consumer<String> TEST_PRE_DISPATCH_HOOK = null;
+
+  /**
+   * Test-only hook. Fires on a follower forwarding a client's command, after the request gave back its query admission slot
+   * and right before the command is sent to the leader, with the database name: a test takes the gate's last slot from
+   * here to have the leader, which shares the JVM and so the gate, refuse the forward (incident 2026-11-12). Always null
+   * in production.
+   */
+  static volatile Consumer<String> TEST_PRE_FORWARD_HOOK = null;
 
   /**
    * Test-only fault-injection hook. Fires on the leader just before the pages of a locally-originated transaction are
@@ -5166,8 +5179,9 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       return raft.getLeaderHttpAddress();
     }, leaderWaitMs, LEADER_WAIT_POLL_INTERVAL_MS);
     if (leaderHttpAddress == null)
-      throw new TransactionException("Cannot forward command to leader: leader HTTP address is not available "
-          + "(no leader elected within " + leaderWaitMs + "ms; tune " + GlobalConfiguration.HA_FORWARD_LEADER_WAIT_TIMEOUT_MS.getKey() + ")");
+      throw new ClusterTransactionException("Cannot forward command to leader: leader HTTP address is not available "
+          + "(no leader elected within " + leaderWaitMs + "ms; tune " + GlobalConfiguration.HA_FORWARD_LEADER_WAIT_TIMEOUT_MS.getKey() + ")",
+          ClusterTransactionException.Cause.LEADER_UNREACHABLE);
 
     // The scheme the write travels on: the leader's HTTPS endpoint when the cluster has one for it, the
     // plain-HTTP address awaited above otherwise (issue #7508). On an SSL cluster the plain branch puts the
@@ -5399,6 +5413,9 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       // the response headers on JDK 21-25, so a leader that stalled inside its body parked this thread unbounded. The
       // request timeout stays: on JDK 26+ it covers the same span with the same value, and either one firing lands in
       // the HttpTimeoutException arm below.
+      final Consumer<String> preForwardHook = TEST_PRE_FORWARD_HOOK;
+      if (preForwardHook != null && clientRequest)
+        preForwardHook.accept(getName());
       final HttpResponse<String> response = LeaderDial.sendBounded(dialClient, builder.build(),
           HttpResponse.BodyHandlers.ofString(), deadlineMs);
       if (response.statusCode() != 200) {
@@ -5472,11 +5489,13 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       // already-committed write. TransactionCommittedRemotelyException is the codebase's established shape
       // for a KNOWN outcome; this one is unknown, so it stays a plain TransactionException like the generic
       // arm below - an error the caller sees and must decide about, not one anything retries for it.
-      throw new TransactionException(
+      throw new ClusterTransactionException(
           "The leader at " + leaderUrl + " did not answer within " + deadlineMs
-              + "ms; whether the command reached the leader is unknown - it must not be blindly retried", e);
+              + "ms; whether the command reached the leader is unknown - it must not be blindly retried", e,
+          ClusterTransactionException.Cause.LEADER_TIMEOUT);
     } catch (final Exception e) {
-      throw new TransactionException("Error forwarding command to leader at " + leaderUrl, e);
+      throw new ClusterTransactionException("Error forwarding command to leader at " + leaderUrl, e,
+          ClusterTransactionException.Cause.LEADER_UNREACHABLE);
     } finally {
       if (terminationRelay != null) {
         terminationRelay.close();
@@ -5671,8 +5690,11 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
    * The untyped {@code 503} of a leader that predates issue #8355 is the one exception to that fallback: see
    * {@link #reconstructLeaderException(int, String, String)}.
    * <p>
-   * If the body is non-JSON, or the exception class is missing or not recognised, a generic
-   * {@link TransactionException} wrapping the full response body is returned as a safe fallback.
+   * A type neither table rebuilds, or one the drivers' table would rebuild as a {@link NeedRetryException}, is returned as a
+   * {@link ForwardedLeaderErrorException} carrying the leader's status, label, class, {@code exceptionArgs} and
+   * {@code Retry-After}, which this node's HTTP layer relays as they are (incident 2026-11-12: a leader's
+   * {@code 503 QueryAdmissionException} left the follower as a 500 "Error on transaction commit"). A body that is non-JSON
+   * or names no exception gives the same type, marked anonymous: its status is not relayed.
    */
   static RuntimeException reconstructLeaderException(final int httpStatus, final String body) {
     return reconstructLeaderException(httpStatus, body, null);
@@ -5713,14 +5735,15 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
         exceptionArgs = json.getString("exceptionArgs", null);
       }
     } catch (final Exception ignored) {
-      return new TransactionException(message);
+      return new ForwardedLeaderErrorException(message, httpStatus, null, null, null, retryAfterHeader);
     }
 
     if (exceptionClass == null) {
       if (httpStatus == 503 && RetryLaterException.SNAPSHOT_INSTALL_REFUSAL.equals(reason))
         return new RetryLaterException("The leader refused the forwarded command without executing it: " + reason,
             parseRetryAfterSeconds(retryAfterHeader));
-      return new TransactionException(message);
+      // Anonymous: possibly not the leader's own answer, so its status is not relayed (see ForwardedLeaderErrorException)
+      return new ForwardedLeaderErrorException(message, httpStatus, reason, null, exceptionArgs, retryAfterHeader);
     }
 
     // ServerIsNotTheLeaderException carries the leader address as its second constructor argument (the HTTP
@@ -5752,10 +5775,37 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
         && DuplicatedKeyException.fromExceptionArgs(exceptionArgs) instanceof final DuplicatedKeyException duplicatedKey)
       return duplicatedKey;
 
+    // The leader's own 500 "Error on transaction commit": relayed rather than rebuilt bare, so the cause category the
+    // leader put in exceptionArgs reaches the client from this node too. Still a TransactionException, and not retryable.
+    if (TransactionException.class.getName().equals(exceptionClass))
+      return new ForwardedLeaderErrorException(detail != null ? detail : message, httpStatus, reason, exceptionClass, exceptionArgs,
+          retryAfterHeader);
+
     final Function<String, RuntimeException> factory = LEADER_EXCEPTION_FACTORIES.get(exceptionClass);
     if (factory != null)
       return factory.apply(detail != null ? detail : message);
 
-    return new TransactionException(message);
+    // The query admission gate refused the command on the leader before anything of it ran (incident 2026-11-12): rebuilt
+    // as itself, so this node answers 503 + Retry-After with the gate's reason, as the leader did, instead of the 500
+    // "Error on transaction commit" it used to collapse into. Not a NeedRetryException, so nothing on this node re-forwards
+    // it on the spot behind the same load.
+    if (QueryAdmissionException.class.getName().equals(exceptionClass))
+      return new QueryAdmissionException(detail != null ? detail : message);
+
+    // The database is not available on the leader, with the reason the leader put in exceptionArgs (issue #10872).
+    if (DatabaseNotAvailableException.class.getName().equals(exceptionClass))
+      return new DatabaseNotAvailableException(detail != null ? detail : message,
+          DatabaseNotAvailableException.Reason.fromName(exceptionArgs));
+
+    // Every other exception the drivers rebuild from its message alone, rebuilt as itself so an embedded caller on this
+    // node catches its type and this node's classification answers the status the leader's did. Not a NeedRetryException
+    // of that table, though: which of those are safe to re-forward is decided above, case by case (#8479, #8481), and a
+    // retry loop on this node would re-forward one under a new ordinal the leader keys separately. Those, and every name
+    // this build does not know, are relayed instead.
+    final RuntimeException rebuilt = RemoteExceptionRebuilder.rebuild(exceptionClass, detail != null ? detail : message);
+    if (rebuilt != null && !(rebuilt instanceof NeedRetryException))
+      return rebuilt;
+
+    return new ForwardedLeaderErrorException(message, httpStatus, reason, exceptionClass, exceptionArgs, retryAfterHeader);
   }
 }

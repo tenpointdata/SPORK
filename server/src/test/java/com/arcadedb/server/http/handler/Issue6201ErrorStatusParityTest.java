@@ -38,6 +38,7 @@ import com.arcadedb.exception.QueryNotIdempotentException;
 import com.arcadedb.exception.RecordNotFoundException;
 import com.arcadedb.exception.TransactionCommittedRemotelyException;
 import com.arcadedb.exception.TransactionException;
+import com.arcadedb.exception.TransactionOutcomeUnknownException;
 import com.arcadedb.index.fulltext.FullTextQueryParseException;
 import com.arcadedb.network.binary.ServerIsNotTheLeaderException;
 import com.arcadedb.serializer.json.JSONException;
@@ -46,6 +47,8 @@ import com.arcadedb.server.ArcadeDBServer;
 import com.arcadedb.server.ClusterCapabilityNotReadyException;
 import com.arcadedb.server.TestServerHelper;
 import com.arcadedb.server.UnstartedHttpServers;
+import com.arcadedb.server.http.ClusterTransactionException;
+import com.arcadedb.server.http.ForwardedLeaderErrorException;
 import com.arcadedb.server.http.HttpServer;
 import com.arcadedb.server.http.HttpSessionException;
 import com.arcadedb.server.http.RequestBodyTooLargeException;
@@ -66,7 +69,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 import org.mockito.invocation.Invocation;
 
+import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.http.HttpTimeoutException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -527,11 +532,103 @@ class Issue6201ErrorStatusParityTest {
     }
   }
 
+  /**
+   * Incident 2026-11-12: the admission gate's refusal is a 503 with a {@code Retry-After}, wrapped or not - the shape a
+   * follower that rebuilt the leader's refusal of a forwarded write raises it in, too.
+   */
+  @Test
+  void anAdmissionRefusalIsServiceUnavailableWithARetryAfterWrappedOrNot() {
+    for (final RuntimeException shape : List.<RuntimeException>of(
+        new QueryAdmissionException("Query not started because the queue already holds 64 queries"),
+        new TransactionException("Error on executing command",
+            new QueryAdmissionException("Query not started because the queue already holds 64 queries")))) {
+      final HandledResponse response = handle(shape);
+
+      assertThat(response.statusCode).as("body=%s", response.body).isEqualTo(503);
+      assertThat(response.responseHeaders.getFirst("Retry-After"))
+          .isEqualTo(String.valueOf(AbstractServerHttpHandler.QUERY_ADMISSION_RETRY_AFTER_SECONDS));
+      assertThat(new JSONObject(response.body).getString("exception")).isEqualTo(QueryAdmissionException.class.getName());
+    }
+  }
+
+  /**
+   * Incident 2026-11-12: a leader's typed answer to a forwarded command that the follower cannot rebuild by type is relayed
+   * as the leader sent it - status, label, exception class, exceptionArgs and Retry-After - never as a 500 "Error on
+   * transaction commit" naming TransactionException.
+   */
+  @Test
+  void aTypedLeaderAnswerIsRelayedAsTheLeaderSentIt() {
+    for (final RuntimeException shape : List.<RuntimeException>of(
+        new ForwardedLeaderErrorException("Leader returned HTTP 503", 503, "Cannot execute command",
+            "com.arcadedb.exception.WALVersionGapException", null, "3"),
+        new TransactionException("Error on executing command",
+            new ForwardedLeaderErrorException("Leader returned HTTP 503", 503, "Cannot execute command",
+                "com.arcadedb.exception.WALVersionGapException", null, "3")))) {
+      final HandledResponse response = handle(shape);
+
+      assertThat(response.statusCode).as("body=%s", response.body).isEqualTo(503);
+      assertThat(response.responseHeaders.getFirst("Retry-After")).isEqualTo("3");
+      final JSONObject json = new JSONObject(response.body);
+      assertThat(json.getString("error")).isEqualTo("Cannot execute command");
+      assertThat(json.getString("exception")).isEqualTo("com.arcadedb.exception.WALVersionGapException");
+    }
+
+    final HandledResponse conflict = handle(new ForwardedLeaderErrorException("Leader returned HTTP 409", 409,
+        "Type already exists", "com.example.NewerServerException", "TYPE", null));
+    assertThat(conflict.statusCode).isEqualTo(409);
+    final JSONObject json = new JSONObject(conflict.body);
+    assertThat(json.getString("error")).isEqualTo("Type already exists");
+    assertThat(json.getString("exceptionArgs")).isEqualTo("TYPE");
+    assertThat(conflict.responseHeaders.getFirst("Retry-After")).isNull();
+  }
+
+  /**
+   * An anonymous answer may come from something between the nodes, after the command ran: its status is not relayed. It
+   * stays a 500, saying in exceptionArgs that the leader answered it and with what status.
+   */
+  @Test
+  void anAnonymousLeaderAnswerIsA500ThatSaysWhereItCameFrom() {
+    final HandledResponse response = handle(new ForwardedLeaderErrorException("Leader returned HTTP 503 for forwarded command: {}",
+        503, "Service Unavailable", null, null, "5"));
+
+    assertThat(response.statusCode).isEqualTo(500);
+    assertThat(response.responseHeaders.getFirst("Retry-After")).isNull();
+    final JSONObject json = new JSONObject(response.body);
+    assertThat(json.getString("error")).isEqualTo("Error on transaction commit");
+    assertThat(json.getString("exceptionArgs")).isEqualTo("LEADER_ERROR:503");
+  }
+
+  /**
+   * Incident 2026-11-12: a 500 "Error on transaction commit" names its cause category in exceptionArgs, which production
+   * mode does not conceal.
+   */
+  @Test
+  void aFailedTransactionNamesItsCauseCategory() {
+    final HandledResponse unreachable = handle(new ClusterTransactionException("Error forwarding command to leader at x",
+        new IOException("connection reset"), ClusterTransactionException.Cause.LEADER_UNREACHABLE));
+    assertThat(unreachable.statusCode).isEqualTo(500);
+    assertThat(new JSONObject(unreachable.body).getString("exceptionArgs")).isEqualTo("LEADER_UNREACHABLE");
+    assertThat(new JSONObject(unreachable.body).getString("exception")).isEqualTo(IOException.class.getName());
+
+    final HandledResponse unknownOutcome = handle(new TransactionException("Error on executing command",
+        new TransactionOutcomeUnknownException("Group commit timed out (entry was dispatched to Raft)")));
+    assertThat(unknownOutcome.statusCode).isEqualTo(500);
+    assertThat(new JSONObject(unknownOutcome.body).getString("exceptionArgs")).isEqualTo("QUORUM_TIMEOUT");
+
+    final HandledResponse noAnswer = handle(new ClusterTransactionException("The leader did not answer",
+        new HttpTimeoutException("request timed out"), ClusterTransactionException.Cause.LEADER_TIMEOUT));
+    assertThat(new JSONObject(noAnswer.body).getString("exceptionArgs")).isEqualTo("LEADER_TIMEOUT");
+
+    assertThat(new JSONObject(handle(new TransactionException("Error on commit")).body).getString("exceptionArgs"))
+        .isEqualTo("INTERNAL");
+  }
+
   /** Every other failure is sent without a Retry-After: the header belongs to the refusals that state a back-off. */
   @Test
   void noOtherFailureIsSentWithARetryAfter() {
     for (final MappedFailure failure : MAPPED_FAILURES)
-      if (!failure.name().equals("RequestStillInFlightException") && !failure.name().equals("RetryLaterException"))
+      if (!failure.name().equals("RequestStillInFlightException") && !failure.name().equals("RetryLaterException")
+          && !failure.name().equals("QueryAdmissionException"))
         assertThat(handle(failure.factory().get()).responseHeaders.getFirst("Retry-After"))
             .as("%s must not carry a Retry-After", failure.name())
             .isNull();

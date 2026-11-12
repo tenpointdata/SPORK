@@ -99,7 +99,7 @@ Safe to retry as is (nothing was applied):
 
 | Status | When |
 |---|---|
-| `503` | a transient conflict that outlived the server-side retries (`NeedRetryException`, including `ConcurrentModificationException` and `QuorumNotReachedException`, which on the leader means the entry was NOT replicated); the admission gate refused it (`QueryAdmissionException`, section 4); the heap budget refused it (`QueryHeapBudgetExceededException`); a snapshot install or a database being reinstalled. Honour `Retry-After` when present, and back off with jitter otherwise |
+| `503` | a transient conflict that outlived the server-side retries (`NeedRetryException`, including `ConcurrentModificationException` and `QuorumNotReachedException`, which on the leader means the entry was NOT replicated); the admission gate refused it (`QueryAdmissionException`, section 4, with `Retry-After: 1` and the gate's reason in `detail`, in production mode too); the heap budget refused it (`QueryHeapBudgetExceededException`); a snapshot install or a database being reinstalled. Honour `Retry-After` when present, and back off with jitter otherwise |
 | `400` naming a leader address | `ServerIsNotTheLeaderException`: send it to the named leader |
 | `409` "request still in flight" with `Retry-After` | an identical request (same `X-Request-Id`, method, path, database and body) is still running on that server; retrying with the same `X-Request-Id` later returns its answer |
 
@@ -112,7 +112,25 @@ Do NOT retry blindly (the write may have been applied):
 | `409` duplicate key | a UNIQUE index refused the write | if the key is the client's own idempotency key, the earlier attempt landed |
 | `412` "The server restarted since the request was first sent" | see below | read back |
 | connection reset, timeout, no response | unknown | retry with the same `X-Request-Id` (below), or read back |
+| `500` "Error on transaction commit" | the transaction failed; `exceptionArgs` names the cause category (below) | act on the category |
 | any other `500` | a server-side failure | do not loop on it |
+
+The cause category of a `500` "Error on transaction commit" travels in `exceptionArgs`, which production mode keeps
+(the free-form `detail` it conceals):
+
+| `exceptionArgs` | Meaning | Retry? |
+|---|---|---|
+| `QUORUM_TIMEOUT` | the replication was handed to Raft and the quorum wait ended without an outcome | no: read back first |
+| `LEADER_TIMEOUT` | a follower forwarded the command and the leader did not answer in time | no: read back first |
+| `LEADER_UNREACHABLE` | a follower had no leader to forward to, or the exchange with it failed in transport | read back first unless nothing was sent |
+| `LEADER_ERROR:<status>` | the leader's answer to the forward named no exception (a proxy between nodes, say), so the follower does not relay its status | read back first |
+| `INTERNAL` | anything else; the server log holds it under the response's `requestId` | do not loop on it |
+
+A write sent to a follower is answered with what the leader answered: a refusal the follower knows by type is rebuilt
+(`QueryAdmissionException`, `DatabaseNotAvailableException`, parse and validation errors, ...), and any other typed
+answer is relayed with the leader's status, label, `exception`, `exceptionArgs` and `Retry-After`. A `503` from the
+leader therefore stays a `503` on the follower; before the 2026-11-12 incident fix it became a `500` "Error on
+transaction commit" naming `TransactionException`.
 
 Making retries safe after a lost response: send `X-Request-Id: <unique id per logical write>` on writes. Every
 response carries `X-ArcadeDB-Replay-Protection: <process id>`. A retry of the same request (same id, same body) to the
