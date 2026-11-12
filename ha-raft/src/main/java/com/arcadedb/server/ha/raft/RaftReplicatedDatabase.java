@@ -493,6 +493,13 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
   static volatile Consumer<String> TEST_PRE_DISPATCH_HOOK = null;
 
   /**
+   * Test-only hook. Fires on the leader's compaction thread once a compaction has run and its pages have been read for
+   * shipping, right BEFORE the entry that publishes them is submitted to Raft. A commit that reaches the Raft log in this
+   * window is ordered before the files the compaction created exist on the followers. Always null in production.
+   */
+  static volatile Consumer<String> TEST_BEFORE_COMPACTION_PUBLISH_HOOK = null;
+
+  /**
    * Test-only fault-injection hook. Fires on the leader just before the pages of a locally-originated transaction are
    * published - on the Raft apply thread, at the entry's log position, after Raft has already committed the entry.
    * Throw from the consumer to simulate a leader-side phase-2 commit failure while the followers are already ahead
@@ -4205,6 +4212,10 @@ public class RaftReplicatedDatabase implements DatabaseInternal, HAReplicatedDat
       sealedChunksMaxSequence.accumulateAndGet(plan.count(), Math::max);
     }
     sealedChunksShipped.addAndGet(sealedSlicesShipped);
+
+    final Consumer<String> beforePublishHook = TEST_BEFORE_COMPACTION_PUBLISH_HOOK;
+    if (beforePublishHook != null)
+      beforePublishHook.accept(getName());
 
     broker.replicateSchema(getName(), serializedSchema, addFiles, removeFiles, walEntries, bucketDeltas,
         sealedBlobs, finalSealedChunks);
