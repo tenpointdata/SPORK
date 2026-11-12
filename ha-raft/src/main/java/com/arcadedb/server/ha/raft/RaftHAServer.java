@@ -673,8 +673,11 @@ public class RaftHAServer implements HealthMonitor.HealthTarget {
     this.configuredPeerList = peers;
     this.configuredPeerNames = configuredPeerNames;
 
-    // If this node is configured as a replica, override its Raft peer priority to 0
-    // so Ratis never elects it as leader (useful for read-scale or witness nodes).
+    // If this node is configured as a replica, override its Raft peer priority to 0 so Ratis prefers any other peer as
+    // leader. It is NOT a guarantee: a priority-0 peer stays a voter, and while no higher-priority peer can be elected
+    // the priority-0 peers vote for each other and one of them leads until a higher-priority peer is back (Ratis
+    // VoteContext refuses a candidate only on a voter whose OWN priority is higher). Incident 2026-11-12: a replica was
+    // elected while the priority-10 node restarted.
     final String serverRole = configuration.getValueAsString(GlobalConfiguration.HA_SERVER_ROLE);
     if ("replica".equalsIgnoreCase(serverRole)) {
       final List<RaftPeer> rebuilt = new ArrayList<>(peers.size());
@@ -682,7 +685,8 @@ public class RaftHAServer implements HealthMonitor.HealthTarget {
         if (p.getId().equals(localPeerId)) {
           rebuilt.add(RaftPeer.newBuilder().setId(p.getId()).setAddress(p.getAddress()).setPriority(0).build());
           LogManager.instance().log(this, Level.INFO,
-              "Node configured as replica (priority=0, will not become leader): %s", localPeerId);
+              "Node configured as replica (priority=0: leader only while no higher-priority peer can be elected): %s",
+              localPeerId);
         } else
           rebuilt.add(p);
       }

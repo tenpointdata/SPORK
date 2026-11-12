@@ -1026,8 +1026,10 @@ public class PluginApiSpec implements OpenApiContributor {
     final Schema<Number> priority = SpecBuilders.integer(
         "Raft leader-election priority, a non-negative integer. Defaults to 0, which is Ratis's own default and "
             + "leaves the peer as electable as every other peer on a cluster where nobody names a priority. Once ANY "
-            + "peer carries a positive priority the priority-0 ones become witnesses that are never elected and are "
-            + "skipped as step-down targets, so 0 is how a witness is declared and a higher value how a preferred "
+            + "peer carries a positive priority the priority-0 ones become the last choice for leader and are "
+            + "skipped as step-down targets: a higher-priority voter refuses them its vote and a leader hands over to a "
+            + "higher-priority peer that is caught up, but while no higher-priority peer can be elected they vote for each "
+            + "other and one of them is elected. So 0 is how a witness is declared and a higher value how a preferred "
             + "leader is. A fractional value or one that does not fit in a 32-bit integer is refused rather than "
             + "rounded, because the value it would round to declares a witness. The same field the 'priority' of an "
             + "arcadedb.ha.serverList entry sets.");

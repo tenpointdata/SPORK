@@ -2476,9 +2476,12 @@ public enum GlobalConfiguration {
 
   HA_SERVER_ROLE("arcadedb.ha.serverRole", SCOPE.SERVER,
       """
-      Enforces a role in a cluster. 'any' (default) means this node can be elected leader. \
-      'replica' sets the Raft peer priority to 0 so the node is never elected leader \
-      (useful for read-scale or witness deployments).""",
+      The role of this node in a cluster. 'any' (default) keeps the Raft peer priority the server list gives it. \
+      'replica' sets this node's Raft peer priority to 0, which makes it the LAST choice for leader, not an impossible one: \
+      it stays a voting member, a voter with a higher priority refuses it its vote, and a leader hands leadership to a \
+      higher-priority peer that is up and caught up; but while no higher-priority peer can be elected (down, restarting, \
+      partitioned) the priority-0 peers vote for each other and one of them IS elected, until a higher-priority peer \
+      returns. A node that must never lead needs a non-voting (listener) role, which this setting does not provide.""",
       String.class, "any", Set.of("any", "replica")),
 
   HA_QUORUM("arcadedb.ha.quorum", SCOPE.SERVER,
