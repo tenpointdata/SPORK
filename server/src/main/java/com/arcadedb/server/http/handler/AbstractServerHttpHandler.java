@@ -43,6 +43,8 @@ import com.arcadedb.server.HAServerPlugin;
 import com.arcadedb.server.LeaderForwardContext;
 import com.arcadedb.server.PeerRequest;
 import com.arcadedb.server.http.ClusterAuthSessionResolver;
+import com.arcadedb.server.http.ClusterTransactionException;
+import com.arcadedb.server.http.ForwardedLeaderErrorException;
 import com.arcadedb.server.http.Http2StreamReset;
 import com.arcadedb.server.http.HttpAuthSession;
 import com.arcadedb.server.http.HttpServer;
@@ -85,6 +87,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -198,6 +201,9 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
   private static final String     IN_FLIGHT_ERROR_LABEL         =
       "A request with the same " + IdempotencyCache.HEADER_REQUEST_ID + " is still executing";
   private static final HttpString RETRY_AFTER_HEADER            = HttpString.tryFromString("Retry-After");
+  // Seconds a request the query admission gate refused is told to wait (incident 2026-11-12): long enough for the running
+  // queries to give a slot back, short against the queue timeouts a deployment uses (2 s in read-node.properties)
+  static final         long       QUERY_ADMISSION_RETRY_AFTER_SECONDS = 1L;
   // The same back-off in band, on the error line of a streamed response that can no longer send the header (#8899).
   public static final  String     STREAMED_RETRY_AFTER_MEMBER   = "retryAfter";
   // Tags the forward-ordinal section of an idempotency key (issue #8323).
@@ -1384,9 +1390,15 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
     // 503: the query admission gate did not start the query, because it waited in the queue too long or found the queue
     // full (issue #9518). Nothing of it ran, so the identical request re-issued later can succeed. Ahead of the generic
     // CommandExecutionException arm below for the same reason as the arm above.
+    //
+    // With a Retry-After, and the gate's reason kept in production mode (clientErrorDetail): the reason is what tells a
+    // client whether the queue was full or the wait timed out. A follower rebuilds the type from the leader's answer to a
+    // write it forwarded, so the client gets this same answer from either node (incident 2026-11-12, where the follower
+    // turned it into a 500 "Error on transaction commit").
     final QueryAdmissionException admission = firstOf(e, cause, QueryAdmissionException.class);
     if (admission != null) {
-      return retryable(admission);
+      final String retryAfter = String.valueOf(QUERY_ADMISSION_RETRY_AFTER_SECONDS);
+      return new ErrorClassification(503, "Cannot execute command", admission, null, ErrorLogKind.RETRYABLE, retryAfter);
     }
 
     // 503: an HA snapshot-reinstall resync (issue #5977 pattern) closed and reinstalled the database out from
@@ -1522,6 +1534,22 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
     // whatever they carry. UNEXPECTED INTERNAL ERROR: log the FULL stack trace - passing the throwable is what
     // makes the logger emit one, and without it a BufferUnderflowException from a truncated record read was not
     // diagnosable at any log level.
+    // The leader's answer to a command this node forwarded, of a type this node could not rebuild. A typed answer was
+    // written by the leader's own classification, so it is relayed as it is: status, label, exception class (see
+    // buildErrorBody), exceptionArgs and Retry-After. An anonymous one may come from something between the nodes, so it
+    // stays a 500, saying where it came from. Logged without a stack trace: the leader logged its own failure.
+    final ForwardedLeaderErrorException leaderError = firstOf(e, cause, ForwardedLeaderErrorException.class);
+    if (leaderError != null) {
+      if (leaderError.isTyped() && leaderError.getLeaderStatus() >= 400 && leaderError.getLeaderStatus() <= 599) {
+        final int status = leaderError.getLeaderStatus();
+        final String label = leaderError.getLeaderLabel() != null ? leaderError.getLeaderLabel() : "Error on transaction commit";
+        return new ErrorClassification(status, label, leaderError, leaderError.getLeaderExceptionArgs(),
+            status == 503 ? ErrorLogKind.RETRYABLE : ErrorLogKind.USER, leaderError.getRetryAfter());
+      }
+      return new ErrorClassification(500, "Error on transaction commit", leaderError,
+          ClusterTransactionException.Cause.LEADER_ERROR.name() + ":" + leaderError.getLeaderStatus(), ErrorLogKind.USER);
+    }
+
     final CommandExecutionException commandFailure = firstOf(e, cause, CommandExecutionException.class);
     if (commandFailure != null) {
       // The failure happened during execute(), not at commit, so the honest label is "Cannot execute command".
@@ -1540,7 +1568,11 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
       // Reported as its CAUSE, unlike the arm above: this wrapper is put on by the plumbing rather than raised by
       // it, so its message ("Error on executing command") says nothing the label does not, while the cause is the
       // real fault - and the wire contract's exception field is what a customer report is diagnosed from.
-      return new ErrorClassification(500, "Error on transaction commit", cause, null, ErrorLogKind.INTERNAL_TRANSACTION);
+      //
+      // The cause category goes in exceptionArgs, which production mode does not conceal: the label alone says nothing,
+      // and the detail that would say it is concealed there (incident 2026-11-12, 197 such answers from followers).
+      return new ErrorClassification(500, "Error on transaction commit", cause, transactionFailureCause(e).name(),
+          ErrorLogKind.INTERNAL_TRANSACTION);
     }
 
     // Last resort, and the only place the cause chain is walked to any depth for a security failure: one buried
@@ -1760,6 +1792,25 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
     if (type.isInstance(cause))
       return type.cast(cause);
     return null;
+  }
+
+  /**
+   * The cause category of a failed transaction, for the {@code exceptionArgs} of its 500: the category a
+   * {@link ClusterTransactionException} along the cause chain names, else {@code QUORUM_TIMEOUT} for an outcome left
+   * unknown by the replication's quorum wait, {@code LEADER_TIMEOUT} for an HTTP timeout, and {@code INTERNAL} for
+   * anything else. A bounded token, never a message: safe in production mode. Package-private for unit testing.
+   */
+  static ClusterTransactionException.Cause transactionFailureCause(final Throwable e) {
+    int depth = 0;
+    for (Throwable t = e; t != null && depth++ < 16; t = t.getCause()) {
+      if (t instanceof ClusterTransactionException cluster)
+        return cluster.getCauseCategory();
+      if (t instanceof TransactionOutcomeUnknownException)
+        return ClusterTransactionException.Cause.QUORUM_TIMEOUT;
+      if (t instanceof HttpTimeoutException)
+        return ClusterTransactionException.Cause.LEADER_TIMEOUT;
+    }
+    return ClusterTransactionException.Cause.INTERNAL;
   }
 
   /**
@@ -2848,7 +2899,11 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
       json.put("requestId", correlationId);
 
     if (e != null)
-      json.put("exception", e.getClass().getName());
+      // A leader's typed answer relayed by this node names the leader's class, so the client (or the next hop) rebuilds
+      // the exception the leader raised, not the relay's own type
+      json.put("exception", e instanceof ForwardedLeaderErrorException relayed && relayed.isTyped() ?
+          relayed.getLeaderExceptionClass() :
+          e.getClass().getName());
     if (exceptionArgs != null)
       json.put("exceptionArgs", exceptionArgs);
 
@@ -2880,12 +2935,19 @@ public abstract class AbstractServerHttpHandler implements HttpHandler {
    * Only the message of {@code e} itself, never the causes, and only for these exact families: a plain
    * {@link IllegalArgumentException} or {@link CommandExecutionException} can carry anything, from a file path to a JDK
    * internal, so they stay concealed (issue #5037), and {@link DuplicatedKeyException} names the stored key values, which
-   * production mode replaces in {@code exceptionArgs} for that reason (issue #7760). Package-private for unit testing.
+   * production mode replaces in {@code exceptionArgs} for that reason (issue #7760).
+   * <p>
+   * One family that is not a statement error is kept as well: the refusal of the query admission gate
+   * ({@link QueryAdmissionException}). Its message is built by the gate alone from its own counters and setting names (how
+   * many run and wait, the heap budget in percent, the setting that refused), never from the statement, a file or stored
+   * data, and it is the only thing that tells a client whether the queue was full or the wait timed out (incident
+   * 2026-11-12). Package-private for unit testing.
    */
   static String clientErrorDetail(final Throwable e) {
     if (!(e instanceof CommandParsingException || e instanceof FullTextQueryParseException || e instanceof AlreadyExistsException
         || e instanceof IndexDefinitionConflictException || e instanceof ArithmeticErrorException
-        || e instanceof InvalidPropertyTypeException || e instanceof QueryNotIdempotentException))
+        || e instanceof InvalidPropertyTypeException || e instanceof QueryNotIdempotentException
+        || e instanceof QueryAdmissionException))
       return null;
     final String message = e.getMessage();
     if (message == null || message.isEmpty())

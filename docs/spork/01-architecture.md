@@ -369,6 +369,7 @@ A retention window sized for mid 3x after A keeps the newest 627M of 900M record
 
 **Q1 shape (no engine work).**
 - `HA_SERVER_ROLE` accepts only `any` and `replica`, and `replica` only sets priority 0 (`RaftHAServer` around line 683). So Q1 runs 4 voters with n4 as `replica`, and commits need 3 of 4.
+- Priority 0 is not "never leader". Ratis refuses a candidate's vote only on a voter whose own priority is higher, so while no higher-priority peer can be elected the priority-0 voters elect one of themselves, and a leader hands back to a higher-priority peer once it is caught up. In the 2026-11-12 incident df1db6 (`replica`) was elected while df1db5 (priority 10) restarted, because every other live peer was priority 0 too. Set n2/n3's priority (5) in `ha.serverList` so they lead in that window; only E4's listener keeps n4 out of elections.
 - E4 (3.6) adds a `listener` role using Ratis `RaftPeerRole.LISTENER`, which Ratis 3.3.1 defines.
 
 **ROC on every node.**

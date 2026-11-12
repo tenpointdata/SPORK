@@ -453,6 +453,7 @@ These dependencies are used only during the build process:
 | org.antlr | antlr4-maven-plugin | 4.13.2 | BSD 3-Clause | https://www.antlr.org/ |
 | io.grpc | protoc-gen-grpc-java | 1.79.0 | Apache 2.0 | https://grpc.io/ |
 | com.github.os72 | protoc-jar-maven-plugin | 3.x | Apache 2.0 | https://github.com/os72/protoc-jar-maven-plugin |
+| org.apache.maven.plugins | maven-antrun-plugin (engine, with Apache Ant 1.10.x: the build number from `git rev-parse HEAD`) | 3.1.0 | Apache 2.0 | https://maven.apache.org/plugins/maven-antrun-plugin/ |
 
 ---
 

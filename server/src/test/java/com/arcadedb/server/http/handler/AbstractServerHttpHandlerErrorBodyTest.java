@@ -25,7 +25,9 @@ import com.arcadedb.exception.CommandSemanticException;
 import com.arcadedb.exception.DuplicatedKeyException;
 import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.exception.InvalidPropertyTypeException;
+import com.arcadedb.exception.QueryAdmissionException;
 import com.arcadedb.serializer.json.JSONObject;
+import com.arcadedb.server.http.ForwardedLeaderErrorException;
 import com.arcadedb.server.http.HttpServer;
 import com.arcadedb.server.http.handler.AbstractServerHttpHandler.ErrorClassification;
 import com.arcadedb.server.http.handler.AbstractServerHttpHandler.ErrorLogKind;
@@ -119,6 +121,38 @@ class AbstractServerHttpHandlerErrorBodyTest {
       final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Cannot execute command", other, null, null));
       assertThat(json.has("detail")).as(other.getClass().getSimpleName()).isFalse();
     }
+  }
+
+  /**
+   * Incident 2026-11-12: the refusal of the query admission gate keeps its reason in production mode - it is built from the
+   * gate's counters and setting names only, and is what tells a client whether the queue was full or the wait timed out.
+   */
+  @Test
+  void productionModeKeepsTheReasonOfAnAdmissionRefusal() {
+    final QueryAdmissionException refused = new QueryAdmissionException(
+        "Query not started because it waited 2000ms in the queue (arcadedb.queryQueueTimeout): 48 running, 64 waiting");
+
+    final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Cannot execute command", refused, null, null));
+
+    assertThat(json.getString("detail")).isEqualTo(refused.getMessage());
+  }
+
+  /**
+   * A leader's typed answer a follower relays names the leader's exception class, so the client (or the next hop) rebuilds
+   * what the leader raised; the relay's own type stays on an anonymous answer, which names none.
+   */
+  @Test
+  void aRelayedLeaderAnswerNamesTheLeadersExceptionClass() {
+    final ForwardedLeaderErrorException typed = new ForwardedLeaderErrorException("Leader returned HTTP 409", 409,
+        "Type already exists", "com.example.NewerServerException", "TYPE", null);
+    assertThat(new JSONObject(handler.buildErrorBody(false, "Type already exists", typed, "TYPE", null)).getString("exception"))
+        .isEqualTo("com.example.NewerServerException");
+
+    final ForwardedLeaderErrorException anonymous = new ForwardedLeaderErrorException("Leader returned HTTP 502", 502, null,
+        null, null, null);
+    final JSONObject json = new JSONObject(handler.buildErrorBody(false, "Error on transaction commit", anonymous, null, null));
+    assertThat(json.getString("exception")).isEqualTo(ForwardedLeaderErrorException.class.getName());
+    assertThat(json.has("detail")).isFalse();
   }
 
   @Test
