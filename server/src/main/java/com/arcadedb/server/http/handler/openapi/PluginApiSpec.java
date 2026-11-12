@@ -607,7 +607,18 @@ public class PluginApiSpec implements OpenApiContributor {
     peer.addProperty("lastContactMs", SpecBuilders.integer(
         "Milliseconds since last contact. Absent for the leader's own entry and until a health sample exists."));
     peer.addProperty("replicaStatus", SpecBuilders.string(
-        "Replica health status. Absent for the leader's own entry and until a health sample exists."));
+        "Replica health status: HEALTHY, CATCHING_UP, FALLING_BEHIND, STALLED, UNKNOWN, or QUARANTINED when the peer "
+            + "reports at least one database quarantined (its Raft lag can read 0 while it applies nothing to that "
+            + "database). Absent for the leader's own entry and until a health sample exists."));
+    peer.addProperty("quarantinedDatabases", SpecBuilders.arrayOf(SpecBuilders.string("Database name"),
+        "Databases this peer last reported quarantined, as seen by the answering node through its capability poll. "
+            + "Empty when none. Absent for the answering node's own entry."));
+    peer.addProperty("databaseResync", SpecBuilders.object(
+        "This peer's last reported resync state: appliedIndex (the peer's applied index), databases (per database "
+            + "behind the cluster: quarantined, cause, appliedIndex, readFloor, resyncState INSTALLING / BACKING_OFF / "
+            + "PENDING / IN_PASS, resyncAttempts, resyncLoop, lastResyncCause, lastResyncOutcome, backoffRemainingMs), "
+            + "observedAtMs and ageMs. Kept when a later poll fails, which is why its age is given. Absent when the peer "
+            + "has nothing behind the cluster."));
     peer.addProperty("laggingForMs", SpecBuilders.integer(
         "How long this peer has been lagging, in milliseconds. Absent for the leader's own entry and until "
             + "a health sample exists."));

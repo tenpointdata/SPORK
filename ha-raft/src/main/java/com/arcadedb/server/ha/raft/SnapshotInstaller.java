@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -688,6 +689,9 @@ public final class SnapshotInstaller {
         // Reopen the restored previous database so the node keeps serving. Leave the pending marker in
         // place: if atomicSwap's own restore was interrupted, recoverPendingSnapshotSwaps reconciles
         // dbPath (and removes the leftover .snapshot-new) on the next startup.
+        LogManager.instance().log(SnapshotInstaller.class, Level.WARNING,
+            "Snapshot swap of database '%s' failed (%s): the previous local copy is restored and reopened", null,
+            databaseName, swapEx.getMessage());
         reopenQuietly(server, databaseName);
         throw swapEx;
       }
@@ -728,7 +732,8 @@ public final class SnapshotInstaller {
       // every path ignores and the next install deletes as leftover.
       completeSwapRecovery(dbPath);
 
-      HALog.log(SnapshotInstaller.class, HALog.BASIC, "Snapshot for '%s' installed successfully", databaseName);
+      LogManager.instance().log(SnapshotInstaller.class, Level.INFO,
+          "Snapshot of database '%s' swapped in and reopened; the previous local copy is discarded", databaseName);
     }
   }
 
@@ -2131,7 +2136,11 @@ public final class SnapshotInstaller {
       final String clusterToken, final boolean https, final boolean sslEnabled, final ArcadeDBServer server)
       throws IOException {
 
-    HALog.log(SnapshotInstaller.class, HALog.BASIC, "Downloading snapshot from %s", snapshotUrl);
+    // INFO, not HALog.BASIC: every resync step has to be visible at the default level (SPORK incident 2026-11-12, where a
+    // 12-hour download loop logged nothing but progress lines)
+    LogManager.instance().log(SnapshotInstaller.class, Level.INFO, "Snapshot download of database '%s' starting from %s",
+        databaseName, snapshotUrl);
+    final long startedAtNanos = System.nanoTime();
 
     // The token with the principal it stands for, like every other peer dial: the snapshot handler authenticates the
     // token alone, but a credential that is half a pair here is a credential some later handler reads wrong (issue #9999)
@@ -2183,13 +2192,21 @@ public final class SnapshotInstaller {
       final boolean progressLogging = server == null
           || server.getConfiguration().getValueAsBoolean(GlobalConfiguration.HA_RESYNC_PROGRESS_LOGGING);
       if (progressLogging) {
-        final String dbName = targetDir.getFileName() != null ? targetDir.getFileName().toString() : "snapshot";
+        // The database's name, not the staging directory's: every install stages into '.snapshot-new', so the progress line
+        // used to read 'db=.snapshot-new' whatever was being downloaded (SPORK incident 2026-11-12)
+        final String dbName = databaseName;
         final long intervalMs = server != null
             ? server.getConfiguration().getValueAsLong(GlobalConfiguration.HA_RESYNC_PROGRESS_INTERVAL)
             : 5000L;
         source = new ProgressReportingInputStream(rawCounter, new SnapshotDownloadProgressMeter(dbName, intervalMs));
       }
       extractAndVerifySnapshot(source, rawCounter, targetDir, manifestRequired, server);
+      final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+      LogManager.instance().log(SnapshotInstaller.class, Level.INFO,
+          "Snapshot download of database '%s' completed and verified: %.1f MB in %d ms (%.1f MB/s), served at leader "
+              + "applied index %s", databaseName, rawCounter.getCount() / (1024.0 * 1024.0), elapsedMs,
+          rawCounter.getCount() / (1024.0 * 1024.0) * 1000.0 / Math.max(1L, elapsedMs),
+          appliedIndexHeader != null ? appliedIndexHeader : "unknown");
 
       // Only once the copy is extracted and verified: a transfer that fails after the headers says nothing about the
       // copy that ends up installed (issue #8579).

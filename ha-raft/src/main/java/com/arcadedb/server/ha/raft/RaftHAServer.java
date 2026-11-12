@@ -6990,12 +6990,26 @@ public class RaftHAServer implements HealthMonitor.HealthTarget {
       final long nextIndex = followerStateIndex(follower, "nextIndex");
       final long lastContactMs = followerStateIndex(follower, "lastRpcElapsedMs");
       final long lag = commitIndex >= 0 && matchIndex >= 0 ? Math.max(0L, commitIndex - matchIndex) : -1;
-      final String status = clusterMonitor != null ? clusterMonitor.getReplicaStatus(peerId).name() : "UNKNOWN";
+      // A peer that holds a database quarantined is not HEALTHY whatever its matchIndex says (SPORK incident
+      // 2026-11-12, item 3): a quarantine skips the entries of that database and still acknowledges them, so Raft's
+      // replication lag reads 0 for the 12 hours the peer applies nothing to it.
+      final String status = peerReportsQuarantine(peerId) ? REPLICA_STATUS_QUARANTINED
+          : clusterMonitor != null ? clusterMonitor.getReplicaStatus(peerId).name() : "UNKNOWN";
       final long laggingForMs = clusterMonitor != null ? clusterMonitor.getReplicaLaggingForMs(peerId) : 0;
       samples.add(new HAReplicationStatsProvider.FollowerSample(
           peerId, matchIndex, nextIndex, lag, lastContactMs, status, laggingForMs));
     }
     return samples;
+  }
+
+  /** The {@code replicaStatus} of a peer that reports at least one database quarantined (SPORK incident 2026-11-12). */
+  public static final String REPLICA_STATUS_QUARANTINED = "QUARANTINED";
+
+  /** Whether {@code peerId}'s last resync report names a quarantined database. One empty-map test on a healthy cluster. */
+  boolean peerReportsQuarantine(final String peerId) {
+    final PeerCapabilityRegistry registry = getPeerCapabilityRegistry();
+    final PeerCapabilityRegistry.ResyncReport report = registry != null ? registry.resyncReportOf(peerId) : null;
+    return report != null && !report.quarantinedDatabases().isEmpty();
   }
 
   /**
@@ -7882,6 +7896,7 @@ public class RaftHAServer implements HealthMonitor.HealthTarget {
 
   private void recordPeerCapabilities(final long generation, final String peerId,
       final PeerCapabilityQuery.Advertisement advertisement) {
+    peerCapabilities.recordResyncReport(generation, peerId, advertisement.databaseResync());
     if (peerCapabilities.record(generation, peerId, advertisement.capabilities(), advertisement.version(),
         advertisement.serviceGap(), advertisement.quarantined()))
       LogManager.instance().log(this, Level.INFO,

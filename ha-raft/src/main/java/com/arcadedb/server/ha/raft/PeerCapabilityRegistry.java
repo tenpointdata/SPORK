@@ -18,6 +18,8 @@
  */
 package com.arcadedb.server.ha.raft;
 
+import com.arcadedb.serializer.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -81,6 +83,30 @@ public final class PeerCapabilityRegistry {
    * believed within twenty seconds.
    */
   static final long ADVERTISEMENT_TTL_MS = 4 * REFRESH_PERIOD_MS;
+
+  /**
+   * One peer's last reported per-database resync state (SPORK incident 2026-11-12, item 3) and when it was observed. Kept
+   * apart from {@link Advertisement} on purpose: a peer that is swapping a snapshot in answers the capability poll with a
+   * 503 for the length of the swap, and that failure forgets its advertisement. Its resync state must not go with it, or
+   * the leader would report the peer healthy for exactly the window in which it is replacing a database. Replaced by
+   * the next answer, dropped when the peer answers without one or leaves the configuration.
+   */
+  public record ResyncReport(JSONObject report, long observedAtMs) {
+    /** The databases the peer reported quarantined in this report, sorted; empty when none. */
+    public List<String> quarantinedDatabases() {
+      final JSONObject databases = report.getJSONObject("databases", null);
+      if (databases == null || databases.isEmpty())
+        return List.of();
+      final List<String> names = new ArrayList<>();
+      for (final String name : databases.keySet()) {
+        final JSONObject entry = databases.getJSONObject(name, null);
+        if (entry != null && entry.getBoolean("quarantined", false))
+          names.add(name);
+      }
+      Collections.sort(names);
+      return names;
+    }
+  }
 
   /** One peer's last successful answer. */
   public record Advertisement(Set<String> capabilities, String version, long observedAtMs, boolean serviceGap,
@@ -152,6 +178,9 @@ public final class PeerCapabilityRegistry {
    * operator-facing: {@link #peersMissing} never reads it, because every unknown is a "no" whatever produced it.
    */
   private final ConcurrentHashMap<String, Unknown>       unknownReasons = new ConcurrentHashMap<>();
+
+  /** Each peer's last per-database resync report, kept across a failed probe (see {@link ResyncReport}). */
+  private final ConcurrentHashMap<String, ResyncReport>  resyncReports  = new ConcurrentHashMap<>();
   private final long                                     ttlMs;
 
   /**
@@ -318,6 +347,7 @@ public final class PeerCapabilityRegistry {
       advertisements.clear();
       unknownReasons.clear();
       lastReported.clear();
+      resyncReports.clear();
     }
   }
 
@@ -395,7 +425,28 @@ public final class PeerCapabilityRegistry {
       // The report shadow goes with them, or a re-added peer's first advertisement is suppressed as "unchanged"
       // against what it said before it left (issue #7301).
       lastReported.keySet().retainAll(retained);
+      resyncReports.keySet().retainAll(retained);
     }
+  }
+
+  /**
+   * Records the per-database resync state {@code peerId} reported with its last answer (SPORK incident 2026-11-12), or
+   * drops the previous one when the answer carried none: a peer that answers without it has nothing behind the cluster.
+   */
+  public void recordResyncReport(final long generation, final String peerId, final JSONObject report) {
+    synchronized (writeLock) {
+      if (generation != this.generation)
+        return;
+      if (report == null)
+        resyncReports.remove(peerId);
+      else
+        resyncReports.put(peerId, new ResyncReport(report, clock.getAsLong()));
+    }
+  }
+
+  /** {@code peerId}'s last resync report, whatever its age, or {@code null} when its last answer carried none. */
+  public ResyncReport resyncReportOf(final String peerId) {
+    return resyncReports.isEmpty() ? null : resyncReports.get(peerId);
   }
 
   /** {@code peerId}'s last answer if it is still within the TTL, {@code null} when unknown or expired. */

@@ -2779,6 +2779,14 @@ public enum GlobalConfiguration {
       "Minimum interval in milliseconds between follower resync progress log lines (Raft log catch-up and snapshot download). Throttles progress output so a fast resync logs only start and finish.",
       Long.class, 5000L),
 
+  HA_RESYNC_LOOP_MAX_ATTEMPTS("arcadedb.ha.resyncLoopMaxAttempts", SCOPE.SERVER,
+      "How many times a follower may re-download the same database from the leader without the resync that asked for it completing, before it raises a SEVERE 'resync-loop' alert (GET /api/v1/cluster) and backs off exponentially instead of downloading again at line rate. A completed resync resets the count.",
+      Integer.class, 3),
+
+  HA_RESYNC_LOOP_BACKOFF_BASE("arcadedb.ha.resyncLoopBackoffBase", SCOPE.SERVER,
+      "Milliseconds a follower waits before re-downloading a database once arcadedb.ha.resyncLoopMaxAttempts is exceeded. Doubled on every further attempt that does not complete the resync, up to one hour.",
+      Long.class, 60_000L),
+
   HA_ADD_PEER_PROBE_TIMEOUT("arcadedb.ha.addPeerProbeTimeout", SCOPE.SERVER,
       "Milliseconds to wait for a TCP connection to a peer's Raft address before an add-peer request (POST /api/v1/cluster/peer, the 'connect cluster' command and the gRPC ConnectCluster RPC) is refused as unreachable, with HTTP 400 / gRPC INVALID_ARGUMENT naming the address. Ratis does not commit a Mode.ADD configuration change until the new peer has caught up, so naming a server that is not running cannot succeed - without this pre-flight probe the request instead held an HTTP worker thread for the whole membership-change retry budget and reported a serialized Ratis request object (issue #7514). The probe refuses only when the connection fails: a successful one is not proof of a healthy peer and changes nothing. Raise it on a network where a TCP handshake legitimately takes longer; set it to 0 to skip the probe entirely and restore the pre-7514 behaviour.",
       Long.class, 2000L),

@@ -113,6 +113,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -958,6 +959,12 @@ public class ArcadeStateMachine extends BaseStateMachine {
   // last cleared. Throttles the HealthMonitor-driven backstop, which ticks far more often than a full
   // multi-database resync costs.
   private final AtomicLong    lastStaleSnapshotRetryMs   = new AtomicLong();
+  // Wall-clock of the last "cannot retry the resync" INFO line of retryUnfilledSnapshotGap(), so a node that waits for a
+  // leader says why once per retry interval instead of saying nothing at all (SPORK incident 2026-11-12, restart).
+  private final AtomicLong    lastResyncWaitLogMs        = new AtomicLong();
+  // Counts re-downloads per database that did not complete a resync, and backs a looping one off (SPORK incident
+  // 2026-11-12). Built lazily from the server's configuration, which is only known after setServer().
+  private volatile ResyncLoopGuard resyncLoopGuard;
   // Per-database read floor (issue #6760), the per-database counterpart of staleSnapshotAppliedFloor above.
   //
   // A leader-driven install may "give up" on a database that failed to refresh ACQUIRE_GIVE_UP_AFTER times in a
@@ -1095,6 +1102,29 @@ public class ArcadeStateMachine extends BaseStateMachine {
     reconciler.setServer(server);
     // The Ratis-initiated installs go through the same #7958 install lock as every other install.
     reconciler.setInstallGate(this::runUnderInstallGate);
+  }
+
+  /**
+   * The per-database re-download counter (SPORK incident 2026-11-12): read by {@link ClusterAlerts} for the
+   * {@code resync-loop} alert and by the capability answer the leader reads for its per-peer status.
+   */
+  public ResyncLoopGuard getResyncLoopGuard() {
+    ResyncLoopGuard guard = resyncLoopGuard;
+    if (guard == null) {
+      synchronized (this) {
+        guard = resyncLoopGuard;
+        if (guard == null) {
+          final ArcadeDBServer localServer = this.server;
+          guard = localServer != null
+              ? new ResyncLoopGuard(localServer.getConfiguration().getValueAsInteger(GlobalConfiguration.HA_RESYNC_LOOP_MAX_ATTEMPTS),
+              localServer.getConfiguration().getValueAsLong(GlobalConfiguration.HA_RESYNC_LOOP_BACKOFF_BASE))
+              : new ResyncLoopGuard(GlobalConfiguration.HA_RESYNC_LOOP_MAX_ATTEMPTS.getValueAsInteger(),
+                  GlobalConfiguration.HA_RESYNC_LOOP_BACKOFF_BASE.getValueAsLong());
+          resyncLoopGuard = guard;
+        }
+      }
+    }
+    return guard;
   }
 
   /** The database reconciliation collaborator, used by {@code GetClusterHandler} and {@code ClusterAlerts}. */
@@ -1261,7 +1291,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
             if (needsSnapshotDownload.compareAndSet(true, false)) {
               LogManager.instance().log(this, Level.WARNING,
                   "Snapshot download watchdog: no leader change after %dms, triggering download directly", watchdogTimeoutMs);
-              triggerSnapshotDownload();
+              triggerSnapshotDownload("stale snapshot marker after restart (watchdog: no leader change)");
             }
           } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -2651,7 +2681,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
             "Unexpected error applying Raft entry for database '%s' at index %d; quarantining the database and "
                 + "triggering a targeted snapshot resync instead of halting the node (issue #4797): %s",
             databaseName, index, t.getMessage());
-        triggerDatabaseResync(databaseName);
+        triggerDatabaseResync(databaseName, quarantineCause(databaseName) + " at index " + index);
         handOffLeadershipIfLeader(databaseName);
       } else {
         LogManager.instance().log(this, Level.SEVERE,
@@ -3092,7 +3122,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
     if (needsSnapshotDownload.compareAndSet(true, false)) {
       LogManager.instance().log(this, Level.INFO,
           "Leader change detected, triggering pending snapshot download from leader %s", leaderName);
-      lifecycleExecutor.submit(this::triggerSnapshotDownload);
+      lifecycleExecutor.submit(() -> triggerSnapshotDownload("stale snapshot marker, leader change to " + leaderName));
     }
   }
 
@@ -3445,6 +3475,11 @@ public class ArcadeStateMachine extends BaseStateMachine {
           notInstalled.isEmpty() ? "ok" : "partial", snapshotIndex,
           leaderMissing.isEmpty() ? "" :
               ", kept without refresh because the leader does not hold them: " + leaderMissing);
+      // The install pass completed: every database it refreshed completed its resync (SPORK incident 2026-11-12)
+      if (server != null)
+        for (final String dbName : new ArrayList<>(server.getDatabaseNames()))
+          if (!notInstalled.contains(dbName))
+            getResyncLoopGuard().completed(dbName);
       // Only a reinstalled database loses its #6124 mark and its #8367 pending replacement: a given-up (#6760) or
       // LEADER_MISSING (#8588) one still holds the copy the bootstrap baseline rejected (issue #8702).
       final Set<String> notReplaced = notReplaced(notInstalled, leaderMissing);
@@ -4304,15 +4339,13 @@ public class ArcadeStateMachine extends BaseStateMachine {
     // trace) so the log is not flooded and the download is not starved of CPU/IO on small nodes.
     if (quarantineDatabase(databaseName, DivergenceCause.WAL_VERSION_GAP)) {
       LogManager.instance().log(this, Level.SEVERE,
-          "WAL version gap on follower - state divergence detected, triggering snapshot resync (db=%s, txId=%d): %s",
-          databaseName, txId, e.getMessage());
-      try {
-        lifecycleExecutor.submit(this::triggerSnapshotDownload);
-      } catch (final RejectedExecutionException ree) {
-        LogManager.instance().log(this, Level.WARNING,
-            "Cannot schedule immediate snapshot download after WAL gap (db=%s): executor is shut down",
-            ree, databaseName);
-      }
+          "WAL version gap on follower - state divergence detected, triggering a targeted snapshot resync of this "
+              + "database only (db=%s, txId=%d, index=%d): %s", databaseName, txId, entryIndex, e.getMessage());
+      // TARGETED, not the full resync of every database (SPORK incident 2026-11-12). Only this database diverged; a full
+      // resync re-downloads every healthy database first - 10.8 GB per round in the incident - and is what the
+      // quarantine path of handleUnexpectedApplyError has always done. triggerDatabaseResync logs its own scheduling
+      // failure.
+      triggerDatabaseResync(databaseName, "WAL version gap at index " + entryIndex);
       handOffLeadershipIfLeader(databaseName);
     } else if (shouldLogDivergedResync(databaseName)) {
       LogManager.instance().log(this, Level.INFO,
@@ -5435,7 +5468,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
       try {
         // install() keeps the database open during the download and rolls back on failure, so a
         // failed restore never leaves it closed.
-        installLeaderCopy(databaseName, leaderHttpAddr, leaderHttpsAddr, clusterToken);
+        installLeaderCopy(databaseName, leaderHttpAddr, leaderHttpsAddr, clusterToken,
+            "forced reinstall entry at index " + entryIndex, true);
       } catch (final IOException e) {
         throw new RuntimeException("Failed to install snapshot for restored database '" + databaseName + "'", e);
       }
@@ -5857,7 +5891,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
    */
   private void retryBootstrapReplacement(final String dbName) {
     if (needsSnapshotDownload.compareAndSet(true, false))
-      triggerSnapshotDownload();
+      triggerSnapshotDownload("bootstrap replacement retry of database '" + dbName + "'");
     else
       // Another path (notifyLeaderChanged or the watchdog) already cleared the flag and is driving
       // the download; skip this retry. Logged so operators can trace why this submission did nothing.
@@ -5996,12 +6030,12 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * waiting entries are applied to it, which is correct: nothing replaced it.
    */
   private void installLeaderCopy(final String dbName, final Supplier<String> leaderHttpAddr,
-      final Supplier<String> leaderHttpsAddr, final String clusterToken) throws IOException {
-    installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken, null);
+      final Supplier<String> leaderHttpsAddr, final String clusterToken, final String cause) throws IOException {
+    installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken, null, cause, true);
   }
 
   /**
-   * As {@link #installLeaderCopy(String, Supplier, Supplier, String)}, first running {@code underGate} (when not
+   * As {@link #installLeaderCopy(String, Supplier, Supplier, String, String)}, first running {@code underGate} (when not
    * {@code null}) with the install lock held and before anything is downloaded, fed the highest index applied to this
    * database under that lock. It may throw to abandon the install with the local copy untouched (issue #8490).
    * <p>
@@ -6011,10 +6045,11 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * (issue #8579), exactly as {@link #installLeaderCopy} describes.
    */
   private void installLeaderCopy(final String dbName, final Supplier<String> leaderHttpAddr,
-      final Supplier<String> leaderHttpsAddr, final String clusterToken, final LongConsumer underGate) throws IOException {
+      final Supplier<String> leaderHttpsAddr, final String clusterToken, final LongConsumer underGate, final String cause,
+      final boolean completesResync) throws IOException {
     // Read once: the field is volatile, and the path and the install must be about the same server.
     final ArcadeDBServer localServer = this.server;
-    runUnderInstallGate(dbName, underGate, -1L, () -> SnapshotInstaller.install(dbName,
+    runUnderInstallGate(dbName, underGate, -1L, cause, completesResync, () -> SnapshotInstaller.install(dbName,
         SnapshotInstaller.resolveDatabasePath(localServer, dbName), leaderHttpAddr, leaderHttpsAddr, clusterToken,
         localServer));
   }
@@ -6026,7 +6061,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * below the snapshot while the reconciler replaces the copy they target.
    */
   void runUnderInstallGate(final String dbName, final DatabaseReconciler.InstallAction install) throws IOException {
-    runUnderInstallGate(dbName, null, -1L, install);
+    runUnderInstallGate(dbName, null, -1L, LEADER_INSTALL_CAUSE, false, install);
   }
 
   /**
@@ -6039,11 +6074,31 @@ public class ArcadeStateMachine extends BaseStateMachine {
    */
   void runUnderInstallGate(final String dbName, final long installedBoundaryIndex,
       final DatabaseReconciler.InstallAction install) throws IOException {
-    runUnderInstallGate(dbName, null, installedBoundaryIndex, install);
+    runUnderInstallGate(dbName, null, installedBoundaryIndex, LEADER_INSTALL_CAUSE, false, install);
   }
 
   private void runUnderInstallGate(final String dbName, final LongConsumer underGate, final long installedBoundaryIndex,
-      final DatabaseReconciler.InstallAction install) throws IOException {
+      final String cause, final boolean completesResync, final DatabaseReconciler.InstallAction install)
+      throws IOException {
+    // Every install is counted and logged here, the one choke point every driver shares (SPORK incident 2026-11-12: a
+    // follower re-downloaded two healthy databases for 12 hours with nothing logged between two downloads). Only the
+    // completion of the resync that drove it resets the count, so a resync that keeps re-installing without ever
+    // finishing trips the guard whether each install fails or succeeds.
+    final ResyncLoopGuard guard = getResyncLoopGuard();
+    final ResyncLoopGuard.Episode episode = guard.beginAttempt(dbName, cause);
+    LogManager.instance().log(this, Level.INFO,
+        "Resync of database '%s': installing the leader's copy (cause: %s; attempt %d since its last completed resync)",
+        dbName, cause, episode.attempts());
+    if (episode.tripped())
+      LogManager.instance().log(this, Level.SEVERE,
+          "Resync loop on database '%s': re-downloaded %d times without the resync completing (limit %d, '%s'). Cause of "
+              + "this attempt: %s; last outcome: %s. Further resyncs of it back off for %d ms; see the resync-loop alert "
+              + "of GET /api/v1/cluster", dbName, episode.attempts(), guard.maxAttempts(),
+          GlobalConfiguration.HA_RESYNC_LOOP_MAX_ATTEMPTS.getKey(), cause,
+          episode.lastOutcome() != null ? episode.lastOutcome() : "none recorded",
+          Math.max(0L, episode.backoffUntilMs() - System.currentTimeMillis()));
+    final long startedAtNanos = System.nanoTime();
+    boolean installed = false;
     // Registered for the whole install (issue #8491): from here until the finally below this node is replacing its copy
     // and cannot serve the database, so it must not stay leader - see databasesBeingReplaced.
     beginDatabaseReplacement(dbName);
@@ -6085,13 +6140,40 @@ public class ArcadeStateMachine extends BaseStateMachine {
         // resync, the bootstrap-mismatch retry and the Ratis-initiated one alike. Success only and before the unlock,
         // for the same reasons as the boundary above; -1 when the install downloaded nothing or the leader did not say.
         gate.recordServedCopy(servedAt);
+        installed = true;
       } finally {
         gate.unlock();
       }
+    } catch (final IOException | RuntimeException e) {
+      // The root cause too: the outer message of a failed download only says how many attempts were made
+      Throwable root = e;
+      while (root.getCause() != null && root.getCause() != root)
+        root = root.getCause();
+      final String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+      final String outcome = "failed: " + message
+          + (root != e && root.getMessage() != null && !message.contains(root.getMessage()) ? " (" + root.getMessage() + ")" : "");
+      guard.recordOutcome(dbName, outcome);
+      LogManager.instance().log(this, Level.WARNING, "Resync of database '%s' %s after %d ms (cause: %s)", dbName, outcome,
+          TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos), cause);
+      throw e;
     } finally {
       endDatabaseReplacement(dbName);
     }
+    if (installed) {
+      final long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos);
+      if (completesResync)
+        guard.completed(dbName);
+      else
+        guard.recordOutcome(dbName, "installed, waiting for the resync pass to complete");
+      LogManager.instance().log(this, Level.INFO,
+          "Resync of database '%s': the leader's copy is installed and open after %d ms (cause: %s)%s", dbName,
+          elapsedMs, cause, completesResync ? "" : "; the resync pass goes on with the next database");
+    }
   }
+
+  /** The cause the Ratis-initiated installs are logged and counted under. */
+  private static final String LEADER_INSTALL_CAUSE = "leader-initiated snapshot install (this node's log is behind the "
+      + "leader's compacted log start)";
 
   /** Registers one more install of {@code dbName} in flight on this node (issue #8491). */
   private void beginDatabaseReplacement(final String dbName) {
@@ -6340,10 +6422,10 @@ public class ArcadeStateMachine extends BaseStateMachine {
     return lastAppliedIndex.get();
   }
 
-  /** {@link #installLeaderCopy(String, Supplier, Supplier, String)} with addresses resolved once, by the caller. */
+  /** {@link #installLeaderCopy(String, Supplier, Supplier, String, String)} with addresses resolved once, by the caller. */
   private void installLeaderCopy(final String dbName, final String leaderHttpAddr, final String leaderHttpsAddr,
-      final String clusterToken) throws IOException {
-    installLeaderCopy(dbName, () -> leaderHttpAddr, () -> leaderHttpsAddr, clusterToken);
+      final String clusterToken, final String cause, final boolean completesResync) throws IOException {
+    installLeaderCopy(dbName, () -> leaderHttpAddr, () -> leaderHttpsAddr, clusterToken, null, cause, completesResync);
   }
 
   /**
@@ -6390,7 +6472,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
       // Resolved through the same guard as every other snapshot pull: the supplier answers null - which
       // install() treats as "no leader to pull from" and retries - rather than handing back an address that
       // names this node or no single peer (issue #6202).
-      installLeaderCopy(dbName, this::guardedLeaderHttpAddress, this::guardedLeaderHttpsAddress, clusterToken);
+      installLeaderCopy(dbName, this::guardedLeaderHttpAddress, this::guardedLeaderHttpsAddress, clusterToken,
+          "bootstrap baseline mismatch");
       LogManager.instance().log(this, Level.INFO,
           "Database '%s' reinstalled after bootstrap mismatch", dbName);
       clearBootstrapUnreconciled(dbName);
@@ -6775,7 +6858,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
         if (server.existsDatabase(dbName) || !SnapshotInstaller.isUnverifiedClosedCopy(server, dbName))
           return ReinstallOutcome.SETTLED;
         try {
-          installLeaderCopy(dbName, source.httpAddress(), source.httpsAddress(), clusterToken);
+          installLeaderCopy(dbName, source.httpAddress(), source.httpsAddress(), clusterToken,
+              "re-verification of an unverified closed copy", true);
         } catch (final LeaderDoesNotHoldDatabaseException e) {
           // The leader closed it again between its answer and the download: the copy keeps its mark.
           HALog.log(this, HALog.BASIC, "Database '%s' stays closed and unverified on this follower: %s", dbName,
@@ -7144,7 +7228,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
       // leaves the database closed (the cause of the operator-visible DatabaseIsClosedException).
       final String clusterToken = raft.getClusterToken();
       installLeaderCopy(dbName, this::guardedLeaderHttpAddress, this::guardedLeaderHttpsAddress, clusterToken,
-          order == null ? null : appliedUnderGate -> checkStalledResyncOrder(raft, dbName, order, appliedUnderGate));
+          order == null ? null : appliedUnderGate -> checkStalledResyncOrder(raft, dbName, order, appliedUnderGate),
+          order != null ? "stalled-replica order from the leader" : "operator request", true);
       LogManager.instance().log(this, Level.INFO, "Database '%s' resynced from leader on %s", dbName,
           order != null ? "the leader's stalled-replica recovery" : "operator request");
       // This is the action the bootstrap-divergence alert asks the operator for: the local copy the
@@ -8901,11 +8986,37 @@ public class ArcadeStateMachine extends BaseStateMachine {
 
   // @VisibleForTesting
   void triggerSnapshotDownload() {
+    triggerSnapshotDownload("requested");
+  }
+
+  /**
+   * The full resync: reinstalls every database present on this node from the leader. Only for a node-wide gap (a stale
+   * snapshot marker, a persistent lag, a bootstrap replacement): a quarantined database is resynced on its own, by
+   * {@link #triggerDatabaseResync}.
+   *
+   * @param cause why the full resync is requested, quoted in its log lines
+   */
+  void triggerSnapshotDownload(final String cause) {
     // Read once and use that local everywhere below, including inside downloadAllDatabasesFrom, which needs the
     // cluster token: the guard here is only a guard if nothing after it re-reads the field (issue #7253).
     final RaftHAServer raftHA = this.raftHAServer;
     if (raftHA == null || server == null)
       return;
+    // A database the loop guard tripped holds the whole pass back for its back-off: the pass would re-download it, and
+    // every other database with it, at line rate (SPORK incident 2026-11-12). The floor stays, so the retry tick asks
+    // again once the back-off has run out.
+    for (final ResyncLoopGuard.Episode tripped : getResyncLoopGuard().tripped()) {
+      final long backoff = getResyncLoopGuard().backoffRemainingMs(tripped.database());
+      if (backoff > 0) {
+        LogManager.instance().log(this, Level.INFO,
+            "Full snapshot resync (cause: %s) deferred for %d ms: database '%s' was re-downloaded %d times without a "
+                + "resync completing and is backing off (see the resync-loop alert)", cause, backoff,
+            tripped.database(), tripped.attempts());
+        if (staleSnapshotAppliedFloor.get() >= 0)
+          needsSnapshotDownload.set(true);
+        return;
+      }
+    }
     // Single-flight guard: multiple recovery paths (reinitialize watchdog, notifyLeaderChanged,
     // stale-follower recovery from the HealthMonitor) can request a download. Only one may run at
     // a time; concurrent requests are dropped. The flag also feeds isSnapshotDownloadPending() so
@@ -8933,12 +9044,12 @@ public class ArcadeStateMachine extends BaseStateMachine {
           LogManager.instance().log(this, Level.WARNING, "Refusing a snapshot resync: %s", source.refusal());
           return;
         }
-        downloadAllDatabasesFrom(source, raftHA.getClusterToken());
+        downloadAllDatabasesFrom(source, raftHA.getClusterToken(), cause);
       } finally {
         snapshotDownloadLock.unlock();
       }
     } catch (final Exception e) {
-      LogManager.instance().log(this, Level.SEVERE, "Snapshot resync failed", e);
+      LogManager.instance().log(this, Level.SEVERE, "Snapshot resync failed (cause: " + cause + ")", e);
       // The node is still short of the entries the marker claims, so the read floor stays and the
       // request is re-armed rather than left cleared: a later leader change picks it up. The retry that
       // does NOT depend on an election is retryUnfilledSnapshotGap(), driven by the HealthMonitor tick -
@@ -8981,22 +9092,44 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * every other database with it. Its copy is kept, still registered and served; any other failure of a registered
    * database still fails the whole resync, which keeps the node-wide floor and re-arms it.
    */
-  private void downloadAllDatabasesFrom(final PeerDialAddress source, final String clusterToken) throws IOException {
+  private void downloadAllDatabasesFrom(final PeerDialAddress source, final String clusterToken, final String cause)
+      throws IOException {
     final String leaderHttpAddr = source.httpAddress();
     final String leaderHttpsAddr = source.httpsAddress();
+    final long startedAtNanos = System.nanoTime();
     int resynced = 0;
     // Copies the leader does not hold: neither installed nor quarantined, so they are in neither set below, and nothing
     // replaced them either - so their bootstrap-divergence marks are theirs to keep (issues #8559, #8588).
     final Set<String> leaderMissing = new HashSet<>();
-    for (final String dbName : server.getDatabaseNames()) {
+    // Every database this pass installed, so the loop guard is told the pass completed for each of them at the end.
+    final List<String> installedByThisPass = new ArrayList<>();
+    // A COPY of the registry's names, sorted, and NEVER the live view (SPORK incident 2026-11-12). getDatabaseNames() is
+    // a view of a ConcurrentHashMap's key set, and every install below removes the database from that map and puts it
+    // back (closeAndDeregister, then the reopen). A removed node keeps its stale next pointer while the re-put appends a
+    // fresh node at the tail of the same bin, so two databases sharing a bin ('dev_testing' and 'stress_spork_b8' in a
+    // 16-bin table) sent the weakly consistent iterator back and forth between them for ever: each round re-downloaded
+    // both, logged nothing, never reached the databases in the bins after them - the diverged one among them - and never
+    // reached the "completed" line below.
+    final List<String> registeredNames = new ArrayList<>(server.getDatabaseNames());
+    Collections.sort(registeredNames);
+    LogManager.instance().log(this, Level.INFO,
+        "Full snapshot resync from leader %s starting (cause: %s): reinstalling the registered database(s) %s, then any "
+            + "database closed on this node", leaderHttpAddr, cause, registeredNames);
+    for (final String dbName : registeredNames) {
       // A node-local database (HA_LOCAL_DATABASES, SPORK E26) is not the group's: nothing the leader holds replaces it
       if (server.isHALocalDatabase(dbName))
         continue;
       // install() keeps the database open during the download and rolls back on failure, so a
       // watchdog-triggered resync never leaves it closed.
       if (server.existsDatabase(dbName)) {
+        // Defence in depth for the loop above: should anything ever re-visit a database inside one pass, the guard trips
+        // on the attempt past its limit and the next visit ends the pass here instead of downloading again
+        final long backoff = getResyncLoopGuard().backoffRemainingMs(dbName);
+        if (backoff > 0)
+          throw new IOException("Full snapshot resync stopped at database '" + dbName + "': it was re-downloaded too "
+              + "often without a resync completing and backs off for another " + backoff + " ms");
         try {
-          installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken);
+          installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken, "full resync: " + cause, false);
         } catch (final LeaderDoesNotHoldDatabaseException e) {
           // The same leader answers the same 404 on every retry, so failing the whole resync for it kept the node-wide
           // floor for good (issue #8588). Reported as the auto-acquire reconcile reports it, the copy kept and served.
@@ -9004,6 +9137,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
           leaderMissing.add(dbName);
           continue;
         }
+        installedByThisPass.add(dbName);
         reconciler.clearLeaderMissing(dbName);
         // Per database, right after its own install, rather than once at the end: a later database failing must
         // not leave this one reported as still carrying the copy the bootstrap baseline rejected (issue #8367).
@@ -9015,7 +9149,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
     final Set<String> notInstalled = new HashSet<>();
     for (final String dbName : SnapshotInstaller.closedDatabaseNames(server)) {
       try {
-        installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken);
+        installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken, "full resync (closed copy): " + cause,
+            false);
       } catch (final LeaderDoesNotHoldDatabaseException e) {
         // Not a failed install (issue #8559): the leader does not hold it, and a quarantine - node-wide in its readiness
         // effect - would wait for an install that the same leader refuses on every retry. Reported the way the
@@ -9044,13 +9179,19 @@ public class ArcadeStateMachine extends BaseStateMachine {
       LogManager.instance().log(this, Level.INFO,
           "Snapshot resync reinstalled database '%s', which was closed on this node: it is open again (issue #8464)",
           dbName);
+      installedByThisPass.add(dbName);
       reconciler.clearLeaderMissing(dbName);
       settleBootstrapReplacement(dbName);
       resynced++;
     }
 
     LogManager.instance().log(this, Level.INFO,
-        "Snapshot resync completed: reinstalled %d database(s) from the leader; diverged state cleared", resynced);
+        "Full snapshot resync completed in %d ms (cause: %s): reinstalled %d database(s) from the leader %s%s",
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos), cause, resynced, installedByThisPass,
+        notInstalled.isEmpty() ? "; diverged state cleared" : "; not reinstalled, kept quarantined: " + notInstalled);
+    // The pass reached its end, so every database it installed completed its resync (SPORK incident 2026-11-12)
+    for (final String dbName : installedByThisPass)
+      getResyncLoopGuard().completed(dbName);
     if (notInstalled.isEmpty()) {
       clearDivergedState();
       // Every present database now carries the leader's copy, including any the bootstrap overwrite guard
@@ -9233,8 +9374,21 @@ public class ArcadeStateMachine extends BaseStateMachine {
     // local address cannot be resolved isOwnHttpAddress answers false, so the request goes through and that
     // warning is emitted once by the resync, which is where it is actionable.
     final String leaderHttpAddr = raftHA.getUnambiguousPeerHttpAddress(raftHA.getLeaderId());
-    if (leaderHttpAddr == null || raftHA.isOwnHttpAddress(leaderHttpAddr))
-      return; // nowhere to download from yet; notifyLeaderChanged() drives the first attempt
+    if (leaderHttpAddr == null || raftHA.isOwnHttpAddress(leaderHttpAddr)) {
+      // Nowhere to download from yet; notifyLeaderChanged() drives the first attempt. Said at INFO once per retry
+      // interval: a restarted node with a database still quarantined and no leader (no quorum) otherwise waits without a
+      // word, which is what an operator saw for three minutes in the SPORK incident of 2026-11-12.
+      final long now = System.currentTimeMillis();
+      final long lastLog = lastResyncWaitLogMs.get();
+      if (now - lastLog >= computeSnapshotWatchdogTimeoutMs() && lastResyncWaitLogMs.compareAndSet(lastLog, now))
+        LogManager.instance().log(this, Level.INFO,
+            "Resync pending but not started: %s; %s. It starts as soon as a leader this node can download from is known",
+            !quarantined.isEmpty() ? "database(s) " + new TreeSet<>(quarantined) + " quarantined"
+                : "local state behind the snapshot marker",
+            leaderHttpAddr == null ? "no leader is known (leaderId=" + raftHA.getLeaderId() + ")"
+                : "the leader address " + leaderHttpAddr + " is this node's own");
+      return;
+    }
 
     // Only a quarantine outstanding: leave out the databases the leader holds quarantined too (issue #9553). Their only
     // possible source refuses to serve them, so a resync of them cannot succeed until an operator acts - the
@@ -9273,7 +9427,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
             "Not retrying the targeted resync of %s: the leader holds them quarantined too and cannot serve them "
                 + "(issue #9553)", quarantined.stream().filter(db -> !toResync.contains(db)).sorted().toList());
       for (final String dbName : toResync)
-        triggerDatabaseResync(dbName);
+        triggerDatabaseResync(dbName, "retry of a quarantine still standing (" + quarantineCause(dbName) + ")");
       return;
     }
 
@@ -9282,7 +9436,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
             + "snapshot index=%s) with no download in flight: retrying the resync from the leader "
             + "(issues #6111, #6760)", floor, staleDatabaseAppliedFloors.keySet());
     try {
-      lifecycleExecutor.submit(this::triggerSnapshotDownload);
+      lifecycleExecutor.submit(() -> triggerSnapshotDownload("retry of an unfilled stale-snapshot gap"));
     } catch (final RejectedExecutionException ree) {
       LogManager.instance().log(this, Level.WARNING,
           "Cannot schedule the stale-snapshot resync retry: executor is shut down", ree);
@@ -9465,11 +9619,19 @@ public class ArcadeStateMachine extends BaseStateMachine {
    * <p>
    * Participates in the same {@link #snapshotDownloadInProgress} single-flight protocol as
    * {@link #triggerSnapshotDownload()} so a targeted resync never overlaps a full download; if a full
-   * download is already running it reinstalls this database too, so skipping here is safe. A skipped
-   * resync is recovered by the {@link HealthMonitor} persistent-lag backstop ({@link #recoverFromPersistentLag()}).
-   * No-op when there is no leader/server context or the lifecycle executor is shutting down.
+   * download is already running it does NOT necessarily reinstall this database (a full resync only covers the
+   * databases present when it listed them, and one that loops never reaches the end of its list - SPORK incident
+   * 2026-11-12), so a skipped request is logged at INFO and re-driven by {@link #retryUnfilledSnapshotGap()} on the next
+   * {@link HealthMonitor} tick, for as long as the quarantine stands.
+   * <p>
+   * Every step is logged at INFO with the database and {@code cause}; the install itself is counted by the
+   * {@link ResyncLoopGuard} in {@link #runUnderInstallGate}, and a database it has tripped is not downloaded again
+   * until its back-off has run out. No-op when there is no leader/server context or the lifecycle executor is shutting
+   * down.
+   *
+   * @param cause why the resync is requested, quoted in every log line of it
    */
-  private void triggerDatabaseResync(final String dbName) {
+  private void triggerDatabaseResync(final String dbName, final String cause) {
     // A cheap early-out, not the guard: nothing below relies on this read, which is why it may be a separate one.
     if (raftHAServer == null || server == null)
       return;
@@ -9482,19 +9644,29 @@ public class ArcadeStateMachine extends BaseStateMachine {
         // for the whole operation, and that instance current as of the operation (issue #7253).
         final RaftHAServer raftHA = this.raftHAServer;
         if (raftHA == null) {
-          HALog.log(this, HALog.BASIC,
-              "Skipping targeted resync of '%s': the HA server was torn down before the task ran", dbName);
+          LogManager.instance().log(this, Level.INFO,
+              "Skipping targeted resync of '%s' (cause: %s): the HA server was torn down before the task ran", dbName,
+              cause);
+          return;
+        }
+        final long backoff = getResyncLoopGuard().backoffRemainingMs(dbName);
+        if (backoff > 0) {
+          LogManager.instance().log(this, Level.INFO,
+              "Targeted resync of '%s' (cause: %s) deferred: it was re-downloaded too often without completing, so it "
+                  + "backs off for another %d ms (see the resync-loop alert)", dbName, cause, backoff);
           return;
         }
         if (!snapshotDownloadInProgress.compareAndSet(false, true)) {
-          HALog.log(this, HALog.BASIC, "Snapshot download already in progress, skipping targeted resync of '%s'", dbName);
+          LogManager.instance().log(this, Level.INFO,
+              "Targeted resync of '%s' (cause: %s) not started: another snapshot download is in progress; the health "
+                  + "check retries it while the database stays quarantined", dbName, cause);
           return;
         }
         try {
           if (!snapshotDownloadLock.tryLock()) {
-            HALog.log(this, HALog.BASIC,
-                "Snapshot download already in progress (leader-initiated install), skipping targeted resync of '%s'",
-                dbName);
+            LogManager.instance().log(this, Level.INFO,
+                "Targeted resync of '%s' (cause: %s) not started: a leader-initiated install is in progress; the "
+                    + "health check retries it while the database stays quarantined", dbName, cause);
             return;
           }
           try {
@@ -9504,12 +9676,16 @@ public class ArcadeStateMachine extends BaseStateMachine {
             final PeerDialAddress source = resolveSnapshotSource(raftHA.getLeaderId());
             if (source.refused()) {
               LogManager.instance().log(this, Level.WARNING,
-                  "Refusing a targeted snapshot resync of quarantined database '%s': %s", dbName, source.refusal());
+                  "Refusing a targeted snapshot resync of quarantined database '%s' (cause: %s): %s", dbName, cause,
+                  source.refusal());
               return;
             }
             final String leaderHttpAddr = source.httpAddress();
             final String leaderHttpsAddr = source.httpsAddress();
             final String clusterToken = raftHA.getClusterToken();
+            LogManager.instance().log(this, Level.INFO,
+                "Targeted snapshot resync of database '%s' from leader %s starting (cause: %s); no other database is "
+                    + "downloaded", dbName, leaderHttpAddr, cause);
             // install() keeps the database open during the download and rolls back on failure, so a
             // targeted resync never leaves it closed. A database closed on this node is reinstalled too (issue
             // #8464): its directory is still here and the next request reopens it, so skipping it left the
@@ -9525,7 +9701,8 @@ public class ArcadeStateMachine extends BaseStateMachine {
             // which leaves the quarantine standing for the next tick, the same as for a present copy.
             final boolean presentLocally = isDatabasePresentLocally(dbName);
             try {
-              installLeaderCopy(dbName, leaderHttpAddr, leaderHttpsAddr, clusterToken);
+              installLeaderCopy(dbName, () -> leaderHttpAddr, () -> leaderHttpsAddr, clusterToken, null,
+                  "targeted resync: " + cause, true);
             } catch (final LeaderDoesNotHoldDatabaseException e) {
               // A quarantined copy the leader does not hold would otherwise be retried against the same 404 on every
               // health tick, holding the node out of the ready set for good - which is also how a quarantine raised
@@ -9534,6 +9711,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
               // With no copy on this node (issue #8067) there is nothing to mark as an unverified closed copy.
               try {
                 reportDatabaseTheLeaderDoesNotHold(dbName, presentLocally && !server.existsDatabase(dbName), e);
+                getResyncLoopGuard().completed(dbName);
               } catch (final IOException markFailure) {
                 // The quarantine stays standing: without the mark it is what keeps the closed copy from being
                 // reopened (issue #8589).
@@ -9543,18 +9721,20 @@ public class ArcadeStateMachine extends BaseStateMachine {
               }
               return;
             }
-            LogManager.instance().log(this, Level.INFO,
-                "Targeted snapshot resync of quarantined database '%s' completed", dbName);
             reconciler.clearLeaderMissing(dbName);
             clearDivergedDatabase(dbName);
             clearBootstrapUnreconciled(dbName);
             settleBootstrapReplacement(dbName);
+            LogManager.instance().log(this, Level.INFO,
+                "Targeted snapshot resync of quarantined database '%s' completed (cause: %s): quarantine lifted", dbName,
+                cause);
           } finally {
             snapshotDownloadLock.unlock();
           }
         } catch (final Exception e) {
           LogManager.instance().log(this, Level.SEVERE,
-              "Targeted snapshot resync of quarantined database '" + dbName + "' failed", e);
+              "Targeted snapshot resync of quarantined database '" + dbName + "' failed (cause: " + cause
+                  + "); the database stays quarantined and the health check retries it", e);
         } finally {
           snapshotDownloadInProgress.set(false);
         }
@@ -9828,7 +10008,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
             + "(%s), so no other node holds it: quarantining the database and resyncing it from the leader now rather "
             + "than waiting for a later entry to collide with it (issues #9555, #9558)",
         session, dbName, describe(refusal));
-    triggerDatabaseResync(dbName);
+    triggerDatabaseResync(dbName, "unpublished " + session);
     handOffLeadershipIfLeader(dbName);
     return true;
   }
@@ -10007,6 +10187,70 @@ public class ArcadeStateMachine extends BaseStateMachine {
   Set<String> getQuarantinedDatabaseNames() {
     ensureAppliedIndexLoaded();
     return divergedDatabases.isEmpty() ? Set.of() : Set.copyOf(divergedDatabases.keySet());
+  }
+
+  /** The resync state of a database as reported to the leader: the install is running now. */
+  static final String RESYNC_STATE_INSTALLING   = "INSTALLING";
+  /** The loop guard tripped and the next download waits for its back-off. */
+  static final String RESYNC_STATE_BACKING_OFF  = "BACKING_OFF";
+  /** Quarantined (or behind its read floor), waiting for the next resync attempt. */
+  static final String RESYNC_STATE_PENDING      = "PENDING";
+  /** Not quarantined, re-installed by a resync pass that has not completed yet. */
+  static final String RESYNC_STATE_IN_PASS      = "IN_PASS";
+
+  /**
+   * What this node tells the leader about the databases it holds behind the cluster, in its capability answer (SPORK
+   * incident 2026-11-12, item 3): for 12 hours the leader reported every follower {@code HEALTHY} with
+   * {@code replicationLag 0} - Raft's matchIndex, which a quarantine does not hold back - while each of them had a
+   * database quarantined and applied nothing to it. Per database: whether it is quarantined and why, the index applied
+   * to it, its read floor, and the state of its resync with the loop guard's count.
+   *
+   * @return {@code null} when there is nothing to report, which is every poll of a healthy node: the answer then stays
+   * byte-identical to what it was before this field, and nothing is allocated
+   */
+  JSONObject getDatabaseResyncReport() {
+    ensureAppliedIndexLoaded();
+    final ResyncLoopGuard guard = getResyncLoopGuard();
+    if (divergedDatabases.isEmpty() && staleDatabaseAppliedFloors.isEmpty() && guard.isIdle()
+        && databasesBeingReplaced.isEmpty())
+      return null;
+
+    final Set<String> names = new TreeSet<>(divergedDatabases.keySet());
+    names.addAll(staleDatabaseAppliedFloors.keySet());
+    names.addAll(guard.databases());
+    final JSONObject databases = new JSONObject();
+    for (final String dbName : names) {
+      final DivergenceCause cause = divergedDatabases.get(dbName);
+      final Long floor = staleDatabaseAppliedFloors.get(dbName);
+      final ResyncLoopGuard.Episode episode = guard.episodeOf(dbName);
+      final long backoff = guard.backoffRemainingMs(dbName);
+      final String state;
+      if (databasesBeingReplaced.containsKey(dbName))
+        state = RESYNC_STATE_INSTALLING;
+      else if (backoff > 0)
+        state = RESYNC_STATE_BACKING_OFF;
+      else if (cause != null || floor != null)
+        state = RESYNC_STATE_PENDING;
+      else
+        state = RESYNC_STATE_IN_PASS;
+      final JSONObject entry = new JSONObject()
+          .put("quarantined", cause != null)
+          .put("appliedIndex", readPersistedAppliedIndex(dbName))
+          .put("readFloor", floor != null ? floor : -1L)
+          .put("resyncState", state)
+          .put("resyncAttempts", episode != null ? episode.attempts() : 0)
+          .put("resyncLoop", episode != null && episode.tripped());
+      if (cause != null)
+        entry.put("cause", cause.name());
+      if (episode != null && episode.lastCause() != null)
+        entry.put("lastResyncCause", episode.lastCause());
+      if (episode != null && episode.lastOutcome() != null)
+        entry.put("lastResyncOutcome", episode.lastOutcome());
+      if (backoff > 0)
+        entry.put("backoffRemainingMs", backoff);
+      databases.put(dbName, entry);
+    }
+    return new JSONObject().put("appliedIndex", lastAppliedIndex.get()).put("databases", databases);
   }
 
   /**
@@ -10199,7 +10443,7 @@ public class ArcadeStateMachine extends BaseStateMachine {
     LogManager.instance().log(this, Level.WARNING,
         "Persistent follower lag detected (applied=%d, commit=%d): re-arming snapshot download from leader",
         lastAppliedIndex.get(), raftHA.getFollowerCommitIndex());
-    lifecycleExecutor.submit(this::triggerSnapshotDownload);
+    lifecycleExecutor.submit(() -> triggerSnapshotDownload("persistent follower lag"));
   }
 
   @Override

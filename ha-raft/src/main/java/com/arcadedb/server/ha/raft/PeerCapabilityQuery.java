@@ -91,12 +91,21 @@ public final class PeerCapabilityQuery {
    * omits it, which relays nothing.
    */
   public record Advertisement(String peerId, String version, Set<String> capabilities, boolean serviceGap,
-      Set<String> quarantined, Map<String, String> peerHttpAddresses) {
+      Set<String> quarantined, Map<String, String> peerHttpAddresses, JSONObject databaseResync) {
     public Advertisement {
       if (quarantined == null)
         quarantined = Set.of();
       if (peerHttpAddresses == null)
         peerHttpAddresses = Map.of();
+    }
+
+    /**
+     * Without {@code databaseResync} (SPORK incident 2026-11-12): the peer reported none, which is every healthy peer and
+     * every build that predates the field.
+     */
+    public Advertisement(final String peerId, final String version, final Set<String> capabilities,
+        final boolean serviceGap, final Set<String> quarantined, final Map<String, String> peerHttpAddresses) {
+      this(peerId, version, capabilities, serviceGap, quarantined, peerHttpAddresses, null);
     }
 
     public Advertisement(final String peerId, final String version, final Set<String> capabilities) {
@@ -283,8 +292,12 @@ public final class PeerCapabilityQuery {
         quarantined.add(quarantinedArray.getString(i));
     }
 
+    // A malformed resync report is dropped, never the answer it came with: it only feeds the status document
+    final JSONObject databaseResync = json.opt(PostCapabilitiesHandler.DATABASE_RESYNC) instanceof JSONObject report ?
+        report : null;
     return new Advertisement(peerId, json.getString("version", ""), capabilities,
-        json.getBoolean(PostCapabilitiesHandler.SERVICE_GAP, false), quarantined, readPeerHttpAddresses(json, url));
+        json.getBoolean(PostCapabilitiesHandler.SERVICE_GAP, false), quarantined, readPeerHttpAddresses(json, url),
+        databaseResync);
   }
 
   /**

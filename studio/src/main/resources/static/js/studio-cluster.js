@@ -725,6 +725,8 @@ function replicaStatusStyle(status) {
     case "CATCHING_UP":    return { badge: "bg-info",      dot: "deepskyblue" };
     case "FALLING_BEHIND": return { badge: "bg-warning",   dot: "orange" };
     case "STALLED":        return { badge: "bg-danger",    dot: "crimson" };
+    // The peer holds a database quarantined: it applies nothing to it and serves no read of it (SPORK 2026-11-12)
+    case "QUARANTINED":    return { badge: "bg-danger",    dot: "crimson" };
     default:               return { badge: "bg-secondary", dot: "limegreen" }; // UNKNOWN / leader / no data
   }
 }
