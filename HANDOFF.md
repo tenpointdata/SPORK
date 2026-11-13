@@ -24,6 +24,7 @@ hot data.
 | Encoder sidecar client (ONNX text encoding) | `spork-encoder/` |
 | Retrieval benchmark harness | `benchmarks/`; OrientDB 3.2.24 baseline in `benchmarks-orientdb/` (outside the reactor) |
 | Design docs | `docs/spork/` (start at its README) |
+| Inherited reactor, Studio and licensing guide | [docs/engineering/README.md](docs/engineering/README.md) |
 | End-user requirements and the design principles they impose | `docs/spork/10-analyst-requirements.md` (Recon analyst, 2026-11-05) |
 | Per-workstream docs with measured numbers | `docs/spork/workstreams/` |
 | Capacity model (every capacity number comes from it) | `docs/spork/model/budget.py` (`python3 docs/spork/model/budget.py`) |
