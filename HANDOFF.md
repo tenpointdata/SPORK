@@ -32,8 +32,6 @@ hot data.
 | Remote | `https://github.com/tenpointdata/SPORK` (private). **GitHub issues are disabled on it**, so open work is tracked in this file (see below) |
 | Deploy target | None yet. Production is a 4-node cluster (126 GB RAM each, no GPU, 4 TB drives); WS1 builds it |
 
-**Last updated:** 2026-11-09 08:09 MST, by local-agent-mode-eng-journal: Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Earlier hand-offs are under Deltas and in `ej handoff log`.
-
 - `main` is at `96092796b` plus this session's docs commit. No code changed since 2026-11-04; the changes on this
   date are to the plan.
 - The architecture is at review round 10 ([01-architecture.md](docs/spork/01-architecture.md)). The plan is scheduled by
