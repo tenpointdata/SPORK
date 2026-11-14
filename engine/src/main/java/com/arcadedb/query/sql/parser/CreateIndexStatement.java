@@ -25,6 +25,7 @@ import com.arcadedb.database.DatabaseInternal;
 import com.arcadedb.exception.AlreadyExistsException;
 import com.arcadedb.exception.CommandExecutionException;
 import com.arcadedb.exception.CommandSQLParsingException;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.index.Index;
 import com.arcadedb.index.IndexException;
 import com.arcadedb.index.TypeIndex;
@@ -348,7 +349,7 @@ public class CreateIndexStatement extends DDLStatement {
         // index on a SUB type covers strictly fewer buckets than the request, so it does not satisfy it.
         if (!coversRequestedType(database, existing, typeName)
             || !existing.getPropertyNames().equals(requestedProperties))
-          throw new IllegalArgumentException(
+          throw new IndexDefinitionConflictException(
               "Cannot create the index '" + indexName + "' on type '" + typeName + "' properties "
                   + requestedProperties + " because an index with that name already exists on type '" + existing.getTypeName()
                   + "' properties " + existing.getPropertyNames() + ". Drop it first or choose a different index name");
@@ -384,7 +385,13 @@ public class CreateIndexStatement extends DDLStatement {
         rs.add(result);
         return rs;
       } else {
-        throw new AlreadyExistsException(AlreadyExistsException.Kind.INDEX, "Index '" + indexName + "' already exists");
+        // The name derived for an unnamed statement is the name of the index already on these properties: say what it is
+        // when it is of another kind, or a request for a FULL_TEXT index beside a UNIQUE one reads as a plain duplicate
+        final Index existing = database.getSchema().getIndexByName(indexName);
+        throw new AlreadyExistsException(AlreadyExistsException.Kind.INDEX, "Index '" + indexName + "' already exists"
+            + (userProvidedName || existing == null || !existing.getPropertyNames().equals(List.of(fields)) ?
+            "" :
+            IndexBuilder.onePerPropertySetHint(existing, indexType, unique, List.of(fields))));
       }
     }
 

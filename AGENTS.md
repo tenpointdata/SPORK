@@ -4,10 +4,15 @@ Instructions for any coding agent working in this repository (Codex, Gemini CLI,
 
 - Start at [HANDOFF.md](HANDOFF.md): what SPORK is, where its pieces live, the current state, how to build and test, the
   open work, and the known gotchas.
+- The [engineering guide](docs/engineering/README.md) covers the inherited reactor, Studio, distribution and licensing.
+  Preserve upstream attribution, package coordinates, and API and file-format compatibility.
 - The coding rules for this repository (licence allow-list, code style, test conventions, test server ports, Maven
   traps) are in [CLAUDE.md](CLAUDE.md). They apply to every agent, not only Claude.
 - Several sessions share this checkout: stage by explicit path, never `git add -A` or `git commit -a`, and do not edit
   files another session owns (see HANDOFF.md, "Known issues and gotchas").
+- Keep authored web source within 600 lines per file. Reuse canonical TypeScript types, validate unknown input, and avoid
+  `any`. Apply changes through the owning module and retain useful upstream behavior.
+- Use disposable databases and native fixtures for runtime checks. Follow [SECURITY.md](SECURITY.md) for private reports.
 
 ## Handoff policy: keep every project handoff-ready
 

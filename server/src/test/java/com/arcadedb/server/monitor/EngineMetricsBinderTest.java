@@ -58,7 +58,7 @@ class EngineMetricsBinderTest {
         "arcadedb.engine.pages.read", "arcadedb.engine.pages.written", "arcadedb.engine.wal.bytes.written",
         "arcadedb.engine.mvcc.conflicts", "arcadedb.engine.page.merges.edge.append", "arcadedb.engine.page.merges.slot",
         "arcadedb.engine.page.merges.declined", "arcadedb.engine.tx.write", "arcadedb.engine.tx.read",
-        "arcadedb.engine.tx.rollbacks", "arcadedb.engine.queries", "arcadedb.engine.commands",
+        "arcadedb.engine.tx.rollbacks", "arcadedb.engine.tx.retries", "arcadedb.engine.queries", "arcadedb.engine.commands",
         "arcadedb.engine.snapshot.windows.opened", "arcadedb.engine.snapshot.windows.invalidated",
         "arcadedb.engine.snapshot.preimages.captured",
         // #6125: the invalidation split and the t0 barrier timer, whose sum/count pair is what a Prometheus Timer

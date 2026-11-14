@@ -2300,6 +2300,7 @@ public class TransactionContext implements Transaction {
     // a counter this PR is about to put in front of operators should report merges that actually happened. Deliberate
     // - before the move the increment ran first and a failed compress still counted.
     database.getPageManager().incrementEdgeAppendMerges();
+    recordMergeByFile(pageId.getFileId());
     return rebased;
   }
 
@@ -2900,7 +2901,9 @@ public class TransactionContext implements Transaction {
       final byte[] baseBody = insertedHere ? null : buffer.baseBodyOf(slot);
       if (!bucket.rebaseRecordOnPage(committed, slot, finalBody, baseBody, buffer.kindOf(slot)))
         throw new ConcurrentModificationException(
-            "Slot rebase not possible on page " + pageId + " slot " + slot + " (concurrent change to the same record). Please retry the operation");
+            "Slot rebase not possible on page " + pageId + " slot " + slot + (insertedHere ?
+                " (the slot of the inserted record was taken by a concurrent commit)" :
+                " (concurrent change to the same record)") + ". Please retry the operation");
     }
 
     // #5608: MUST stay here, in the method that produces the rebased page. A shrinking update or a delete replayed
@@ -2912,7 +2915,14 @@ public class TransactionContext implements Transaction {
     // Counted AFTER the compression, for the reason given at the end of rebaseEdgeAppends: only a merge that really
     // produced a committable page belongs in the statistic operators watch.
     database.getPageManager().incrementTxPageSlotMerges();
+    recordMergeByFile(pageId.getFileId());
     return committed;
+  }
+
+  /** The merge absorbed a conflict counted on this file by the page manager (see PageConflictStats). */
+  private void recordMergeByFile(final int fileId) {
+    if (database.getEmbedded() instanceof LocalDatabase local)
+      local.getPageConflictStats().recordMerged(local, fileId);
   }
 
   @Override

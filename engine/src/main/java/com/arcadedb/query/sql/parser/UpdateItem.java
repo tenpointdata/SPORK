@@ -23,7 +23,9 @@ package com.arcadedb.query.sql.parser;
 import com.arcadedb.database.Document;
 import com.arcadedb.database.Identifiable;
 import com.arcadedb.exception.CommandExecutionException;
+import com.arcadedb.exception.InvalidPropertyTypeException;
 import com.arcadedb.query.sql.executor.CommandContext;
+import com.arcadedb.query.sql.executor.MultiValue;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultInternal;
 import com.arcadedb.schema.DocumentType;
@@ -178,6 +180,83 @@ public class UpdateItem extends SimpleNode {
     }
   }
 
+  /**
+   * {@code UPDATE ... INCREMENT f = n}: {@code f = ifnull(f, 0) + n}, as in OrientDB. A missing or null field starts from zero, a
+   * NULL increment leaves the field as it is (as {@code SET f += null} does), and anything that is not a number on either side is
+   * refused instead of being concatenated the way {@code +} would.
+   */
+  public void applyIncrement(final ResultInternal doc, final CommandContext context, final Object rightValue) {
+    final Object operand = MathExpression.extractScalarFromResultSet(rightValue);
+    if (operand == null)
+      return;
+    if (!(operand instanceof Number))
+      throw new InvalidPropertyTypeException(
+          "Cannot INCREMENT '" + targetName() + "': the increment is a " + operand.getClass().getSimpleName() + ", not a number");
+
+    final Object current = readCurrent(doc, context);
+    if (current != null && !(current instanceof Number))
+      throw new InvalidPropertyTypeException(
+          "Cannot INCREMENT '" + targetName() + "': it holds a " + current.getClass().getSimpleName() + ", not a number");
+
+    write(doc, context, current == null ? operand : MathExpression.Operator.PLUS.apply(current, operand));
+  }
+
+  /**
+   * {@code UPDATE ... ADD f = v}: appends {@code v} to the collection {@code f} holds, as in OrientDB. A missing or null field
+   * becomes a list, a collection or array value appends each of its items, and a NULL value adds nothing. The collection is copied,
+   * never edited in place, so the record sees the change (#4730). A field holding anything but a collection is refused.
+   */
+  public void applyAdd(final ResultInternal doc, final CommandContext context, final Object rightValue) {
+    final Object value = extractFromResult(MathExpression.extractScalarFromResultSet(rightValue));
+    if (value == null)
+      return;
+
+    final Object current = readCurrent(doc, context);
+    final Collection<Object> updated;
+    if (current == null)
+      updated = new ArrayList<>();
+    else if (current instanceof Map)
+      throw new InvalidPropertyTypeException("Cannot ADD to '" + targetName() + "': it holds a map, use PUT to set one of its entries");
+    else if (current instanceof Collection<?> coll)
+      updated = (Collection<Object>) MultiValue.copy(coll);
+    else if (current.getClass().isArray())
+      updated = new ArrayList<>(MultiValue.getMultiValueAsList(current));
+    else
+      throw new InvalidPropertyTypeException(
+          "Cannot ADD to '" + targetName() + "': it holds a " + current.getClass().getSimpleName() + ", not a collection");
+
+    MultiValue.add(updated, value);
+    write(doc, context, updated);
+  }
+
+  private String targetName() {
+    return leftModifier == null ? left.getStringValue() : left.getStringValue() + leftModifier;
+  }
+
+  /**
+   * The value the left-hand side (property and modifier) holds on {@code doc} now.
+   */
+  private Object readCurrent(final ResultInternal doc, final CommandContext context) {
+    if (leftModifier == null)
+      return doc.getProperty(left.getStringValue());
+    final Expression leftEx = new Expression(left.copy());
+    ((BaseExpression) leftEx.mathExpression).modifier = leftModifier.copy();
+    return MathExpression.extractScalarFromResultSet(leftEx.execute(doc, context));
+  }
+
+  /**
+   * Writes a value already computed into the left-hand side, through the modifier when there is one, flagging the record dirty
+   * for a nested write as {@link #applyUpdate(ResultInternal, CommandContext, Object)} does (issue #8027).
+   */
+  private void write(final ResultInternal doc, final CommandContext context, final Object value) {
+    if (leftModifier == null)
+      doc.setProperty(left.getStringValue(), value);
+    else {
+      leftModifier.setValue(doc, doc.getProperty(left.getStringValue()), value, context);
+      doc.markElementDirty();
+    }
+  }
+
   private static boolean valuesEqual(final Object a, final Object b) {
     if (a == null)
       return b == null;
@@ -220,7 +299,7 @@ public class UpdateItem extends SimpleNode {
     return newValue;
   }
 
-  private Object extractFromResult(final Object value) {
+  static Object extractFromResult(final Object value) {
     if (value instanceof Result result) {
       if (result.isElement())
         return result.toElement();
@@ -238,7 +317,7 @@ public class UpdateItem extends SimpleNode {
     return value;
   }
 
-  private boolean containsOResult(final Collection value) {
+  private static boolean containsOResult(final Collection value) {
     return value.stream().anyMatch(x -> x instanceof Result);
   }
 

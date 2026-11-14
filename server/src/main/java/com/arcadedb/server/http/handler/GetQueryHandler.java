@@ -114,6 +114,8 @@ public class GetQueryHandler extends AbstractQueryHandler {
         final Integer requestLimit = parseLimitParameter(limitPar, "limit");
         final int planLimit = getPlanLimit(qResult);
         final int limit = resolveLimit(requestLimit, planLimit);
+        // The hard ceiling for this caller: the elevated one for a caller trusted with the database's resources.
+        final int maxResultRows = getMaxResultRows(user, database);
         profile.addEngineNanos(System.nanoTime() - engineStart);
 
         // Issue #7575. EXPLAIN is the one statement whose answer is a plan rather than rows, and this handler
@@ -129,7 +131,7 @@ public class GetQueryHandler extends AbstractQueryHandler {
         if (qResult instanceof ExplainResultSet) {
           final ExecutionPlan executionPlan = drainExplainResultSet(qResult);
           final SerializationOutcome outcome = serializeResultSetBounded(database, serializer, limit,
-              getMaxResultRows(), response, qResult, includeTypeHints);
+              maxResultRows, response, qResult, includeTypeHints);
           reportLimits(response, limit, outcome);
           reportExplainPlan(response, executionPlan);
           profile.addSerializationNanos(System.nanoTime() - serializationStart);
@@ -137,14 +139,14 @@ public class GetQueryHandler extends AbstractQueryHandler {
           // The response is written here, row by row, and the method returns null below so the request pipeline
           // does not send a second one (issue #7306).
           final SerializationOutcome outcome = streamResultSetAsNdJson(exchange, database, serializer, limit,
-              getMaxResultRows(), qResult, includeTypeHints);
+              maxResultRows, qResult, includeTypeHints);
           logIfTruncatedByDefault(database.getName(), text, limit, requestLimit, planLimit, outcome);
           profile.addSerializationNanos(System.nanoTime() - serializationStart);
           streamed = true;
         } else {
           // ... and above all of them the hard ceiling, which no caller can widen: a response that would exceed
           // it is refused with 413 rather than truncated (issue #5719).
-          final SerializationOutcome outcome = serializeResultSetBounded(database, serializer, limit, getMaxResultRows(),
+          final SerializationOutcome outcome = serializeResultSetBounded(database, serializer, limit, maxResultRows,
               response, qResult, includeTypeHints);
           reportLimits(response, limit, outcome);
           logIfTruncatedByDefault(database.getName(), text, limit, requestLimit, planLimit, outcome);

@@ -57,7 +57,7 @@ public class GetServerHandler extends AbstractServerHttpHandler {
   // signal they carry is a DERIVATIVE ("a jump in the declines with a dip in the merges"), which monotonic counters
   // cannot show - an operator would otherwise have to sample and subtract them by hand.
   private static final Set<String> RATE_TRACKED_PROFILER_METRICS = Set.of(
-      "writeTx", "readTx", "txRollbacks", "queries", "concurrentModificationExceptions",
+      "writeTx", "readTx", "txRollbacks", "txRetries", "queries", "concurrentModificationExceptions",
       "edgeAppendMerges", "txPageSlotMerges", "mergesDeclinedByCoverage"
   );
 

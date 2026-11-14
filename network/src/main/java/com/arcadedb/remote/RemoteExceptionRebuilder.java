@@ -38,6 +38,7 @@ import com.arcadedb.exception.DatabaseOperationException;
 import com.arcadedb.exception.DatabaseOperationInProgressException;
 import com.arcadedb.exception.EncryptionException;
 import com.arcadedb.exception.HeapLimitExceededException;
+import com.arcadedb.exception.IndexDefinitionConflictException;
 import com.arcadedb.exception.InvalidDatabaseInstanceException;
 import com.arcadedb.exception.InvalidPropertyTypeException;
 import com.arcadedb.exception.LockTimeoutException;
@@ -111,6 +112,7 @@ public final class RemoteExceptionRebuilder {
       Map.entry(FunctionExecutionException.class.getName(), FunctionExecutionException::new),
       Map.entry(TriggerExecutionException.class.getName(), TriggerExecutionException::new),
       Map.entry(InvalidPropertyTypeException.class.getName(), InvalidPropertyTypeException::new),
+      Map.entry(IndexDefinitionConflictException.class.getName(), IndexDefinitionConflictException::new),
       Map.entry(IllegalArgumentException.class.getName(), IllegalArgumentException::new),
       // A QUERY REFUSED FOR WHAT IT WOULD COST
       Map.entry(HeapLimitExceededException.class.getName(), HeapLimitExceededException::new),

@@ -29,6 +29,7 @@ import com.arcadedb.database.async.OkCallback;
 import com.arcadedb.engine.Bucket;
 import com.arcadedb.engine.ComponentFile;
 import com.arcadedb.engine.Dictionary;
+import com.arcadedb.engine.PageConflictStats;
 import com.arcadedb.engine.ErrorRecordCallback;
 import com.arcadedb.engine.FileManager;
 import com.arcadedb.engine.LocalBucket;
@@ -171,6 +172,8 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
   public static final int EDGE_LIST_INITIAL_CHUNK_SIZE         = 64;
   // #6965: page versions the replication log assigned but this node has not applied yet (HA leader only)
   private volatile PageVersionReservations pageVersionReservations;
+  // Issue 5 of the SPORK stress report: page-version conflicts by file, touched on the conflict path only
+  private final PageConflictStats pageConflictStats = new PageConflictStats();
   /**
    * Why this database refuses writes right now, empty when it accepts them (issue #8270). Never mutated: replaced as a whole
    * under {@link #writeRefusalLock}, so the commit path reads it with one volatile load and no lock.
@@ -2663,8 +2666,12 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
         if (!retryPolicy.mayRetry(e))
           throw e;
 
-        if (retry < attempts - 1)
+        if (retry < attempts - 1) {
+          // Issue 5 of the SPORK stress report: the block runs again from the start. This, not the page-conflict
+          // counter (most of whose conflicts a commit-time merge absorbs), is what a conflict costs in re-execution
+          stats.txRetries.incrementAndGet();
           delayBetweenRetries(retry, retryDelayBase, retryDelay);
+        }
 
       } catch (final Throwable e) {
         // #10135: the same ownership rule as the arm above. A call that JOINED the caller's transaction owns nothing,
@@ -2737,6 +2744,14 @@ public class LocalDatabase extends RWLockContext implements DatabaseInternal {
 
   public void setPageVersionReservations(final PageVersionReservations reservations) {
     this.pageVersionReservations = reservations;
+  }
+
+  /**
+   * The page-version conflicts of this database by file, and how many of them a commit-time merge absorbed. See
+   * {@link PageConflictStats}.
+   */
+  public PageConflictStats getPageConflictStats() {
+    return pageConflictStats;
   }
 
   @Override

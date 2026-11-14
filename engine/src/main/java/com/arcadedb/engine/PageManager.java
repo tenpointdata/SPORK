@@ -1934,6 +1934,15 @@ public class PageManager extends LockContext {
     totalChunkChainReadRetries.incrementAndGet();
   }
 
+  /**
+   * Attributes a page-version conflict to its file (issue 5 of the SPORK stress report, see {@link PageConflictStats}).
+   * Conflict path only: a commit without conflicts never gets here.
+   */
+  private static void recordConflictByFile(final DatabaseInternal database, final int fileId) {
+    if (database.getEmbedded() instanceof LocalDatabase local)
+      local.getPageConflictStats().recordConflict(local, fileId);
+  }
+
   public void checkPageVersion(final MutablePage page, final boolean isNew) throws IOException {
     final PageId pageId = page.getPageId();
 
@@ -1964,6 +1973,7 @@ public class PageManager extends LockContext {
 
     if (mostRecentPageVersion != page.getVersion()) {
       totalConcurrentModificationExceptions.incrementAndGet();
+      recordConflictByFile(database, pageId.getFileId());
 
       if (page.getVersion() == 0 && mostRecentPageVersion > 1) {
         final ComponentFile file = fileManager.getFile(page.pageId.getFileId());
@@ -2134,6 +2144,7 @@ public class PageManager extends LockContext {
     final int mostRecentPageVersion = getMostRecentVersionOfPage(pageId, page.getPhysicalSize());
     if (mostRecentPageVersion != page.getVersion()) {
       totalConcurrentModificationExceptions.incrementAndGet();
+      recordConflictByFile((DatabaseInternal) pageId.getDatabase(), pageId.getFileId());
 
       final FileManager fileManager = ((DatabaseInternal) pageId.getDatabase()).getFileManager();
       if (page.getVersion() == 0 && mostRecentPageVersion > 1) {

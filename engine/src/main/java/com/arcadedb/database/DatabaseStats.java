@@ -38,6 +38,8 @@ public class DatabaseStats {
   public final AtomicLong writeTx       = new AtomicLong();
   public final AtomicLong readTx        = new AtomicLong();
   public final AtomicLong txRollbacks   = new AtomicLong();
+  /** Attempts of a {@code database.transaction(...)} block thrown away by a retryable conflict and run again. */
+  public final AtomicLong txRetries     = new AtomicLong();
   public final AtomicLong createRecord  = new AtomicLong();
   // A LongAdder, not an AtomicLong (SPORK S14): every record read of every thread bumps it, and one CAS word shared by 32 reading
   // threads was a measurable part of a warm read. sum() is exact, it is only not atomic with respect to the other counters
@@ -69,6 +71,7 @@ public class DatabaseStats {
     map.put("writeTx", writeTx.get());
     map.put("readTx", readTx.get());
     map.put("txRollbacks", txRollbacks.get());
+    map.put("txRetries", txRetries.get());
     map.put("createRecord", createRecord.get());
     map.put("readRecord", readRecord.sum());
     map.put("updateRecord", updateRecord.get());
