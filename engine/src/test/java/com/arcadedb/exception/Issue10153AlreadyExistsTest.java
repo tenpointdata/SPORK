@@ -232,8 +232,10 @@ class Issue10153AlreadyExistsTest extends TestHelper {
       "engine/FileManager.java:SchemaException:File id ",
       // a bucket index named after the bucket and System.nanoTime(): an internal invariant, not a caller's name
       "schema/LocalSchema.java:DatabaseMetadataException:Cannot create index '",
-      // IF NOT EXISTS answered by an index of another definition: a 400 by design (#6921, #7228), not a taken name
-      "query/sql/parser/CreateIndexStatement.java:IllegalArgumentException:Cannot create the index '",
+      // IF NOT EXISTS answered by an index of another definition: a 400 by design (#6921, #7228), not a taken name.
+      // IndexDefinitionConflictException is the IllegalArgumentException this site has always thrown, named so the
+      // refusal can say which definition holds the name
+      "query/sql/parser/CreateIndexStatement.java:IndexDefinitionConflictException:Cannot create the index '",
       // a Cypher variable bound twice, or with two types, in one statement: a parse error, not a schema object name
       "query/opencypher/parser/CypherSemanticValidator.java:CommandParsingException:Variable",
       // SEARCH ... SCORE AS naming a variable an earlier clause bound: a semantic error of the statement, not a schema object name
