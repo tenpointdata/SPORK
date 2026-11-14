@@ -403,6 +403,12 @@ anchor) and the open questions back to the analyst are in
   design already answers the bulk of them, the seven gaps are each traceable to a named route, index or procedure field,
   and 01 and 04 belong to other sessions. Assessment state (39), the record-group route (38) and the basis on a place
   assertion (40) are in the human lane because each needs a Recon product or governance decision before it is schema.
+- 2026-11-14: `REBUILD INDEX` takes the index definition once, before the first drop, and an attempt that follows a
+  post-drop `NeedRetryException` only re-creates the index from it (each creation gets its own
+  `IndexMetadata.copyForRebuildAttempt`). The retry used to ask the dropped index `isCompacting()` and failed with "is not
+  valid", which was the intermittent red of `LSMIVFVectorIndexReviewTest...WithoutTheDatabaseLock`; pinned by
+  `RebuildIndexRetryAfterDropTest`. `DatabaseChecker`'s bucket-index rebuild loop has the same shape but asks nothing
+  that refuses on a dropped bucket index, so it was left alone.
 
 ## Handoff policy
 

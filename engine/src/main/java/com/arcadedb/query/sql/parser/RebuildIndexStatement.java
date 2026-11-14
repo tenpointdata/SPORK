@@ -406,8 +406,11 @@ public class RebuildIndexStatement extends DDLStatement {
     return skipped;
   }
 
-  /** @return the index the rebuild put in place: a bucket index is re-created under a new name */
-  private static Index buildIndex(final int maxAttempts, Database database, Index.BuildIndexCallback callback, Index idx,
+  /**
+   * @return the index the rebuild put in place: a bucket index is re-created under a new name. Package-private for the regression
+   * test of a retry after the drop, which needs to make one attempt fail through the callback.
+   */
+  static Index buildIndex(final int maxAttempts, Database database, Index.BuildIndexCallback callback, Index idx,
       final int batchSize) {
     if (idx == null)
       throw new CommandExecutionException("Index name is null");
@@ -422,124 +425,139 @@ public class RebuildIndexStatement extends DDLStatement {
     // so a check in this method could never have covered it.
     // See: https://github.com/ArcadeData/arcadedb/issues/2097
 
+    // THE DEFINITION IS TAKEN ONCE, HERE, while the index still exists. An attempt that fails with a NeedRetryException after its
+    // drop (a writer's commit conflicting with a build chunk, a lock timeout inside the build) leaves the schema without the
+    // index - the failed build cleans up after itself - and `idx` is then a dropped index that refuses every question
+    // ("Index '...' is not valid. Probably has been drop or rebuilt"). The attempts after it re-create the index from this
+    // definition instead of asking the dropped one again.
+    final Schema.INDEX_TYPE type = idx.getType();
+    final String typeName = idx.getTypeName();
+    final boolean unique = idx.isUnique();
+    final List<String> propertyNames = idx.getPropertyNames();
+    final String[] properties = propertyNames.toArray(new String[0]);
+    // NOT getPageSize(): the index is dropped below before being recreated, so a page size the creation path would
+    // refuse (a HASH index predating #5713) would leave the index deleted and unrebuilt. getPageSizeForNewFile()
+    // answers the current page size unless it is not legal to create with, in which case it repairs it.
+    final int pageSize = ((IndexInternal) idx).getPageSizeForNewFile();
+    final LSMTreeIndexAbstract.NULL_STRATEGY nullStrategy = idx.getNullStrategy();
+    // Get index metadata (includes vector-specific settings like dimensions, similarity, etc.) through the
+    // accessor that answers with the type-specific configuration a WRAPPER index keeps outside the underlying
+    // LSM-Tree, so the rebuild preserves the analyzers, the geohash resolution and the sparse dimensionality
+    // (issues #4732/#5478/#5742) instead of the generic IndexMetadata getMetadata() would otherwise return.
+    // Shared with DatabaseChecker's auto-fix rebuild path (issue #5934). Never handed to a build itself: every
+    // creation below takes its own copy, because a build mutates the instance it is given (a full-text index
+    // counts its BM25 corpus into it) and a copy shared across attempts would carry one attempt's counts into the next.
+    final IndexMetadata rebuildDefinition = IndexMetadata.reconstructForRebuild((IndexInternal) idx, typeName, properties);
+
+    final boolean typeIndexRebuild = typeName != null && idx instanceof TypeIndex;
+
+    // Captured BEFORE the drop below (issue #5791): dropping a bucket sub-index that is the LAST one left under
+    // its TypeIndex also removes the wrapper (LocalSchema.dropIndex), which is the normal case for a
+    // single-bucket type - the common default. The rebuilt bucket index then finds no existing TypeIndex to
+    // reattach to and mints a new one, which - without the name carried through explicitly - always takes the
+    // auto-derived form even for an explicitly-named logical index.
+    final TypeIndex ownerTypeIndex = typeIndexRebuild ? null : ((IndexInternal) idx).getTypeIndex();
+    // A sub-index on the bucket of a sub type belongs to the index its super type declares, and is re-created through that type:
+    // re-created through the sub type that owns the bucket, it minted a wrapper of the sub type under the declaring index's
+    // name, which took the name over in the schema and left the super type's own buckets out of the index (issue #10734)
+    final String declaringTypeName = ownerTypeIndex != null ? ownerTypeIndex.getTypeName() : typeName;
+
+    // For a bucket sub-index, resolve its target bucket BEFORE the destructive drop below, so a truly orphaned
+    // index (its bucket gone) is reported without first being deleted. Self-heal a lost association
+    // (associatedBucketId == -1, e.g. an orphan that stayed registered in indexMap after a failed reload) from
+    // the <bucketName>_<uniqueId> naming convention - the same prefix match the schema loader uses to relink
+    // orphans - otherwise buildBucketIndex would die on getBucketById(-1) ("Bucket with id '-1' was not found").
+    final String bucketName;
+    if (typeIndexRebuild)
+      bucketName = null;
+    else {
+      final int associatedBucketId = idx.getAssociatedBucketId();
+      Bucket bucket = null;
+      if (associatedBucketId >= 0) {
+        try {
+          bucket = database.getSchema().getBucketById(associatedBucketId);
+        } catch (final SchemaException e) {
+          // recorded bucket id no longer exists; fall through to name-based recovery
+        }
+      }
+      if (bucket == null) {
+        final String idxName = idx.getName();
+        final int pos = idxName.lastIndexOf('_');
+        if (pos > 0) {
+          final String candidate = idxName.substring(0, pos);
+          if (database.getSchema().existsBucket(candidate))
+            bucket = database.getSchema().getBucketByName(candidate);
+        }
+      }
+      if (bucket == null)
+        throw new CommandExecutionException(
+            "Cannot rebuild index '" + idx.getName() + "' because its associated bucket (id=" + associatedBucketId
+                + ") does not exist. The index is orphaned: drop it with `DROP INDEX `" + idx.getName() + "``");
+      bucketName = bucket.getName();
+    }
+
+    // Creates the index with the definition of the one being rebuilt. Used for the rebuild itself and, with the
+    // callback left out, to put the old index back when the rebuild fails (#9254)
+    final Index[] created = new Index[1];
+    final BiConsumer<LSMTreeIndexAbstract.NULL_STRATEGY, Index.BuildIndexCallback> createIndex = (strategy, buildCallback) -> {
+      final IndexMetadata metadata = IndexMetadata.copyForRebuildAttempt(rebuildDefinition, typeName, properties);
+      if (typeIndexRebuild) {
+        // Preserve the logical index's own name (issue #5791, follow-up to #4732/#4139): without this the
+        // builder falls back to the auto-derived "typeName[properties]" form, so a REBUILD silently renames
+        // any explicitly-named index and every SEARCH_INDEX / name-based lookup against the old name breaks.
+        created[0] = database.getSchema().buildTypeIndex(typeName, properties)
+            .withType(type).withUnique(unique).withPageSize(pageSize).withCallback(buildCallback).withBatchSize(batchSize)
+            .withMaxAttempts(maxAttempts).withNullStrategy(strategy)
+            .withMetadata(metadata)
+            .withIndexName(idx.getName())
+            .create();
+
+      } else {
+        created[0] = database.getSchema()
+            .buildBucketIndex(declaringTypeName, bucketName, properties).withType(type).withUnique(unique)
+            .withPageSize(pageSize).withCallback(buildCallback).withBatchSize(batchSize).withMaxAttempts(maxAttempts)
+            .withNullStrategy(strategy)
+            .withMetadata(metadata)
+            .withIndexName(ownerTypeIndex != null ? ownerTypeIndex.getName() : null)
+            .create();
+      }
+    };
+
     // Sticky once true (#6040): sees whether ANY attempt so far got past its own dropIndex() call, so exhaustion
     // is judged against the right budget below - extended once the index has actually been dropped, not just the
     // lock-acquisition budget that applies while it is still safely untouched.
     boolean indexDropped = false;
 
     for (int attempt = 1; ; attempt++) {
-      // Effectively-final per iteration: set to true by the callback below the instant its dropIndex() commits.
-      final boolean[] droppedThisAttempt = new boolean[1];
+      // Effectively-final per iteration: true from the instant this attempt's dropIndex() commits, or from the start of an
+      // attempt that follows one which dropped the index already.
+      final boolean[] droppedThisAttempt = { indexDropped };
       try {
-        // Check if index is INVALID (e.g., interrupted build with WAL disabled)
-        if (!((IndexInternal) idx).isValid()) {
-          LogManager.instance()
-              .log(RebuildIndexStatement.class, Level.INFO,
-                  "Rebuilding INVALID index '%s' (was interrupted during previous build)", idx.getName());
-          // Continue with rebuild - don't return early
+        if (!indexDropped) {
+          // Check if index is INVALID (e.g., interrupted build with WAL disabled)
+          if (!((IndexInternal) idx).isValid()) {
+            LogManager.instance()
+                .log(RebuildIndexStatement.class, Level.INFO,
+                    "Rebuilding INVALID index '%s' (was interrupted during previous build)", idx.getName());
+            // Continue with rebuild - don't return early
+          }
+
+          if (((IndexInternal) idx).isCompacting())
+            throw new NeedRetryException("Cannot rebuild the index '" + idx.getName() + "' while is compacting");
         }
-
-        if (((IndexInternal) idx).isCompacting())
-          throw new NeedRetryException("Cannot rebuild the index '" + idx.getName() + "' while is compacting");
-
-        final Schema.INDEX_TYPE type = idx.getType();
-        final String typeName = idx.getTypeName();
-        final boolean unique = idx.isUnique();
-        final List<String> propertyNames = idx.getPropertyNames();
-        // NOT getPageSize(): the index is dropped below before being recreated, so a page size the creation path would
-        // refuse (a HASH index predating #5713) would leave the index deleted and unrebuilt. getPageSizeForNewFile()
-        // answers the current page size unless it is not legal to create with, in which case it repairs it.
-        final int pageSize = ((IndexInternal) idx).getPageSizeForNewFile();
-        final LSMTreeIndexAbstract.NULL_STRATEGY nullStrategy = idx.getNullStrategy();
-        // Get index metadata (includes vector-specific settings like dimensions, similarity, etc.) through the
-        // accessor that answers with the type-specific configuration a WRAPPER index keeps outside the underlying
-        // LSM-Tree, so the rebuild preserves the analyzers, the geohash resolution and the sparse dimensionality
-        // (issues #4732/#5478/#5742) instead of the generic IndexMetadata getMetadata() would otherwise return.
-        // Shared with DatabaseChecker's auto-fix rebuild path (issue #5934).
-        final IndexMetadata rebuildMetadata = IndexMetadata.reconstructForRebuild((IndexInternal) idx, typeName,
-            propertyNames.toArray(new String[0]));
-
-        final boolean typeIndexRebuild = typeName != null && idx instanceof TypeIndex;
-
-        // Captured BEFORE the drop below (issue #5791): dropping a bucket sub-index that is the LAST one left under
-        // its TypeIndex also removes the wrapper (LocalSchema.dropIndex), which is the normal case for a
-        // single-bucket type - the common default. The rebuilt bucket index then finds no existing TypeIndex to
-        // reattach to and mints a new one, which - without the name carried through explicitly - always takes the
-        // auto-derived form even for an explicitly-named logical index.
-        final TypeIndex ownerTypeIndex = typeIndexRebuild ? null : ((IndexInternal) idx).getTypeIndex();
-        // A sub-index on the bucket of a sub type belongs to the index its super type declares, and is re-created through that type:
-        // re-created through the sub type that owns the bucket, it minted a wrapper of the sub type under the declaring index's
-        // name, which took the name over in the schema and left the super type's own buckets out of the index (issue #10734)
-        final String declaringTypeName = ownerTypeIndex != null ? ownerTypeIndex.getTypeName() : typeName;
-
-        // For a bucket sub-index, resolve its target bucket BEFORE the destructive drop below, so a truly orphaned
-        // index (its bucket gone) is reported without first being deleted. Self-heal a lost association
-        // (associatedBucketId == -1, e.g. an orphan that stayed registered in indexMap after a failed reload) from
-        // the <bucketName>_<uniqueId> naming convention - the same prefix match the schema loader uses to relink
-        // orphans - otherwise buildBucketIndex would die on getBucketById(-1) ("Bucket with id '-1' was not found").
-        final String bucketName;
-        if (typeIndexRebuild)
-          bucketName = null;
-        else {
-          final int associatedBucketId = idx.getAssociatedBucketId();
-          Bucket bucket = null;
-          if (associatedBucketId >= 0) {
-            try {
-              bucket = database.getSchema().getBucketById(associatedBucketId);
-            } catch (final SchemaException e) {
-              // recorded bucket id no longer exists; fall through to name-based recovery
-            }
-          }
-          if (bucket == null) {
-            final String idxName = idx.getName();
-            final int pos = idxName.lastIndexOf('_');
-            if (pos > 0) {
-              final String candidate = idxName.substring(0, pos);
-              if (database.getSchema().existsBucket(candidate))
-                bucket = database.getSchema().getBucketByName(candidate);
-            }
-          }
-          if (bucket == null)
-            throw new CommandExecutionException(
-                "Cannot rebuild index '" + idx.getName() + "' because its associated bucket (id=" + associatedBucketId
-                    + ") does not exist. The index is orphaned: drop it with `DROP INDEX `" + idx.getName() + "``");
-          bucketName = bucket.getName();
-        }
-
-        // Creates the index with the definition of the one being rebuilt. Used for the rebuild itself and, with the
-        // callback left out, to put the old index back when the rebuild fails (#9254)
-        final Index[] created = new Index[1];
-        final BiConsumer<LSMTreeIndexAbstract.NULL_STRATEGY, Index.BuildIndexCallback> createIndex = (strategy, buildCallback) -> {
-          if (typeIndexRebuild) {
-            // Preserve the logical index's own name (issue #5791, follow-up to #4732/#4139): without this the
-            // builder falls back to the auto-derived "typeName[properties]" form, so a REBUILD silently renames
-            // any explicitly-named index and every SEARCH_INDEX / name-based lookup against the old name breaks.
-            created[0] = database.getSchema().buildTypeIndex(typeName, propertyNames.toArray(new String[propertyNames.size()]))
-                .withType(type).withUnique(unique).withPageSize(pageSize).withCallback(buildCallback).withBatchSize(batchSize)
-                .withMaxAttempts(maxAttempts).withNullStrategy(strategy)
-                .withMetadata(rebuildMetadata)
-                .withIndexName(idx.getName())
-                .create();
-
-          } else {
-            created[0] = database.getSchema()
-                .buildBucketIndex(declaringTypeName, bucketName,
-                    propertyNames.toArray(new String[propertyNames.size()])).withType(type).withUnique(unique)
-                .withPageSize(pageSize).withCallback(buildCallback).withBatchSize(batchSize).withMaxAttempts(maxAttempts)
-                .withNullStrategy(strategy)
-                .withMetadata(rebuildMetadata)
-                .withIndexName(ownerTypeIndex != null ? ownerTypeIndex.getName() : null)
-                .create();
-          }
-        };
 
         try {
-          ((DatabaseInternal) database).executeLockingFiles(((IndexInternal) idx).getFileIds(), () -> {
-            database.getSchema().dropIndex(idx.getName());
-            droppedThisAttempt[0] = true;
+          if (indexDropped)
+            // An earlier attempt dropped the index and its failed build cleaned up after itself: there is nothing left to
+            // drop or to lock, only the index to create again
             createIndex.accept(nullStrategy, callback);
-            return null;
-          });
+          else
+            ((DatabaseInternal) database).executeLockingFiles(((IndexInternal) idx).getFileIds(), () -> {
+              database.getSchema().dropIndex(idx.getName());
+              droppedThisAttempt[0] = true;
+              createIndex.accept(nullStrategy, callback);
+              return null;
+            });
         } catch (final NeedRetryException e) {
           throw e;
         } catch (final RuntimeException e) {

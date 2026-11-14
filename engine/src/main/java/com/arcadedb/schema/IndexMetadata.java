@@ -463,6 +463,22 @@ public class IndexMetadata {
   }
 
   /**
+   * A fresh copy of a definition {@link #reconstructForRebuild} answered, for one attempt of the rebuild it was taken for. A rebuild
+   * takes the definition once, while the index exists, and hands every attempt its own copy: the build mutates the instance it is
+   * given (a full-text index counts its corpus into it), and from the second attempt on the index it came from may have been
+   * dropped already. Keeps the full-text format the definition settled on, which {@link #copy} would reset to the current one.
+   */
+  public static IndexMetadata copyForRebuildAttempt(final IndexMetadata definition, final String typeName,
+      final String[] propertyNames) {
+    if (definition == null)
+      return null;
+    final IndexMetadata copy = definition.copy(typeName, propertyNames, -1);
+    if (definition instanceof FullTextIndexMetadata source && copy instanceof FullTextIndexMetadata target)
+      target.setFormatVersion(source.getFormatVersion());
+    return copy;
+  }
+
+  /**
    * A copy of a full-text definition is written in the current format, which is how a REBUILD INDEX of the whole index migrates
    * it. A rebuild of ONE bucket sub-index (or CHECK DATABASE FIX of a corrupted one) must not: its siblings stay in the format
    * they were written in, and buckets of one logical index in two formats analyze a query differently (the per-field analyzers
