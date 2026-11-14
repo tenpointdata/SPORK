@@ -93,6 +93,13 @@ Train 1 modules, on `main`:
 - WS13 encoder sidecar (text encoding end to end at about 194 ms per ad; image stages are stubs).
 - Entry identity and audit slice 1 (session proof, lifecycle receiver, hash-chained audit with actor = Entry account).
 
+## Current state
+
+As of 2026-11-14: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
+Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test); the run before this
+change timed out without a failing case. The engine unit lane is green after re-keying
+`Issue10153AlreadyExistsTest`'s allow-list for `IndexDefinitionConflictException`.
+
 ## Triage
 
 What to pick up next, ranked. Numbers are the items under [Open work](#open-work); take the top unclaimed one in the
@@ -145,6 +152,10 @@ which matter here:
 - Skip slow lanes with `-DexcludedGroups=benchmark,slow,vector`, never `-Dtest='!Foo'`.
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
+- Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -pl !e2e,!load-tests`, then Studio's
+  `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
+  with every tag (it cannot fit any sane timeout, see Open work 54).
 - Per-workstream commands are in each doc under `docs/spork/workstreams/`, e.g. `mvn -o -pl spork-encoder test`,
   `mvn -o -pl engine test -Dtest='LSMIVFVectorIndexTest,LSMIVFVectorIndexReviewTest'`, and the benchmark gate in
   `retrieval-bench.md`.
@@ -374,6 +385,18 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     no HTTP reset route.
 53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
     `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
+54. **The Composite pipeline runs the unit lane only.** `composite.pipeline.json` leaves out the `slow`, `vector` and
+    `benchmark` tags, the `-Pintegration` ITs, `e2e` and `load-tests`, which upstream CI runs as separate lanes
+    (`.github/workflows/mvn-test.yml`). Done means: either optional (`"required": false`) Composite suites for the
+    engine `slow` and `vector` lanes with their own timeouts, or a decision recorded here that GitHub CI alone covers
+    them. The unit lane is also one sequential JVM per module; engine alone takes about 29 minutes on this Mac.
+55. **Wildcard-bound test fixtures lose their traffic on a busy Mac.** A fixture that listens with
+    `new ServerSocket(0)` (wildcard) and is dialled at `127.0.0.1` is bypassed when any other process binds
+    `127.0.0.1` on the same port: macOS routes the connection to the specific bind (measured 2026-11-14). That made
+    `Issue7796RemoteServerAdminCommandsTest` fail once in a full unit-lane run and twice in about 15 runs under CPU load with "expected size N but was 0";
+    it now binds `InetAddress.getLoopbackAddress()`. Still bare: about 22 sites under `network/src/test` (e.g.
+    `Issue8526RemoteRequestIdReplayTest`, `Issue8710RemoteServerSecurityRoutesFailoverTest`), plus ha-raft and bolt.
+    Done means each binds loopback, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
 
 ### Waiting on the owner (gates)
 
@@ -400,6 +423,9 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
 - **Upstream flakes** that also fail on pre-SPORK `main`: `PostBatchHandlerForwardRequestTest`,
   `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`, `Issue10915VectorIndexSizedOnFirstVectorTest`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
+- **A test listener must bind loopback, not the wildcard.** On macOS a `127.0.0.1:P` bind by any other process wins
+  over a wildcard `*:P` one, so a fixture dialled at `127.0.0.1` sees nothing while a stranger answers (Open work 55).
+  Use `new ServerSocket(0, n, InetAddress.getLoopbackAddress())`.
 - **Two green branches can fail to compile together** (seen in the consolidation); compile and run the full lanes after
   merging.
 - **Benchmarks need a quiet machine.** Check `uptime` (load under about 4), run A and B interleaved in one window, and
@@ -436,6 +462,10 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   valid", which was the intermittent red of `LSMIVFVectorIndexReviewTest...WithoutTheDatabaseLock`; pinned by
   `RebuildIndexRetryAfterDropTest`. `DatabaseChecker`'s bucket-index rebuild loop has the same shape but asks nothing
   that refuses on a dropped bucket index, so it was left alone.
+- 2026-11-14: Composite's spork test suite is the CI unit lane, recorded in `composite.pipeline.json`, not
+  `mvn -B test` over everything. The old command ran every tag of every module in one JVM per module inside an 1800 s
+  cap and always ended in "step 1 timed out" with no failing case (the last run sat in `ACIDTransactionTest`'s
+  `@Tag("slow")` 100k-record case). The excluded lanes are Open work 54.
 
 ## Handoff policy
 

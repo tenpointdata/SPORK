@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -151,7 +152,7 @@ class Issue7796RemoteServerAdminCommandsTest {
 
     for (final Pair<String, Consumer<RemoteServer>> entry : ENTRY_POINTS) {
       final int closedPort;
-      try (final ServerSocket probe = new ServerSocket(0)) {
+      try (final ServerSocket probe = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
         closedPort = probe.getLocalPort();
       }
 
@@ -336,7 +337,11 @@ class Issue7796RemoteServerAdminCommandsTest {
 
     ScriptedServer(final String... responses) throws IOException {
       script.addAll(List.of(responses));
-      socket = new ServerSocket(0);
+      // Bound to the loopback address the client dials, not the wildcard: on macOS a listener another process
+      // binds to 127.0.0.1 on the same port takes every connection to 127.0.0.1 ahead of a wildcard one, so a
+      // wildcard-bound fixture saw no request at all while the client was answered by a stranger. A loopback
+      // bind is exclusive, so the port it gets is this fixture's alone
+      socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
       final Thread t = new Thread(() -> {
         while (!socket.isClosed()) {
           try (final Socket client = socket.accept()) {
