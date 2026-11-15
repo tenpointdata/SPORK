@@ -686,22 +686,22 @@ public final class LeaderCommandForwarder {
           writeErrorEvent(out, failure);
         }
       } catch (final RelaySubscriber.UpstreamFailure e) {
-        // The request carries the same deadline, and from JDK 26 on HttpRequest.timeout() also bounds the response
-        // body, so the JDK's own timeout can fire a hair before drainTo's: that is the deadline, not a broken
-        // connection, and is reported as the deadline it is (a connect timeout cannot occur once the stream began).
         if (e.getCause() instanceof HttpTimeoutException) {
+          // The request carries the same deadline as drainTo, and from JDK 26 HttpRequest.timeout covers the body
+          // too (issue #8473), so the client's own timer can fire first and arrive here. It is the deadline, not a
+          // broken connection: report it as drainTo would have.
           logGaveUp(leaderHttpAddress, deadlineMs, longRunningCommand);
           writeErrorEvent(out, gaveUpMessage(leaderHttpAddress, deadlineMs, longRunningCommand));
-        } else {
-          // The leader's side of the relay broke after the stream began: the connection dropped, or the leader
-          // closed it without a terminal event. Say so in the stream, which is the only place left to say it.
-          LogManager.instance().log(this, Level.WARNING,
-              "The progress stream relayed from the cluster leader at %s broke: %s", leaderHttpAddress,
-              e.getCause() != null ? e.getCause().toString() : e.getMessage());
-          writeErrorEvent(out, "The connection to the cluster leader at " + leaderHttpAddress + " broke while relaying "
-              + "the progress of the forwarded server command. It may still be running on the leader: check there "
-              + "before retrying");
+          return STREAMED;
         }
+        // The leader's side of the relay broke after the stream began: the connection dropped, or the leader
+        // closed it without a terminal event. Say so in the stream, which is the only place left to say it.
+        LogManager.instance().log(this, Level.WARNING,
+            "The progress stream relayed from the cluster leader at %s broke: %s", leaderHttpAddress,
+            e.getCause() != null ? e.getCause().toString() : e.getMessage());
+        writeErrorEvent(out, "The connection to the cluster leader at " + leaderHttpAddress + " broke while relaying "
+            + "the progress of the forwarded server command. It may still be running on the leader: check there before "
+            + "retrying");
       } catch (final InterruptedException e) {
         relay.cancel();
         Thread.currentThread().interrupt();

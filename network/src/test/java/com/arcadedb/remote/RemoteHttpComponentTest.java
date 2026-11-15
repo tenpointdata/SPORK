@@ -46,6 +46,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.ConnectException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.http.HttpRequest;
@@ -939,12 +940,12 @@ class RemoteHttpComponentTest {
   void httpCommandRetryWithReplicaWhenLeaderNulledConcurrently() throws Exception {
     // Primary server: closed port — triggers ConnectException (IOException) on iteration 0
     final int closedPort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       closedPort = probe.getLocalPort();
     }
 
     // Replica server: accepts one connection and returns HTTP/1.1 200 OK with JSON body
-    try (final ServerSocket replicaSocket = new ServerSocket(0)) {
+    try (final ServerSocket replicaSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       final int replicaPort = replicaSocket.getLocalPort();
 
       final Thread serverThread = new Thread(() -> {
@@ -1312,7 +1313,7 @@ class RemoteHttpComponentTest {
    */
   @Test
   void sendWithWatchdogFiresWithinConfiguredWindowNotAThousandTimesLonger() throws Exception {
-    try (final ServerSocket serverSocket = new ServerSocket(0)) {
+    try (final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       final int port = serverSocket.getLocalPort();
 
       final Thread serverThread = new Thread(() -> {
@@ -1368,7 +1369,7 @@ class RemoteHttpComponentTest {
    * {@code action} against its port. Used to exercise the client's retry loop across multiple attempts.
    */
   private void withHttpServer(final List<StubResponse> responses, final ServerAction action) throws Exception {
-    try (final ServerSocket serverSocket = new ServerSocket(0)) {
+    try (final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       final int port = serverSocket.getLocalPort();
 
       final Thread serverThread = new Thread(() -> {
@@ -1409,7 +1410,7 @@ class RemoteHttpComponentTest {
    * before writing the response so the client does not block on the request body.
    */
   private void withOneShotHttp200Server(final String responseBody, final ServerAction action) throws Exception {
-    try (final ServerSocket serverSocket = new ServerSocket(0)) {
+    try (final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       final int port = serverSocket.getLocalPort();
 
       final Thread serverThread = new Thread(() -> {

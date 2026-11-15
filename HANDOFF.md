@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-11 19:30 UTC, by a Claude Code cloud session: worked the 2026-11-11 sarah-clusters stress report (4-node cluster, 1.2M uploads, no data lost). Branch `optimization`: issue 4 measured (leader holds commit file locks across the Raft round trip; pipelining designed, not landed), issue 5 attributed (counted CMEs are ~95% merged; real retries 0.05-0.2/upload, all on hub edge-list heads; new `txRetries` and `pageConflictsByFile` counters), issue 7 elevated row ceiling, issue 6 read-your-writes on followers pinned. Branch `fix/sql-errors`: UPDATE INCREMENT/ADD/PUT run, clear one-index-per-property-set refusal, client-error detail in production. Open work 48 to 53. Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-15 08:11 MST, by claude-code: Finished the spork maven suite fix begun by agent 20261114-141834-412462 (fork h-0f50d8). Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -93,6 +93,17 @@ Train 1 modules, on `main`:
 - WS13 encoder sidecar (text encoding end to end at about 194 ms per ad; image stages are stubs).
 - Entry identity and audit slice 1 (session proof, lifecycle receiver, hash-chained audit with actor = Entry account).
 
+## Current state
+
+As of 2026-11-15: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
+Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test), saved in Composite with
+the rerun flag, a 6600 s suite cap and the 7200 s build maximum. The old whole-reactor command always timed out without
+a failing case. That exact command passed on 2026-11-15 in 1 h 15 min with no failures, after two flakes cleared on rerun
+(Open work 56 and 57); Studio's `npm test` passed 525 of 525. Fixed on the way: `Issue10153AlreadyExistsTest`'s
+allow-list, RoaringBitmap kept out of the gremlin uber-jar, loopback-bound network fixtures, `LeaderCommandForwarder`'s
+timeout report, and the `LocalDatabaseLookupByRIDsTest` page-count flake. Open work 57 (an index header page possibly
+lost in a crash) needs an engine investigation.
+
 ## Triage
 
 What to pick up next, ranked. Numbers are the items under [Open work](#open-work); take the top unclaimed one in the
@@ -145,6 +156,11 @@ which matter here:
 - Skip slow lanes with `-DexcludedGroups=benchmark,slow,vector`, never `-Dtest='!Foo'`.
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
+- Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (42 to 75 minutes on this Mac depending on load, so the suite cap is 6600 s and the build's 7200 s, Composite's maximum; `load-tests` stays
+  in because `e2e-ha` needs its test-jar, which CI gets from a prior install), then Studio's
+  `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
+  with every tag (it cannot fit any sane timeout, see Open work 54).
 - Per-workstream commands are in each doc under `docs/spork/workstreams/`, e.g. `mvn -o -pl spork-encoder test`,
   `mvn -o -pl engine test -Dtest='LSMIVFVectorIndexTest,LSMIVFVectorIndexReviewTest'`, and the benchmark gate in
   `retrieval-bench.md`.
@@ -374,6 +390,42 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     no HTTP reset route.
 53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
     `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
+54. **The Composite pipeline runs the unit lane only.** `composite.pipeline.json` leaves out the `slow`, `vector` and
+    `benchmark` tags, the `-Pintegration` ITs and `e2e`, which upstream CI runs as separate lanes
+    (`.github/workflows/mvn-test.yml`). Done means: either optional (`"required": false`) Composite suites for the
+    engine `slow` and `vector` lanes with their own timeouts, or a decision recorded here that GitHub CI alone covers
+    them. The unit lane is also one sequential JVM per module; engine alone takes about 29 minutes on this Mac.
+55. **Wildcard-bound test fixtures lose their traffic on a busy Mac.** A fixture that listens with
+    `new ServerSocket(0)` (wildcard) and is dialled at `127.0.0.1` is bypassed when any other process binds
+    `127.0.0.1` on the same port: macOS routes the connection to the specific bind (measured 2026-11-14). It made
+    `Issue7796RemoteServerAdminCommandsTest` and `Issue8710RemoteServerSecurityRoutesFailoverTest` fail in full runs
+    ("expected size N but was 0", "JSONObject[result] not found"). Every site under `network/src/test` now binds
+    `InetAddress.getLoopbackAddress()`. Still bare: about 10 sites in `ha-raft` tests and `BoltPortConfigIT`. Done means
+    those bind loopback too, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
+56. **Engine unit-lane flakes under machine load (2026-11-14, load average 10 to 16).** One full run of 3 failed
+    these, each green 3 of 3 when rerun alone: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes`
+    (asserts measured millisecond gaps, "gaps [91, 38, 0, 31] ... [56, 0, 0, 28]": move it to
+    `StallAwareStopwatch` or assert the computed delays), `WalCommitOrderingTest.publishFailureWithWalDisabledFencesAndKeepsTheIdentities`
+    (expected 2 but was 1) and `QueryHeapBudgetIssue8591Test.concurrentQueriesCannotHoldMoreThanTheBudget` (a count of
+    0 where 1 or 2 was expected). A later run added `PageManagerReadCoalescingTest.threadsMissingTheSamePageShareOnePhysicalRead`
+    (2 physical reads where 1 was expected), and the known `Issue10915VectorIndexSizedOnFirstVectorTest` and
+    `Issue7603LeaderForwardHopTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
+    Fixed 2026-11-15: `LocalDatabaseLookupByRIDsTest.readsEveryPageOnceAndOnlyTheDistinctPages` (41 pages for 40; the
+    `PageManager` counters are JVM-wide, so it now asserts the least of three measurements). Also seen once, cleared by
+    the rerun: `Issue4712ReplicatedWriteLockTest.applyChangesRespectsPerPageIoLock`. Seen once the same day, not
+    reproduced: the engine fork exited with code 0 and no dump partway through `Issue10548GAVVarLengthExpandTest`
+    (44 minutes in, no sleep, no jetsam entry; the class passes alone in 42 s). If it recurs, look for a
+    `*.dumpstream` in `engine/target/surefire-reports` and for a surefire ping timeout.
+57. **A bucket index created just before a crash can come back with no header page (2026-11-15).**
+    `Issue10051Bm25CounterRepairTest.afterACrashTheFirstSearchRepairsTheCountersTheLogDoesNotCarry` failed once in
+    the unit lane (`totalDocs` 8 where 12 was expected). The test commits `CREATE INDEX ... FULL_TEXT` on a 3-bucket type
+    and 12 inserts, then calls `kill()` and reopens. On the reopen `LocalSchema` logged "Index 'Doc_2_…' is unavailable:
+    its file has no header page" (`LSMTreeIndexMutable` throws `MissingHeaderException` when `getTotalPages() == 0`), so
+    the BM25 repair counted 2 of 3 buckets. The records came back, so the WAL replayed. Either the index's first page is
+    written outside the WAL, or the schema loads index files before the replay restores their pages. It only happens when
+    `kill()` lands before the flush thread has written that page. Do not "fix" the test by waiting for the flush: that
+    hides a possible durability gap. Done means: a deterministic reproduction (hold the flush thread, commit
+    `CREATE INDEX`, kill, reopen) and either a recovery fix or a documented reason the index is legitimately lost.
 
 ### Waiting on the owner (gates)
 
@@ -397,17 +449,20 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   02-retrieval-speed, `model/`, `research/`, `config/` (the S1 re-plan session edits 01, README and `budget.py` for owner
   decisions); feature roadmap, 03 and 09 belong to the Goal session; 04 and 05 to identity; 06 to stylometry; 07 to
   Entry; 08 to native versioning.
+- **Maven here runs on Homebrew JDK 26** (`mvn -v`), CI on 21. `PostBatchHandlerForwardRequestTest` failed every run on
+  26 because `BodyPublishers.ofInputStream` reports a failing supplier through `onError` there instead of throwing; the
+  test now accepts both (2026-11-14). A test that passes on CI and fails here every time: check the JDK first. JDK 26
+  also makes `HttpRequest.timeout()` bound the response body, so the JDK's timer races our own deadlines (it made
+  `Issue7603LeaderForwardHopTest`'s stalled-stream case fail 2 of 3 attempts until 62bfe6966). Check a JDK-behaviour
+  assertion on both with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 - **Upstream flakes** that also fail on pre-SPORK `main`: `HaLeadershipTransferIT`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
-- **Maven runs on JDK 26 here** (Homebrew `openjdk`, while plain `java` is 21), and JDK 26 changed some `java.net.http`
-  behaviour: `BodyPublishers.ofInputStream` no longer lets a supplier's exception escape `subscribe()`, it delivers
-  `IOException("Stream supplier has failed")` as `onError`. `PostBatchHandlerForwardRequestTest` assumed the JDK 21
-  throw and failed deterministically, which failed `arcadedb-server` and skipped every later module (fixed 7600a3b46).
-  JDK 26 also makes `HttpRequest.timeout()` bound the response body, so the JDK's timeout races our own deadlines;
-  that made `Issue7603LeaderForwardHopTest`'s stalled-stream case flaky until f0d86b60c.
-- **A new engine dependency must be added to the shade excludes in `gremlin/pom.xml`**, or
-  `ShadedJarLayoutTest` (gremlin-it) fails because it is bundled unrelocated (RoaringBitmap, f0d86b60c).
-  Write JDK-behaviour assertions so they hold on 21 and 26; check one with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
+- **A new engine dependency must be added to the shade excludes in `gremlin/pom.xml`**, or `ShadedJarLayoutTest`
+  (gremlin-it) fails because it is bundled unrelocated (RoaringBitmap, b06bc7a05). It only runs once `arcadedb-server`
+  passes, so a server failure hides it.
+- **A test listener must bind loopback, not the wildcard.** On macOS a `127.0.0.1:P` bind by any other process wins
+  over a wildcard `*:P` one, so a fixture dialled at `127.0.0.1` sees nothing while a stranger answers (Open work 55).
+  Use `new ServerSocket(0, n, InetAddress.getLoopbackAddress())`.
 - **`Issue10153AlreadyExistsTest` allow-lists throw sites by exception type name.** Each entry of
   `noSourceRefusesATakenNameWithAnotherType` reads `file:ExceptionSimpleName:message prefix`, so narrowing a thrown
   exception to a subclass (as e82e953c4 did with `IndexDefinitionConflictException` in `CreateIndexStatement`) makes the
@@ -448,6 +503,13 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   valid", which was the intermittent red of `LSMIVFVectorIndexReviewTest...WithoutTheDatabaseLock`; pinned by
   `RebuildIndexRetryAfterDropTest`. `DatabaseChecker`'s bucket-index rebuild loop has the same shape but asks nothing
   that refuses on a dropped bucket index, so it was left alone.
+- 2026-11-14: Composite's spork test suite is the CI unit lane, recorded in `composite.pipeline.json`, not
+  `mvn -B test` over everything. The old command ran every tag of every module in one JVM per module inside an 1800 s
+  cap and always ended in "step 1 timed out" with no failing case (the last run sat in `ACIDTransactionTest`'s
+  `@Tag("slow")` 100k-record case). The excluded lanes are Open work 54. The suite reruns a failed test up to twice
+  (`-Dsurefire.rerunFailingTestsCount=2`, on the Composite command only, not in the pom): five full runs each met a
+  different timing flake out of ~26,000 tests (Open work 56), so a single-shot run is red by chance; a rerun-pass is
+  reported as flaky, and a test that fails every attempt still fails the build.
 - 2026-11-14: `Issue10915VectorIndexSizedOnFirstVectorTest`'s PRODUCT case was a test flake, not an engine bug: the PQ
   search re-scores only `k * rerankOversample` candidates, so the test now reranks every candidate (cd7c891ed) and is off
   the upstream-flakes list.
@@ -501,6 +563,7 @@ others) and have the repository's `CLAUDE.md` import that file with `@AGENTS.md`
 ## Deltas
 
 <!-- composite:deltas · newest first; Composite rewrites this block on every merge (ej handoff merge / merge_handoff) -->
+- **2026-11-15 08:11 MST** · claude-code · `ej/20261115-060423-a23e0c` `56e5c97`→`b1e38e9` (8 commits) · `h-e6557c` — Finished the spork maven suite fix begun by agent 20261114-141834-412462 (fork h-0f50d8). Composite now runs the CI unit lane with reruns, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e`, with a 6600 s suite cap and a 7200 s build cap (Composite's maximum). That exact command passed on the merged tree in 1 h 15 min, and Studio's npm test passed 525 of 525. Also fixed: the LocalDatabaseLookupByRIDsTest page-count flake. The PageManager counters are JVM-wide, so the test now asserts the least of three measurements. **Next:** Open work 57: write a deterministic reproduction of a bucket index losing its header page after kill() and reopen (Issue10051Bm25CounterRepairTest), then fix recovery or explain the loss. Open work 56: the remaining load flakes, now including Issue4712ReplicatedWriteLockTest.applyChangesRespectsPerPageIoLock. Watch for a repeat of the clean engine fork exit (exit code 0, no dump) seen once, mid-way through Issue10548GAVVarLengthExpandTest. **Decided:** The suite cap is 6600 s because a run on a loaded Mac took 75 minutes, not the 42 measured earlier, and Composite refuses a build timeout above 7200 s. The LookupByRIDs test takes the minimum of three measurements, not a looser bound: interference can only raise a JVM-wide counter, while a real double read happens on every attempt, so the assertion stays exact. The BM25 crash-repair failure was recorded, not patched, because waiting for the flush in the test would hide a possible durability gap.
 - **2026-11-09 09:06 MST** · local-agent-mode-eng-journal · `main` `da63746`→`de65c17` (1 commit) · `h-bc7d3a` — Built HANDOFF open work 34: every SHARED evidence row of identity.compare, cohesion, candidates and features now names the records behind it (recordsA / recordsB as {record, at} per member, cut at the new evidenceRecords option, default 10) and each side's first and last sighting of that identifier; a DISJOINT row carries the kind's window and no records. ClusterProfile keeps the member indices per identifier (one int per (member, identifier) pair it already walks), so no row costs a record read it was not already paying, and the cut is applied at render time so no weight can move. 13 new cases in IdentityEvidenceRecordsTest; the opencypher procedures package is green at 1031 tests; the full reactor compiles. Also corrected docs/spork/04-identity-resolution-design.md 2.5 and 2.8 for the new fields, although that doc belongs to the identity session, and marked 42's dependency on 34 satisfied. **Next:** 37 (the (website, urlHash) index on Record) and 35 (a from/to window on identity.compare) are the next small items in the agents' lane; 42 is now unblocked, since a candidate row explains itself. 39 and 44 are still the owner and product decisions that gate 36 and 38. **Decided:** The records ride on SharedFeature rather than on a second lookup, because compare = score(features(...)) is pinned by IdentityFeaturesAndModelsTest and anything an evidence row shows has to reach it through the features. Member indices rather than RIDs in the model, mapped to records by each procedure, so ClusterProfile stays free of member identity and works on any graph whose identifiers are nodes. The cap is a render-time option (evidenceRecords), not a model parameter, so it can never move a weight; counts and windows are never cut. DISJOINT rows get the kind window but no member list, because no kind-to-members index exists and building one would make cohesion quadratic. **Issues:** closed #34.
 - **2026-11-09 08:13 MST** · local-agent-mode-eng-journal · `main` `9609279`→`b973df0` (2 commits) · `h-0184a1` — Wrote docs/spork/10-analyst-requirements.md: the 2026-11-05 Recon analyst requirements as stated, the design principles they impose, and the questions to put back to her. Added HANDOFF open work 41 to 44, the parts items 34 to 40 did not reach, with triage rows. A sibling session (h-f5b0fd) had mapped the same message onto items 34 to 40 an hour earlier, so this builds on that rather than repeating it. No code changed. **Next:** 41, 42 and 43 are in the agents' lane behind 34 and 35 (42 depends on 34, 41 on 35). 44 is an owner call, narrower than 39: reserve the assessment type and key in schema v1 now so the product decision needs no migration later. The seven questions in section 7 of the note should go back to the analyst before 38, 39 and 40 are designed. docs/spork/README.md's document map does not list the new note: that README belongs to the architecture session. **Decided:** The requirements get a doc of their own rather than edits to 01-architecture or 04-identity-resolution-design, which belong to other sessions, and because the principles (records immutable, the four-rung provenance ladder and its no-flattening rule, the four clocks with corroboration separate, a selector not being an identity anchor, confidence ranks while evidence answers) outlive any one open-work item and need somewhere a reviewer will find them. Assessment state is split: 39 stays the product decision, 44 is the narrower Q1 schema reservation, because judgements not captured while Recon runs without the type cannot be recovered afterwards. Images noted as being on her critical path, which raises whether S-TATTOO should move out of train 2, since the tattoo was the decisive signal in her own example.
 - **2026-11-09 08:09 MST** · local-agent-mode-eng-journal · `main` `b51665b`→`9609279` (1 commit) · `h-f5b0fd` — Mapped the 2026-11-05 Recon analyst requirements (identity discovery vs assessment, grouping without collapsing, connections with a visible basis, historical comparison that is not verified movement) onto SPORK's design. Most is already answered by 04-identity-resolution-design (time-aware Fellegi-Sunter compare with an honest interval, DISJOINT and CONFLICT terms, identity.candidates for discovery) and 01-architecture 2.6/2.7 (soft edges never automatic, rejections kept, _prov, markings, E25 history). Recorded the seven gaps as HANDOFF open work 34 to 40 and added the Triage section the form asked for. No code or architecture docs changed. **Next:** Items 34, 37 and 35 are the small self-contained engine wins in the agents' lane: evidence rows carrying their supporting record RIDs and sighting dates, a (website, urlHash) index on Record, and a from/to window on identity.compare. 39 (analyst assessment state) gates 36 and 38 and needs a Recon product decision first. **Decided:** The analyst requirements are open work, not architecture changes: the design answers the bulk of them, each gap is traceable to a named route, index or procedure field, and docs 01 and 04 belong to other sessions. Assessment state (39), the record-group route (38) and the basis on a place assertion (40) go in the human lane because each needs a Recon product or governance decision before it can be schema.

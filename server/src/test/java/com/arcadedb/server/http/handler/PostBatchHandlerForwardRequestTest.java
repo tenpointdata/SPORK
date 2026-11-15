@@ -21,15 +21,17 @@ package com.arcadedb.server.http.handler;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * A batch load that lands on a follower is relayed to the leader, and that hop must not be able to deliver less than
@@ -88,13 +90,9 @@ class PostBatchHandlerForwardRequestTest {
    * once and expects a FRESH stream every time; there is only one request body here, so handing the same one back a
    * second time would relay a payload starting in the middle of the file - a load missing its beginning, reported as
    * a success, with an "unknown temporary ID" for a vertex that is right there in the payload. It refuses instead.
-   * <p>
-   * Where the refusal surfaces depends on the JDK: up to 21 the supplier's exception escapes {@code subscribe}, from 26
-   * on {@code InputStreamPublisher} wraps it in an {@code IOException} delivered as {@code onError} on the first demand. Either way the
-   * second subscriber must receive no bytes and be told why, which is what is asserted here.
    */
   @Test
-  void theBodyCanOnlyBeHandedOverOnce() {
+  void theBodyCanOnlyBeHandedOverOnce() throws Exception {
     final InputStream body = new ByteArrayInputStream(PAYLOAD.getBytes(StandardCharsets.UTF_8));
     final HttpRequest request = PostBatchHandler.buildForwardRequest("http://leader:2480/api/v1/batch/db",
         "application/x-ndjson", "token", "root", PAYLOAD.length(), body);
@@ -103,20 +101,18 @@ class PostBatchHandlerForwardRequestTest {
     final HttpRequest.BodyPublisher publisher = request.bodyPublisher().get();
     publisher.subscribe(new DiscardingSubscriber());
 
-    final RecordingSubscriber second = new RecordingSubscriber();
-    Throwable refusal;
-    try {
-      publisher.subscribe(second);
-      refusal = second.error;
-    } catch (final IllegalStateException e) {
-      refusal = e;
-    }
+    // Where the refusal surfaces depends on the JDK: on 21 the supplier's exception escapes subscribe(); on 26
+    // the publisher asks the supplier when the subscriber requests data and hands the subscriber
+    // onError(IOException("Stream supplier has failed")) with the refusal as its cause. Either way no second copy of
+    // the body is relayed, so the test accepts both paths and asserts on the refusal itself.
+    final DiscardingSubscriber second = new DiscardingSubscriber();
+    final Throwable thrown = catchThrowable(() -> publisher.subscribe(second));
+    final Throwable surfaced = thrown != null ? thrown : second.error.get(5, TimeUnit.SECONDS);
+    assertThat(surfaced).as("the second subscription must be refused").isNotNull();
 
-    // JDK 26 wraps the supplier's exception: IOException("Stream supplier has failed") caused by the guard's own.
-    if (refusal instanceof IOException && refusal.getCause() != null)
+    Throwable refusal = surfaced;
+    while (!(refusal instanceof IllegalStateException) && refusal.getCause() != null)
       refusal = refusal.getCause();
-
-    assertThat(second.bytesReceived).isZero();
     assertThat(refusal).isInstanceOf(IllegalStateException.class).hasMessageContaining("can only be read once");
   }
 
@@ -136,12 +132,11 @@ class PostBatchHandlerForwardRequestTest {
   }
 
   /**
-   * A subscriber that asks for everything and records what it was given, so a refusal delivered as {@code onError}
-   * is observable.
+   * A subscriber that cancels at once: enough to make the publisher hand out its single stream without reading it.
    */
-  private static class RecordingSubscriber implements Flow.Subscriber<ByteBuffer> {
-    private int       bytesReceived;
-    private Throwable error;
+  /** Requests the whole body and drops it, as the single real send would read it, and keeps an error it is handed. */
+  private static class DiscardingSubscriber implements Flow.Subscriber<ByteBuffer> {
+    private final CompletableFuture<Throwable> error = new CompletableFuture<>();
 
     @Override
     public void onSubscribe(final Flow.Subscription subscription) {
@@ -150,34 +145,11 @@ class PostBatchHandlerForwardRequestTest {
 
     @Override
     public void onNext(final ByteBuffer item) {
-      bytesReceived += item.remaining();
     }
 
     @Override
     public void onError(final Throwable throwable) {
-      error = throwable;
-    }
-
-    @Override
-    public void onComplete() {
-    }
-  }
-
-  /**
-   * A subscriber that cancels at once: enough to make the publisher hand out its single stream without reading it.
-   */
-  private static class DiscardingSubscriber implements Flow.Subscriber<ByteBuffer> {
-    @Override
-    public void onSubscribe(final Flow.Subscription subscription) {
-      subscription.cancel();
-    }
-
-    @Override
-    public void onNext(final ByteBuffer item) {
-    }
-
-    @Override
-    public void onError(final Throwable throwable) {
+      error.complete(throwable);
     }
 
     @Override

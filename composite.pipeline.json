@@ -1,0 +1,41 @@
+{
+  "build_steps": [
+    ["git", "archive", "--format=tar.gz", "--output=composite-source.tar.gz", "HEAD"]
+  ],
+  "artifacts": ["composite-source.tar.gz"],
+  "tests": [
+    {
+      "name": "maven",
+      "steps": [
+        ["mvn", "-B", "verify", "-DexcludedGroups=slow,benchmark,vector", "-Dsurefire.rerunFailingTestsCount=2", "-pl", "!e2e"]
+      ],
+      "reports": ["**/target/surefire-reports/*.xml"],
+      "required": true,
+      "timeout": 6600,
+      "requires": ["mvn", "java"]
+    },
+    {
+      "name": "package-studio",
+      "setup": [["npm", "ci"]],
+      "steps": [["npm", "run", "test"]],
+      "cwd": "studio",
+      "reports": [],
+      "required": true,
+      "timeout": 1800,
+      "requires": ["npm"]
+    }
+  ],
+  "environments": {
+    "local-release": {
+      "deploy": [["/Users/iancaltabiano/Documents/Projects/composite/.venv/bin/python", "-m", "ejournal.pipeline_local_release", "publish",
+        "--project", "{project}", "--version", "{version}", "--artifact", "{artifact}", "--sha256", "{artifact_sha256}",
+        "--root", "/Users/iancaltabiano/.eng-journal/local-releases"]],
+      "verify": [["/Users/iancaltabiano/Documents/Projects/composite/.venv/bin/python", "-m", "ejournal.pipeline_local_release", "verify",
+        "--project", "{project}", "--version", "{version}", "--artifact", "{artifact}", "--sha256", "{artifact_sha256}",
+        "--root", "/Users/iancaltabiano/.eng-journal/local-releases"]],
+      "automatic": true
+    }
+  },
+  "default_environment": "local-release",
+  "timeout": 7200
+}

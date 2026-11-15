@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -128,7 +129,7 @@ class Issue8710RemoteServerSecurityRoutesFailoverTest {
 
     for (final EntryPoint entry : ENTRY_POINTS) {
       final int closedPort;
-      try (final ServerSocket probe = new ServerSocket(0)) {
+      try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
         closedPort = probe.getLocalPort();
       }
       try (final ScriptedServer second = new ScriptedServer(entry.success())) {
@@ -206,7 +207,7 @@ class Issue8710RemoteServerSecurityRoutesFailoverTest {
     final ContextConfiguration cfg = new ContextConfiguration();
     cfg.setValue(GlobalConfiguration.NETWORK_SAME_SERVER_ERROR_RETRIES, 2);
     final int closedPort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       closedPort = probe.getLocalPort();
     }
     final RemoteServer client = new RemoteServer("127.0.0.1", closedPort, "root", "test", cfg) {
@@ -271,7 +272,7 @@ class Issue8710RemoteServerSecurityRoutesFailoverTest {
 
     ScriptedServer(final String... responses) throws IOException {
       script.addAll(List.of(responses));
-      socket = new ServerSocket(0);
+      socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
       final Thread t = new Thread(() -> {
         while (!socket.isClosed()) {
           try (final Socket client = socket.accept()) {

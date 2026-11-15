@@ -30,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -255,7 +256,7 @@ class RemoteDatabaseTest {
     // that port will fail fast with ConnectException. The finally block in begin() must
     // release the sticky pin because no session was established.
     final int closedPort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       closedPort = probe.getLocalPort();
     }
 
@@ -278,7 +279,7 @@ class RemoteDatabaseTest {
   void haFailoverDuringActiveTransactionThrowsTransactionException() throws Exception {
     // Bind an ephemeral port then immediately close it; connect attempts will fail fast.
     final int unreachablePort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       unreachablePort = probe.getLocalPort();
     }
 
@@ -308,7 +309,7 @@ class RemoteDatabaseTest {
     // With no active session the retry path should proceed to a normal connectivity error,
     // not a TransactionException.
     final int unreachablePort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       unreachablePort = probe.getLocalPort();
     }
 
@@ -470,7 +471,7 @@ class RemoteDatabaseTest {
    * httpCommand() and must capture response headers on their own.
    */
   private void withHttpServer(final List<StubResponse> responses, final ServerAction action) throws Exception {
-    try (final ServerSocket serverSocket = new ServerSocket(0)) {
+    try (final ServerSocket serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       final int port = serverSocket.getLocalPort();
 
       final Thread serverThread = new Thread(() -> {
