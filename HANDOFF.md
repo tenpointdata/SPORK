@@ -95,7 +95,8 @@ Train 1 modules, on `main`:
 
 ## Current state
 
-As of 2026-11-14: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
+As of 2026-11-15: Composite's saved spork pipeline now has the rerun flag (`-Dsurefire.rerunFailingTestsCount=2`),
+matching `composite.pipeline.json`. As of 2026-11-14: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
 Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test); the run before this
 change timed out without a failing case. Fixed on the way: `Issue10153AlreadyExistsTest`'s allow-list re-keyed for `IndexDefinitionConflictException`, RoaringBitmap
 excluded from the gremlin uber-jar (`ShadedJarLayoutTest`), and `Issue7796`'s fixture bound to loopback. The lane still
@@ -407,6 +408,11 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     0 where 1 or 2 was expected). A later run added `PageManagerReadCoalescingTest.threadsMissingTheSamePageShareOnePhysicalRead`
     (2 physical reads where 1 was expected), and the known `Issue10915VectorIndexSizedOnFirstVectorTest` and
     `Issue7603LeaderForwardHopTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
+    Fixed 2026-11-15: `LocalDatabaseLookupByRIDsTest.readsEveryPageOnceAndOnlyTheDistinctPages` (41 pages for 40; the
+    `PageManager` counters are JVM-wide, so it now asserts the least of three measurements). Seen once the same day, not
+    reproduced: the engine fork exited with code 0 and no dump partway through `Issue10548GAVVarLengthExpandTest`
+    (44 minutes in, no sleep, no jetsam entry; the class passes alone in 42 s). If it recurs, look for a
+    `*.dumpstream` in `engine/target/surefire-reports` and for a surefire ping timeout.
 
 ### Waiting on the owner (gates)
 
