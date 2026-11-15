@@ -95,12 +95,14 @@ Train 1 modules, on `main`:
 
 ## Current state
 
-As of 2026-11-15: Composite's saved spork pipeline now has the rerun flag (`-Dsurefire.rerunFailingTestsCount=2`),
-matching `composite.pipeline.json`. As of 2026-11-14: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
-Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test); the run before this
-change timed out without a failing case. Fixed on the way: `Issue10153AlreadyExistsTest`'s allow-list re-keyed for `IndexDefinitionConflictException`, RoaringBitmap
-excluded from the gremlin uber-jar (`ShadedJarLayoutTest`), and `Issue7796`'s fixture bound to loopback. The lane still
-meets the timing flakes in Open work 56 when the machine is loaded.
+As of 2026-11-15: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
+Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test), saved in Composite with
+the rerun flag, a 6600 s suite cap and the 7200 s build maximum. The old whole-reactor command always timed out without
+a failing case. That exact command passed on 2026-11-15 in 1 h 15 min with no failures, after two flakes cleared on rerun
+(Open work 56 and 57); Studio's `npm test` passed 525 of 525. Fixed on the way: `Issue10153AlreadyExistsTest`'s
+allow-list, RoaringBitmap kept out of the gremlin uber-jar, loopback-bound network fixtures, `LeaderCommandForwarder`'s
+timeout report, and the `LocalDatabaseLookupByRIDsTest` page-count flake. Open work 57 (an index header page possibly
+lost in a crash) needs an engine investigation.
 
 ## Triage
 
