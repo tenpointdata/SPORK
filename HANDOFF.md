@@ -154,7 +154,7 @@ which matter here:
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
 - Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
-  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -pl !e2e` (about 42 minutes on this Mac; `load-tests` stays
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (about 42 minutes on this Mac; `load-tests` stays
   in because `e2e-ha` needs its test-jar, which CI gets from a prior install), then Studio's
   `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
   with every tag (it cannot fit any sane timeout, see Open work 54).
@@ -405,7 +405,8 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     `StallAwareStopwatch` or assert the computed delays), `WalCommitOrderingTest.publishFailureWithWalDisabledFencesAndKeepsTheIdentities`
     (expected 2 but was 1) and `QueryHeapBudgetIssue8591Test.concurrentQueriesCannotHoldMoreThanTheBudget` (a count of
     0 where 1 or 2 was expected). A later run added `PageManagerReadCoalescingTest.threadsMissingTheSamePageShareOnePhysicalRead`
-    (2 physical reads where 1 was expected) and the known `PostBatchHandlerForwardRequestTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
+    (2 physical reads where 1 was expected), and the known `Issue10915VectorIndexSizedOnFirstVectorTest` and
+    `Issue7603LeaderForwardHopTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
 
 ### Waiting on the owner (gates)
 
@@ -429,7 +430,10 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   02-retrieval-speed, `model/`, `research/`, `config/` (the S1 re-plan session edits 01, README and `budget.py` for owner
   decisions); feature roadmap, 03 and 09 belong to the Goal session; 04 and 05 to identity; 06 to stylometry; 07 to
   Entry; 08 to native versioning.
-- **Upstream flakes** that also fail on pre-SPORK `main`: `PostBatchHandlerForwardRequestTest`,
+- **Maven here runs on Homebrew JDK 26** (`mvn -v`), CI on 21. `PostBatchHandlerForwardRequestTest` failed every run on
+  26 because `BodyPublishers.ofInputStream` reports a failing supplier through `onError` there instead of throwing; the
+  test now accepts both (2026-11-14). A test that passes on CI and fails here every time: check the JDK first.
+- **Upstream flakes** that also fail on pre-SPORK `main`:
   `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`, `Issue10915VectorIndexSizedOnFirstVectorTest`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
 - **A test listener must bind loopback, not the wildcard.** On macOS a `127.0.0.1:P` bind by any other process wins
@@ -474,7 +478,10 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
 - 2026-11-14: Composite's spork test suite is the CI unit lane, recorded in `composite.pipeline.json`, not
   `mvn -B test` over everything. The old command ran every tag of every module in one JVM per module inside an 1800 s
   cap and always ended in "step 1 timed out" with no failing case (the last run sat in `ACIDTransactionTest`'s
-  `@Tag("slow")` 100k-record case). The excluded lanes are Open work 54.
+  `@Tag("slow")` 100k-record case). The excluded lanes are Open work 54. The suite reruns a failed test up to twice
+  (`-Dsurefire.rerunFailingTestsCount=2`, on the Composite command only, not in the pom): five full runs each met a
+  different timing flake out of ~26,000 tests (Open work 56), so a single-shot run is red by chance; a rerun-pass is
+  reported as flaky, and a test that fails every attempt still fails the build.
 
 ## Handoff policy
 

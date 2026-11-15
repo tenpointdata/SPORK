@@ -26,10 +26,12 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * A batch load that lands on a follower is relayed to the leader, and that hop must not be able to deliver less than
@@ -90,7 +92,7 @@ class PostBatchHandlerForwardRequestTest {
    * a success, with an "unknown temporary ID" for a vertex that is right there in the payload. It refuses instead.
    */
   @Test
-  void theBodyCanOnlyBeHandedOverOnce() {
+  void theBodyCanOnlyBeHandedOverOnce() throws Exception {
     final InputStream body = new ByteArrayInputStream(PAYLOAD.getBytes(StandardCharsets.UTF_8));
     final HttpRequest request = PostBatchHandler.buildForwardRequest("http://leader:2480/api/v1/batch/db",
         "application/x-ndjson", "token", "root", PAYLOAD.length(), body);
@@ -99,9 +101,19 @@ class PostBatchHandlerForwardRequestTest {
     final HttpRequest.BodyPublisher publisher = request.bodyPublisher().get();
     publisher.subscribe(new DiscardingSubscriber());
 
-    assertThatThrownBy(() -> publisher.subscribe(new DiscardingSubscriber()))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("can only be read once");
+    // Where the refusal surfaces depends on the JDK: on 21 the supplier's exception escapes subscribe(); on 26
+    // the publisher asks the supplier when the subscriber requests data and hands the subscriber
+    // onError(IOException("Stream supplier has failed")) with the refusal as its cause. Either way no second copy of
+    // the body is relayed, so the test accepts both paths and asserts on the refusal itself.
+    final DiscardingSubscriber second = new DiscardingSubscriber();
+    final Throwable thrown = catchThrowable(() -> publisher.subscribe(second));
+    final Throwable surfaced = thrown != null ? thrown : second.error.get(5, TimeUnit.SECONDS);
+    assertThat(surfaced).as("the second subscription must be refused").isNotNull();
+
+    Throwable refusal = surfaced;
+    while (!(refusal instanceof IllegalStateException) && refusal.getCause() != null)
+      refusal = refusal.getCause();
+    assertThat(refusal).isInstanceOf(IllegalStateException.class).hasMessageContaining("can only be read once");
   }
 
   /**
@@ -122,10 +134,13 @@ class PostBatchHandlerForwardRequestTest {
   /**
    * A subscriber that cancels at once: enough to make the publisher hand out its single stream without reading it.
    */
+  /** Requests the whole body and drops it, as the single real send would read it, and keeps an error it is handed. */
   private static class DiscardingSubscriber implements Flow.Subscriber<ByteBuffer> {
+    private final CompletableFuture<Throwable> error = new CompletableFuture<>();
+
     @Override
     public void onSubscribe(final Flow.Subscription subscription) {
-      subscription.cancel();
+      subscription.request(Long.MAX_VALUE);
     }
 
     @Override
@@ -134,6 +149,7 @@ class PostBatchHandlerForwardRequestTest {
 
     @Override
     public void onError(final Throwable throwable) {
+      error.complete(throwable);
     }
 
     @Override

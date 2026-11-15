@@ -7,7 +7,7 @@
     {
       "name": "maven",
       "steps": [
-        ["mvn", "-B", "verify", "-DexcludedGroups=slow,benchmark,vector", "-pl", "!e2e"]
+        ["mvn", "-B", "verify", "-DexcludedGroups=slow,benchmark,vector", "-Dsurefire.rerunFailingTestsCount=2", "-pl", "!e2e"]
       ],
       "reports": ["**/target/surefire-reports/*.xml"],
       "required": true,
