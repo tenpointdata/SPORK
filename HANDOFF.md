@@ -451,11 +451,15 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   26 because `BodyPublishers.ofInputStream` reports a failing supplier through `onError` there instead of throwing; the
   test now accepts both (2026-11-14). A test that passes on CI and fails here every time: check the JDK first.
 - **Upstream flakes** that also fail on pre-SPORK `main`:
-  `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`, `Issue10915VectorIndexSizedOnFirstVectorTest`,
+  `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
 - **A test listener must bind loopback, not the wildcard.** On macOS a `127.0.0.1:P` bind by any other process wins
   over a wildcard `*:P` one, so a fixture dialled at `127.0.0.1` sees nothing while a stranger answers (Open work 55).
   Use `new ServerSocket(0, n, InetAddress.getLoopbackAddress())`.
+- **`Issue10153AlreadyExistsTest` allow-lists throw sites by exception type name.** Each entry of
+  `noSourceRefusesATakenNameWithAnotherType` reads `file:ExceptionSimpleName:message prefix`, so narrowing a thrown
+  exception to a subclass (as e82e953c4 did with `IndexDefinitionConflictException` in `CreateIndexStatement`) makes the
+  site read as an offender that should throw `AlreadyExistsException`. Rename the entry in the same commit (566e86c2f).
 - **Two green branches can fail to compile together** (seen in the consolidation); compile and run the full lanes after
   merging.
 - **Benchmarks need a quiet machine.** Check `uptime` (load under about 4), run A and B interleaved in one window, and
@@ -499,6 +503,15 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   (`-Dsurefire.rerunFailingTestsCount=2`, on the Composite command only, not in the pom): five full runs each met a
   different timing flake out of ~26,000 tests (Open work 56), so a single-shot run is red by chance; a rerun-pass is
   reported as flaky, and a test that fails every attempt still fails the build.
+- 2026-11-14: `Issue10915VectorIndexSizedOnFirstVectorTest`'s PRODUCT case was a test flake, not an engine bug: the PQ
+  search re-scores only `k * rerankOversample` candidates, so the test now reranks every candidate (cd7c891ed) and is off
+  the upstream-flakes list.
+- 2026-11-15: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes` was a test flake, not a
+  backoff bug: it compared late against early gap sums of a few ms each and discounted JVM stalls per gap, but
+  `JvmStallMonitor` charges a stall when its sampler wakes, so a per-gap discount lands in the wrong gap (gaps of 45 ms
+  in a 4 ms window, 0 ms in a 128 ms one). It now asserts a raw-wall-clock floor on the late half (noise only adds) and a
+  stall-discounted tripwire on the early half as one span. Rule for timing tests: discount stalls over one span, never
+  over gaps shorter than the sampler's 10 ms tick plus tolerance.
 
 ## Handoff policy
 
