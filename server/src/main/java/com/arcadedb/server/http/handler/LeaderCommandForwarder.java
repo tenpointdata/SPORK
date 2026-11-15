@@ -686,6 +686,14 @@ public final class LeaderCommandForwarder {
           writeErrorEvent(out, failure);
         }
       } catch (final RelaySubscriber.UpstreamFailure e) {
+        if (e.getCause() instanceof HttpTimeoutException) {
+          // The request carries the same deadline as drainTo, and from JDK 26 HttpRequest.timeout covers the body
+          // too (issue #8473), so the client's own timer can fire first and arrive here. It is the deadline, not a
+          // broken connection: report it as drainTo would have.
+          logGaveUp(leaderHttpAddress, deadlineMs, longRunningCommand);
+          writeErrorEvent(out, gaveUpMessage(leaderHttpAddress, deadlineMs, longRunningCommand));
+          return STREAMED;
+        }
         // The leader's side of the relay broke after the stream began: the connection dropped, or the leader
         // closed it without a terminal event. Say so in the stream, which is the only place left to say it.
         LogManager.instance().log(this, Level.WARNING,
