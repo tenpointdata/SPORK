@@ -232,15 +232,25 @@ class Issue10915VectorIndexSizedOnFirstVectorTest extends TestHelper {
 
   @Test
   void aProductQuantizedIndexSizedOnItsFirstVectorBuildsItsCodebooksWithThatSize() {
-    command("CREATE VECTOR INDEX emb FOR (n:Doc) ON n.embedding OPTIONS {indexConfig: {quantization: 'PRODUCT', pqClusters: 16}}");
+    // The search of a PRODUCT index walks on the PQ codes and reranks only k * rerankOversample candidates on the stored
+    // vectors: an approximate answer by contract. These vectors are nearly collinear (the cosines of d90..d99 to the query all
+    // exceed 0.996) and 16 k-means++ clusters with a random start cannot order them, so with the default oversample of 10 the
+    // reranked ten missed d99 in about one build in four. Reranking every candidate makes the answer exact, so what this test
+    // pins is that the codebooks were built on the size taken from the first vector, not the recall of 16 clusters.
+    command("CREATE VECTOR INDEX emb FOR (n:Doc) ON n.embedding OPTIONS {indexConfig: {quantization: 'PRODUCT', pqClusters: 16, "
+        + "rerankOversample: 100}}");
     for (int i = 0; i < 100; i++)
       command("CREATE (:Doc {id: 'd" + i + "', embedding: [" + i + ".0, " + (100 - i) + ".0, " + (i % 7) + ".0, 1.0, 0.5, "
           + (i % 3) + ".0, 2.0, 0.25]})");
 
     reopenDatabase();
 
-    assertThat(vectorIndex("emb").getDimensions()).isEqualTo(8);
+    final LSMVectorIndex vector = vectorIndex("emb");
+    assertThat(vector.getDimensions()).isEqualTo(8);
     assertThat(nearestIds("emb", 1, List.of(99.0, 1.0, 1.0, 1.0, 0.5, 0.0, 2.0, 0.25))).containsExactly("d99");
+    // the search above was answered by the codebooks, not by an exact walk standing in for missing ones
+    assertThat(vector.isPQSearchAvailable()).isTrue();
+    assertThat(vector.getPQVectorCount()).isEqualTo(100);
   }
 
   private LSMVectorIndex vectorIndex(final String name) {
