@@ -97,8 +97,9 @@ Train 1 modules, on `main`:
 
 As of 2026-11-14: `main` holds the consolidated SPORK work (see Done above) plus the 2026-11-11 stress-report fixes.
 Composite's build runs the CI unit lane from `composite.pipeline.json` (see Setup, run, test); the run before this
-change timed out without a failing case. The engine unit lane is green after re-keying
-`Issue10153AlreadyExistsTest`'s allow-list for `IndexDefinitionConflictException`.
+change timed out without a failing case. Fixed on the way: `Issue10153AlreadyExistsTest`'s allow-list re-keyed for `IndexDefinitionConflictException`, RoaringBitmap
+excluded from the gremlin uber-jar (`ShadedJarLayoutTest`), and `Issue7796`'s fixture bound to loopback. The lane still
+meets the timing flakes in Open work 56 when the machine is loaded.
 
 ## Triage
 
@@ -153,7 +154,8 @@ which matter here:
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
 - Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
-  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -pl !e2e,!load-tests`, then Studio's
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -pl !e2e` (about 42 minutes on this Mac; `load-tests` stays
+  in because `e2e-ha` needs its test-jar, which CI gets from a prior install), then Studio's
   `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
   with every tag (it cannot fit any sane timeout, see Open work 54).
 - Per-workstream commands are in each doc under `docs/spork/workstreams/`, e.g. `mvn -o -pl spork-encoder test`,
@@ -386,7 +388,7 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
 53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
     `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
 54. **The Composite pipeline runs the unit lane only.** `composite.pipeline.json` leaves out the `slow`, `vector` and
-    `benchmark` tags, the `-Pintegration` ITs, `e2e` and `load-tests`, which upstream CI runs as separate lanes
+    `benchmark` tags, the `-Pintegration` ITs and `e2e`, which upstream CI runs as separate lanes
     (`.github/workflows/mvn-test.yml`). Done means: either optional (`"required": false`) Composite suites for the
     engine `slow` and `vector` lanes with their own timeouts, or a decision recorded here that GitHub CI alone covers
     them. The unit lane is also one sequential JVM per module; engine alone takes about 29 minutes on this Mac.
@@ -397,6 +399,13 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     it now binds `InetAddress.getLoopbackAddress()`. Still bare: about 22 sites under `network/src/test` (e.g.
     `Issue8526RemoteRequestIdReplayTest`, `Issue8710RemoteServerSecurityRoutesFailoverTest`), plus ha-raft and bolt.
     Done means each binds loopback, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
+56. **Engine unit-lane flakes under machine load (2026-11-14, load average 10 to 16).** One full run of 3 failed
+    these, each green 3 of 3 when rerun alone: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes`
+    (asserts measured millisecond gaps, "gaps [91, 38, 0, 31] ... [56, 0, 0, 28]": move it to
+    `StallAwareStopwatch` or assert the computed delays), `WalCommitOrderingTest.publishFailureWithWalDisabledFencesAndKeepsTheIdentities`
+    (expected 2 but was 1) and `QueryHeapBudgetIssue8591Test.concurrentQueriesCannotHoldMoreThanTheBudget` (a count of
+    0 where 1 or 2 was expected). A later run added `PageManagerReadCoalescingTest.threadsMissingTheSamePageShareOnePhysicalRead`
+    (2 physical reads where 1 was expected) and the known `PostBatchHandlerForwardRequestTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
 
 ### Waiting on the owner (gates)
 

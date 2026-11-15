@@ -510,6 +510,7 @@
                             <exclude>org.graalvm.truffle:*</exclude>
                             <exclude>org.locationtech.jts:*</exclude>
                             <exclude>org.locationtech.spatial4j:*</exclude>
+                            <exclude>org.roaringbitmap:*</exclude>
                             <!-- ...and the same for arcadedb-integration's tree. -->
                             <exclude>com.sonofab1rd:univocity-parsers</exclude>
                         </excludes>
