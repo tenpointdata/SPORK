@@ -443,6 +443,12 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
 - 2026-11-14: `Issue10915VectorIndexSizedOnFirstVectorTest`'s PRODUCT case was a test flake, not an engine bug: the PQ
   search re-scores only `k * rerankOversample` candidates, so the test now reranks every candidate (cd7c891ed) and is off
   the upstream-flakes list.
+- 2026-11-15: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes` was a test flake, not a
+  backoff bug: it compared late against early gap sums of a few ms each and discounted JVM stalls per gap, but
+  `JvmStallMonitor` charges a stall when its sampler wakes, so a per-gap discount lands in the wrong gap (gaps of 45 ms
+  in a 4 ms window, 0 ms in a 128 ms one). It now asserts a raw-wall-clock floor on the late half (noise only adds) and a
+  stall-discounted tripwire on the early half as one span. Rule for timing tests: discount stalls over one span, never
+  over gaps shorter than the sampler's 10 ms tick plus tolerance.
 
 ## Handoff policy
 
