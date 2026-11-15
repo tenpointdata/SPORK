@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.http.HttpRequest;
@@ -114,7 +115,7 @@ class Issue8526RemoteRequestIdReplayTest {
     // the client saw process proc-old, the server restarted (now another process): the first attempt is refused at connect, so nothing
     // was sent and the retry must not insist on the old process
     final int port;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       port = probe.getLocalPort();
     }
     final ScriptedServer[] restarted = new ScriptedServer[1];
@@ -152,7 +153,7 @@ class Issue8526RemoteRequestIdReplayTest {
   @Test
   void failoverAfterAConnectFailureDoesNotCarryTheOtherServersInstance() throws Exception {
     final int closedPort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       closedPort = probe.getLocalPort();
     }
     try (final ScriptedServer second = new ScriptedServer(true, "answer")) {

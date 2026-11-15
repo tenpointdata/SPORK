@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.net.ConnectException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.http.HttpConnectTimeoutException;
@@ -212,7 +213,7 @@ class Issue8136RemoteCommandReplayTest {
   @Test
   void commandThatNeverConnectedIsStillFailedOver() throws Exception {
     final int closedPort;
-    try (final ServerSocket probe = new ServerSocket(0)) {
+    try (final ServerSocket probe = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
       closedPort = probe.getLocalPort();
     }
 
@@ -289,7 +290,7 @@ class Issue8136RemoteCommandReplayTest {
     private final AtomicInteger received = new AtomicInteger();
 
     CountingServer() throws IOException {
-      socket = new ServerSocket(0);
+      socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
       final Thread t = new Thread(() -> {
         while (!socket.isClosed()) {
           try (final Socket client = socket.accept()) {

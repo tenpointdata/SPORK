@@ -394,11 +394,11 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     them. The unit lane is also one sequential JVM per module; engine alone takes about 29 minutes on this Mac.
 55. **Wildcard-bound test fixtures lose their traffic on a busy Mac.** A fixture that listens with
     `new ServerSocket(0)` (wildcard) and is dialled at `127.0.0.1` is bypassed when any other process binds
-    `127.0.0.1` on the same port: macOS routes the connection to the specific bind (measured 2026-11-14). That made
-    `Issue7796RemoteServerAdminCommandsTest` fail once in a full unit-lane run and twice in about 15 runs under CPU load with "expected size N but was 0";
-    it now binds `InetAddress.getLoopbackAddress()`. Still bare: about 22 sites under `network/src/test` (e.g.
-    `Issue8526RemoteRequestIdReplayTest`, `Issue8710RemoteServerSecurityRoutesFailoverTest`), plus ha-raft and bolt.
-    Done means each binds loopback, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
+    `127.0.0.1` on the same port: macOS routes the connection to the specific bind (measured 2026-11-14). It made
+    `Issue7796RemoteServerAdminCommandsTest` and `Issue8710RemoteServerSecurityRoutesFailoverTest` fail in full runs
+    ("expected size N but was 0", "JSONObject[result] not found"). Every site under `network/src/test` now binds
+    `InetAddress.getLoopbackAddress()`. Still bare: about 10 sites in `ha-raft` tests and `BoltPortConfigIT`. Done means
+    those bind loopback too, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
 56. **Engine unit-lane flakes under machine load (2026-11-14, load average 10 to 16).** One full run of 3 failed
     these, each green 3 of 3 when rerun alone: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes`
     (asserts measured millisecond gaps, "gaps [91, 38, 0, 31] ... [56, 0, 0, 28]": move it to
