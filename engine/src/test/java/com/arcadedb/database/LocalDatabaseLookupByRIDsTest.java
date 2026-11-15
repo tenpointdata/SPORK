@@ -150,16 +150,28 @@ class LocalDatabaseLookupByRIDsTest extends TestHelper {
     // machine the flush thread lags and the test saw 2, 18 or 29 prefetches for 40 pages, with not one page left unread
     // through a path that bypasses the prefetch: the batch reads every page through tx.getPage, never through the shared view
     // getRecordInternal uses, since none of these records is a chunk chain or a placeholder.
-    assertThat(pageManager.waitAllPagesOfDatabaseAreFlushed(db)).as("beginTest's pages reached the disk").isTrue();
-    pageManager.removeAllReadPagesOfDatabase(db);
-    final PageManager.PPageManagerStats before = pageManager.getStats();
-    final Record[] records = local().lookupByRIDs(asked.toArray(new RID[0]), true);
-    final PageManager.PPageManagerStats after = pageManager.getStats();
+    //
+    // BOTH COUNTERS ARE JVM-WIDE (PageManager.INSTANCE), SO A PAGE ANOTHER DATABASE LOADS DURING THE BATCH - A BACKGROUND THREAD
+    // LEFT BY AN EARLIER TEST CLASS IN THE SAME FORK - IS COUNTED TOO: THE FULL UNIT LANE SAW 41 FOR 40. INTERFERENCE ONLY EVER
+    // ADDS, WHILE A BATCH THAT READS A PAGE TWICE OR AN EXTRA PAGE DOES SO ON EVERY ATTEMPT, SO THE LEAST OF A FEW MEASUREMENTS
+    // IS THIS BATCH'S OWN COUNT AND THE ASSERTION STAYS EXACT
+    final RID[] rids = asked.toArray(new RID[0]);
+    long pagesRead = Long.MAX_VALUE;
+    long prefetched = Long.MAX_VALUE;
+    for (int attempt = 0; attempt < 3 && (pagesRead != pages.size() || prefetched != pages.size()); attempt++) {
+      assertThat(pageManager.waitAllPagesOfDatabaseAreFlushed(db)).as("beginTest's pages reached the disk").isTrue();
+      pageManager.removeAllReadPagesOfDatabase(db);
+      final PageManager.PPageManagerStats before = pageManager.getStats();
+      final Record[] records = local().lookupByRIDs(rids, true);
+      final PageManager.PPageManagerStats after = pageManager.getStats();
 
-    assertThat(records).doesNotContainNull();
-    assertThat(after.pagesRead - before.pagesRead).as("pages read for %d records on %d pages", asked.size(), pages.size())
-        .isEqualTo(pages.size());
-    assertThat(after.prefetchIssued - before.prefetchIssued).as("the misses were prefetched").isEqualTo(pages.size());
+      assertThat(records).doesNotContainNull();
+      pagesRead = Math.min(pagesRead, after.pagesRead - before.pagesRead);
+      prefetched = Math.min(prefetched, after.prefetchIssued - before.prefetchIssued);
+    }
+
+    assertThat(pagesRead).as("pages read for %d records on %d pages", asked.size(), pages.size()).isEqualTo(pages.size());
+    assertThat(prefetched).as("the misses were prefetched").isEqualTo(pages.size());
   }
 
   @Test
