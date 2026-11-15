@@ -397,12 +397,16 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   02-retrieval-speed, `model/`, `research/`, `config/` (the S1 re-plan session edits 01, README and `budget.py` for owner
   decisions); feature roadmap, 03 and 09 belong to the Goal session; 04 and 05 to identity; 06 to stylometry; 07 to
   Entry; 08 to native versioning.
-- **Upstream flakes** that also fail on pre-SPORK `main`: `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`,
+- **Upstream flakes** that also fail on pre-SPORK `main`: `HaLeadershipTransferIT`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
 - **Maven runs on JDK 26 here** (Homebrew `openjdk`, while plain `java` is 21), and JDK 26 changed some `java.net.http`
   behaviour: `BodyPublishers.ofInputStream` no longer lets a supplier's exception escape `subscribe()`, it delivers
   `IOException("Stream supplier has failed")` as `onError`. `PostBatchHandlerForwardRequestTest` assumed the JDK 21
   throw and failed deterministically, which failed `arcadedb-server` and skipped every later module (fixed 7600a3b46).
+  JDK 26 also makes `HttpRequest.timeout()` bound the response body, so the JDK's timeout races our own deadlines;
+  that made `Issue7603LeaderForwardHopTest`'s stalled-stream case flaky until f0d86b60c.
+- **A new engine dependency must be added to the shade excludes in `gremlin/pom.xml`**, or
+  `ShadedJarLayoutTest` (gremlin-it) fails because it is bundled unrelocated (RoaringBitmap, f0d86b60c).
   Write JDK-behaviour assertions so they hold on 21 and 26; check one with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 - **`Issue10153AlreadyExistsTest` allow-lists throw sites by exception type name.** Each entry of
   `noSourceRefusesATakenNameWithAnotherType` reads `file:ExceptionSimpleName:message prefix`, so narrowing a thrown
