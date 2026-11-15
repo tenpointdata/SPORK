@@ -11,7 +11,7 @@
       ],
       "reports": ["**/target/surefire-reports/*.xml"],
       "required": true,
-      "timeout": 7200,
+      "timeout": 6600,
       "requires": ["mvn", "java"]
     },
     {
@@ -37,5 +37,5 @@
     }
   },
   "default_environment": "local-release",
-  "timeout": 9000
+  "timeout": 7200
 }

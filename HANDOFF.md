@@ -155,7 +155,7 @@ which matter here:
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
 - Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
-  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (42 to 75 minutes on this Mac depending on load, so the suite cap is 7200 s and the build's 9000 s; `load-tests` stays
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (42 to 75 minutes on this Mac depending on load, so the suite cap is 6600 s and the build's 7200 s, Composite's maximum; `load-tests` stays
   in because `e2e-ha` needs its test-jar, which CI gets from a prior install), then Studio's
   `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
   with every tag (it cannot fit any sane timeout, see Open work 54).
