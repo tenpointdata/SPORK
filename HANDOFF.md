@@ -398,8 +398,12 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   decisions); feature roadmap, 03 and 09 belong to the Goal session; 04 and 05 to identity; 06 to stylometry; 07 to
   Entry; 08 to native versioning.
 - **Upstream flakes** that also fail on pre-SPORK `main`: `PostBatchHandlerForwardRequestTest`,
-  `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`, `Issue10915VectorIndexSizedOnFirstVectorTest`,
+  `Issue7603LeaderForwardHopTest`, `HaLeadershipTransferIT`,
   `SelectParallelIteratorTest.nonThrowingTimeoutTruncatesWhileStreaming`.
+- **`Issue10153AlreadyExistsTest` allow-lists throw sites by exception type name.** Each entry of
+  `noSourceRefusesATakenNameWithAnotherType` reads `file:ExceptionSimpleName:message prefix`, so narrowing a thrown
+  exception to a subclass (as e82e953c4 did with `IndexDefinitionConflictException` in `CreateIndexStatement`) makes the
+  site read as an offender that should throw `AlreadyExistsException`. Rename the entry in the same commit (566e86c2f).
 - **Two green branches can fail to compile together** (seen in the consolidation); compile and run the full lanes after
   merging.
 - **Benchmarks need a quiet machine.** Check `uptime` (load under about 4), run A and B interleaved in one window, and
@@ -436,6 +440,9 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   valid", which was the intermittent red of `LSMIVFVectorIndexReviewTest...WithoutTheDatabaseLock`; pinned by
   `RebuildIndexRetryAfterDropTest`. `DatabaseChecker`'s bucket-index rebuild loop has the same shape but asks nothing
   that refuses on a dropped bucket index, so it was left alone.
+- 2026-11-14: `Issue10915VectorIndexSizedOnFirstVectorTest`'s PRODUCT case was a test flake, not an engine bug: the PQ
+  search re-scores only `k * rerankOversample` candidates, so the test now reranks every candidate (cd7c891ed) and is off
+  the upstream-flakes list.
 
 ## Handoff policy
 
