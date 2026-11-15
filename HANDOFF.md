@@ -155,7 +155,7 @@ which matter here:
 - After any merge, run the full engine and server unit lanes (about 25 + 15 minutes), not just the feature's tests:
   whole-repo guard tests catch what targeted runs miss.
 - Composite's build ([Builds & Deploys](#/pipelines?project=spork)) runs the suites in `composite.pipeline.json`:
-  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (about 42 minutes on this Mac; `load-tests` stays
+  the CI unit lane, `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` (42 to 75 minutes on this Mac depending on load, so the suite cap is 7200 s and the build's 9000 s; `load-tests` stays
   in because `e2e-ha` needs its test-jar, which CI gets from a prior install), then Studio's
   `npm test`. Change the suite there and re-save it with `configure_pipeline`; do not widen it to the whole reactor
   with every tag (it cannot fit any sane timeout, see Open work 54).
@@ -409,10 +409,21 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     (2 physical reads where 1 was expected), and the known `Issue10915VectorIndexSizedOnFirstVectorTest` and
     `Issue7603LeaderForwardHopTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
     Fixed 2026-11-15: `LocalDatabaseLookupByRIDsTest.readsEveryPageOnceAndOnlyTheDistinctPages` (41 pages for 40; the
-    `PageManager` counters are JVM-wide, so it now asserts the least of three measurements). Seen once the same day, not
+    `PageManager` counters are JVM-wide, so it now asserts the least of three measurements). Also seen once, cleared by
+    the rerun: `Issue4712ReplicatedWriteLockTest.applyChangesRespectsPerPageIoLock`. Seen once the same day, not
     reproduced: the engine fork exited with code 0 and no dump partway through `Issue10548GAVVarLengthExpandTest`
     (44 minutes in, no sleep, no jetsam entry; the class passes alone in 42 s). If it recurs, look for a
     `*.dumpstream` in `engine/target/surefire-reports` and for a surefire ping timeout.
+57. **A bucket index created just before a crash can come back with no header page (2026-11-15).**
+    `Issue10051Bm25CounterRepairTest.afterACrashTheFirstSearchRepairsTheCountersTheLogDoesNotCarry` failed once in
+    the unit lane (`totalDocs` 8 where 12 was expected). The test commits `CREATE INDEX ... FULL_TEXT` on a 3-bucket type
+    and 12 inserts, then calls `kill()` and reopens. On the reopen `LocalSchema` logged "Index 'Doc_2_…' is unavailable:
+    its file has no header page" (`LSMTreeIndexMutable` throws `MissingHeaderException` when `getTotalPages() == 0`), so
+    the BM25 repair counted 2 of 3 buckets. The records came back, so the WAL replayed. Either the index's first page is
+    written outside the WAL, or the schema loads index files before the replay restores their pages. It only happens when
+    `kill()` lands before the flush thread has written that page. Do not "fix" the test by waiting for the flush: that
+    hides a possible durability gap. Done means: a deterministic reproduction (hold the flush thread, commit
+    `CREATE INDEX`, kill, reopen) and either a recovery fix or a documented reason the index is legitimately lost.
 
 ### Waiting on the owner (gates)
 
