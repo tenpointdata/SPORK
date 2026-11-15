@@ -21,6 +21,7 @@ package com.arcadedb.server.http.handler;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -29,7 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Flow;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * A batch load that lands on a follower is relayed to the leader, and that hop must not be able to deliver less than
@@ -88,6 +88,10 @@ class PostBatchHandlerForwardRequestTest {
    * once and expects a FRESH stream every time; there is only one request body here, so handing the same one back a
    * second time would relay a payload starting in the middle of the file - a load missing its beginning, reported as
    * a success, with an "unknown temporary ID" for a vertex that is right there in the payload. It refuses instead.
+   * <p>
+   * Where the refusal surfaces depends on the JDK: up to 21 the supplier's exception escapes {@code subscribe}, from 26
+   * on {@code InputStreamPublisher} wraps it in an {@code IOException} delivered as {@code onError} on the first demand. Either way the
+   * second subscriber must receive no bytes and be told why, which is what is asserted here.
    */
   @Test
   void theBodyCanOnlyBeHandedOverOnce() {
@@ -99,9 +103,21 @@ class PostBatchHandlerForwardRequestTest {
     final HttpRequest.BodyPublisher publisher = request.bodyPublisher().get();
     publisher.subscribe(new DiscardingSubscriber());
 
-    assertThatThrownBy(() -> publisher.subscribe(new DiscardingSubscriber()))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("can only be read once");
+    final RecordingSubscriber second = new RecordingSubscriber();
+    Throwable refusal;
+    try {
+      publisher.subscribe(second);
+      refusal = second.error;
+    } catch (final IllegalStateException e) {
+      refusal = e;
+    }
+
+    // JDK 26 wraps the supplier's exception: IOException("Stream supplier has failed") caused by the guard's own.
+    if (refusal instanceof IOException && refusal.getCause() != null)
+      refusal = refusal.getCause();
+
+    assertThat(second.bytesReceived).isZero();
+    assertThat(refusal).isInstanceOf(IllegalStateException.class).hasMessageContaining("can only be read once");
   }
 
   /**
@@ -117,6 +133,34 @@ class PostBatchHandlerForwardRequestTest {
     assertThat(request.headers().firstValue("X-ArcadeDB-Cluster-Token")).contains("the-token");
     assertThat(request.headers().firstValue("X-ArcadeDB-Forwarded-User")).contains("importer");
     assertThat(request.headers().firstValue("Content-Type")).contains("text/csv");
+  }
+
+  /**
+   * A subscriber that asks for everything and records what it was given, so a refusal delivered as {@code onError}
+   * is observable.
+   */
+  private static class RecordingSubscriber implements Flow.Subscriber<ByteBuffer> {
+    private int       bytesReceived;
+    private Throwable error;
+
+    @Override
+    public void onSubscribe(final Flow.Subscription subscription) {
+      subscription.request(Long.MAX_VALUE);
+    }
+
+    @Override
+    public void onNext(final ByteBuffer item) {
+      bytesReceived += item.remaining();
+    }
+
+    @Override
+    public void onError(final Throwable throwable) {
+      error = throwable;
+    }
+
+    @Override
+    public void onComplete() {
+    }
   }
 
   /**
