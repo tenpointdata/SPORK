@@ -73,6 +73,14 @@ class Issue7339BoundsBusyRaftConnectionTest {
    */
   private static final long BEAT_MS = 100L;
 
+  /**
+   * The non-vacuity floor: more beats than fit in one idle window. A probe that never opened a stream would have been
+   * reaped as {@code max_idle} within that window, so a drumbeat that outlasted it did open streams. A fixed count
+   * sized to the age window (it was 20 against a 3 s age, about 30 beats at most) failed on a loaded machine, where
+   * each beat costs nearer 180 ms, without saying anything about the server.
+   */
+  private static final int MIN_BEATS = (int) (MIN_WINDOW_MS / BEAT_MS);
+
   // ---------------------------------------------------------------------------
   // Row 1: the defect - the idle window cannot reach a connection that stays busy
   // ---------------------------------------------------------------------------
@@ -91,7 +99,7 @@ class Issue7339BoundsBusyRaftConnectionTest {
       // its own, and if it never opened a stream the 1 000 ms idle window would have reaped the connection.
       assertThat(peer.beats())
           .as("the drumbeat has to have actually opened streams, or this test proves nothing")
-          .isGreaterThan(20);
+          .isGreaterThan(MIN_BEATS);
       assertThat(peer.closeReason())
           .as("this is the defect: a peer that keeps starting RPCs pushes the idle deadline forward by the whole "
               + "window every time, refused RPCs included, so nothing closes its connection. %s", peer.timing())
@@ -114,7 +122,7 @@ class Issue7339BoundsBusyRaftConnectionTest {
     try (final RaftGrpcServer server = start(config); final Http2ConnectionProbe peer = server.connect()) {
       peer.drumUntilClosed(60_000L, BEAT_MS);
 
-      assertThat(peer.beats()).as("the drumbeat has to have actually opened streams").isGreaterThan(20);
+      assertThat(peer.beats()).as("the drumbeat has to have actually opened streams").isGreaterThan(MIN_BEATS);
       assertThat(peer.closeReason())
           .as("the same drumbeat that defeats the idle window must not defeat the age window, and the GOAWAY has "
               + "to name the age timer rather than the idle one - max_idle here would mean the harness stalled "
