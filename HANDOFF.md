@@ -412,10 +412,12 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     `Issue7603LeaderForwardHopTest`. Done means each holds under a loaded full-lane run, with the race named in its fix.
     Fixed 2026-11-15: `LocalDatabaseLookupByRIDsTest.readsEveryPageOnceAndOnlyTheDistinctPages` (41 pages for 40; the
     `PageManager` counters are JVM-wide, so it now asserts the least of three measurements). Also seen once, cleared by
-    the rerun: `Issue4712ReplicatedWriteLockTest.applyChangesRespectsPerPageIoLock`. Seen once the same day, not
-    reproduced: the engine fork exited with code 0 and no dump partway through `Issue10548GAVVarLengthExpandTest`
-    (44 minutes in, no sleep, no jetsam entry; the class passes alone in 42 s). If it recurs, look for a
-    `*.dumpstream` in `engine/target/surefire-reports` and for a surefire ping timeout.
+    the rerun: `Issue4712ReplicatedWriteLockTest.applyChangesRespectsPerPageIoLock`. Fixed 2026-11-18: the engine
+    fork exiting with code 0 and no dump ("terminated without properly saying goodbye", three runs on 2026-11-15, in
+    `Issue10548GAVVarLengthExpandTest`, `PdqBandsTest` and one more) was macOS quitting it. ImageIO in the similarity
+    hashes made the non-headless fork a Dock app ("ForkedBooter" in loginwindow's log, two forks quit in the same
+    second), and AWT answers Quit with `System.exit(0)`. The root pom now runs surefire and failsafe with
+    `-Djava.awt.headless=true`, and `HeadlessTestForkTest` fails if that goes.
 57. **A bucket index created just before a crash can come back with no header page (2026-11-15).**
     `Issue10051Bm25CounterRepairTest.afterACrashTheFirstSearchRepairsTheCountersTheLogDoesNotCarry` failed once in
     the unit lane (`totalDocs` 8 where 12 was expected). The test commits `CREATE INDEX ... FULL_TEXT` on a 3-bucket type
@@ -467,6 +469,9 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
   `noSourceRefusesATakenNameWithAnotherType` reads `file:ExceptionSimpleName:message prefix`, so narrowing a thrown
   exception to a subclass (as e82e953c4 did with `IndexDefinitionConflictException` in `CreateIndexStatement`) makes the
   site read as an offender that should throw `AlreadyExistsException`. Rename the entry in the same commit (566e86c2f).
+- **Test forks must stay headless on a Mac.** A forked JVM that touches AWT without `-Djava.awt.headless=true`
+  becomes a Dock app, and any Quit sent to it kills the run with exit code 0 and no dump. The root pom sets the flag;
+  a module that overrides `argLine` must keep it.
 - **Two green branches can fail to compile together** (seen in the consolidation); compile and run the full lanes after
   merging.
 - **Benchmarks need a quiet machine.** Check `uptime` (load under about 4), run A and B interleaved in one window, and
