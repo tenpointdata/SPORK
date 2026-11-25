@@ -111,6 +111,8 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
   private static final int PARALLEL_RERANK_MIN     = 512;
   /** Lists per scan task at least: a task per list costs more in hand-off than a 200-entry list costs to scan. */
   private static final int LISTS_PER_TASK          = 2;
+  /** Bytes of posting entries per scan task at least (about 250 us of scan): below it a hand-off costs a share of what it saves. */
+  private static final long MIN_TASK_BYTES         = 256L << 10;
   /** Vectors a build codes per parallel batch before appending them on the build's thread. */
   private static final int BUILD_CODING_BATCH      = 8_192;
   /**
@@ -205,6 +207,8 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
             + (builder.getMetadata() == null ? "null" : builder.getMetadata().getClass().getSimpleName()));
       if (metadata.dimensions < 1)
         throw new IndexException("LSM_IVF_VECTOR index '" + builder.getIndexName() + "' requires a positive 'dimensions' setting");
+      // The codes not given are chosen now, by the dimension, and persisted as chosen: the page layout never follows a later rule
+      metadata.resolveCodes();
       if (metadata.scanCode == IVFScanCode.PRODUCT)
         throw new IndexException("LSM_IVF_VECTOR scanCode PRODUCT is not implemented yet; use BINARY or INT8");
       if (metadata.similarity == IVFSimilarity.HAMMING && metadata.scanCode != IVFScanCode.BINARY)
@@ -1066,7 +1070,7 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
       return null;
     final EntryLayout layout = layout();
 
-    int probes = nprobe > 0 ? nprobe : ivfMetadata.nprobe;
+    int probes = nprobe > 0 ? nprobe : defaultProbes(resident);
     if (allowed != null && header != null && header.liveEntries() > 0) {
       // A selective filter leaves few matches per list: widen the probe in proportion, up to a bound
       final long factor = Math.min(MAX_FILTER_PROBE_FACTOR, Math.max(1, header.liveEntries() / allowed.size));
@@ -1099,8 +1103,9 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
       for (int i = 0; i < lists.length; i++)
         heads[i] = component.headPage(header, lists[i]);
       // One task's worth of lists stays on the caller: a hand-off costs more than it saves there
-      offThread = parallelScan && lists.length > LISTS_PER_TASK && canReadOffThread();
-      heap = offThread ? scanParallel(scan, component, heads, capacity) : scanSerial(scan, component, heads, capacity);
+      final int tasks = parallelScan && lists.length > LISTS_PER_TASK ? scanTasks(lists.length, header, resident, layout) : 1;
+      offThread = tasks > 1 && canReadOffThread();
+      heap = offThread ? scanParallel(scan, component, heads, capacity, tasks) : scanSerial(scan, component, heads, capacity);
       if (scan.torn)
         return null;
     } else
@@ -1191,6 +1196,17 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
   }
 
   /**
+   * The lists a search probes when the query does not say: the index's {@code nprobe} when it names one, otherwise what the training
+   * measured this partition needs ({@link IVFCentroids#calibratedProbes}), never fewer than
+   * {@link LSMIVFVectorIndexMetadata#DEFAULT_NPROBE} (a layout trained before the measure was kept has none).
+   */
+  int defaultProbes(final IVFCentroids resident) {
+    if (ivfMetadata.nprobe > 0)
+      return ivfMetadata.nprobe;
+    return Math.max(LSMIVFVectorIndexMetadata.DEFAULT_NPROBE, resident.calibratedProbes);
+  }
+
+  /**
    * Candidates the scan keeps for the rerank. The default is an absolute budget, {@code max(k * rerankOversample, rerankCandidates)}:
    * what it has to cover is the near-duplicate density around a query, which grows with the corpus, not with {@code k}. A query that
    * names its oversample gets exactly {@code k * n}. Under an allow-list the budget also covers the allowed entries the widened
@@ -1231,6 +1247,8 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
     final Overlay        overlay;
     final long[]         queryBits;
     final byte[]         queryInt8;
+    /** {@link #queryInt8} widened once for the INT8 dot product of every scanned entry ({@link IVFInt8Dot}). */
+    final short[]        queryWide;
     final float          queryScale;
     final float          querySquaredNorm;
     final IVFSimilarity  similarity = ivfMetadata.similarity;
@@ -1255,6 +1273,7 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
       this.queryScale = int8Needed ? IVFCodec.int8Scale(vector) : 0f;
       if (queryInt8 != null)
         IVFCodec.int8Code(vector, queryScale, queryInt8);
+      this.queryWide = queryInt8 != null ? IVFInt8Dot.widen(queryInt8) : null;
       this.querySquaredNorm = IVFCodec.squaredNorm(vector);
     }
   }
@@ -1273,10 +1292,9 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
    * heaps are merged into one. The caller waits with the reclaiming {@link GraphAlgorithms#awaitFutures}, so a search running on
    * a pool thread itself never parks on a task nobody is left to run.
    */
-  private CandidateHeap scanParallel(final ScanQuery scan, final IVFPostingsComponent component, final int[] heads, final int capacity) {
+  private CandidateHeap scanParallel(final ScanQuery scan, final IVFPostingsComponent component, final int[] heads, final int capacity,
+      final int tasks) {
     final ExecutorService executor = QueryEngineManager.getInstance().getExecutorService();
-    final int tasks = Math.max(1, Math.min(QueryEngineManager.getInstance().getMaxParallelism(),
-        (heads.length + LISTS_PER_TASK - 1) / LISTS_PER_TASK));
     final AtomicInteger next = new AtomicInteger();
     final CandidateHeap[] heaps = new CandidateHeap[tasks];
     final long[] scanned = new long[tasks];
@@ -1315,6 +1333,20 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
     return merged;
   }
 
+  /**
+   * Tasks the scan of {@code lists} posting lists is split into: one per {@value #LISTS_PER_TASK} lists, one per
+   * {@value #MIN_TASK_BYTES} bytes of entries the lists are expected to hold, and no more than the pool is wide. The byte bound is
+   * what keeps a probe of many short entries (24-d INT8, 37 bytes) from paying a hand-off, a heap and a merge per few microseconds
+   * of scan; 32 lists of 512-d entries (589 bytes) still split about as before.
+   */
+  private static int scanTasks(final int lists, final IVFPostingsComponent.Header header, final IVFCentroids resident,
+      final EntryLayout layout) {
+    final long bytes = header.liveEntries() * lists / Math.max(1, resident.nlist) * layout.entrySize;
+    final long byBytes = Math.max(1, (bytes + MIN_TASK_BYTES - 1) / MIN_TASK_BYTES);
+    final long byLists = (lists + LISTS_PER_TASK - 1) / LISTS_PER_TASK;
+    return (int) Math.max(1, Math.min(QueryEngineManager.getInstance().getMaxParallelism(), Math.min(byBytes, byLists)));
+  }
+
   /** Scans the lists {@code next} hands out until there are none left; answers the entries read. */
   private long scanLists(final ScanQuery scan, final IVFPostingsComponent component, final int[] heads, final AtomicInteger next,
       final CandidateHeap heap, final boolean shared) {
@@ -1325,6 +1357,8 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
     final int base = BasePage.PAGE_HEADER_SIZE;
     final int pageLimit = scan.pageLimit;
     final int maxCount = (component.contentSize() - IVFPostingsComponent.P_ENTRIES) / entrySize;
+    final boolean filtered = allowed != null || overlay != null;
+    final int dimensions = layout.dimensions;
     long scanned = 0;
     for (int list; (list = next.getAndIncrement()) < heads.length && !scan.torn; ) {
       final int centroid = scan.lists[list];
@@ -1348,16 +1382,24 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
         for (int i = 0; i < count; i++, offset += entrySize) {
           if (buffer.get(offset + IVFPostingsComponent.E_LIVE) == 0)
             continue;
-          final long position = buffer.getLong(offset + IVFPostingsComponent.E_POSITION);
-          if (allowed != null && !allowed.contains(position))
-            continue;
-          // A position the transaction removed, or wrote again (an update: the merge scores its pending entry), is not the page's
-          if (overlay != null && overlay.masks(position))
-            continue;
+          long position = 0L;
+          if (filtered) {
+            position = buffer.getLong(offset + IVFPostingsComponent.E_POSITION);
+            if (allowed != null && !allowed.contains(position))
+              continue;
+            // A position the transaction removed, or wrote again (an update: the merge scores its pending entry), is not the page's
+            if (overlay != null && overlay.masks(position))
+              continue;
+          }
           final int codes = offset + IVFPostingsComponent.E_CODES;
           final float distance = layout.binaryScan ?
               IVFCodec.hamming(scan.queryBits, buffer, codes) :
-              IVFCodec.int8Distance(scan.similarity, scan.queryInt8, scan.queryScale, scan.querySquaredNorm, buffer, codes);
+              IVFCodec.int8Distance(scan.similarity, scan.queryWide, dimensions, scan.queryScale, scan.querySquaredNorm, buffer, codes);
+          // Most entries of a wide probe lose to the heap's worst: their position is never read
+          if (!heap.accepts(distance))
+            continue;
+          if (!filtered)
+            position = buffer.getLong(offset + IVFPostingsComponent.E_POSITION);
           heap.offer(distance, position, pageNumber, offset, list);
         }
         scanned += count;
@@ -1415,7 +1457,7 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
       }
       distances[i] = int4 ?
           IVFCodec.int4Distance(scan.similarity, scan.vector, listConstants[heap.lists[i]], buffer, heap.offsets[i] + rerankOffset) :
-          IVFCodec.int8Distance(scan.similarity, scan.queryInt8, scan.queryScale, scan.querySquaredNorm, buffer,
+          IVFCodec.int8Distance(scan.similarity, scan.queryWide, scan.layout.dimensions, scan.queryScale, scan.querySquaredNorm, buffer,
               heap.offsets[i] + rerankOffset);
     }
   }
@@ -1650,6 +1692,11 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
       lists = new int[initial];
     }
 
+    /** Whether {@link #offer} would keep a candidate at {@code distance}: the heap is not full, or it beats the worst kept. */
+    boolean accepts(final float distance) {
+      return size < capacity || capacity > 0 && distance < distances[0];
+    }
+
     void offer(final float distance, final long position, final int page, final int offset, final int list) {
       if (size < capacity) {
         if (size == distances.length)
@@ -1859,20 +1906,36 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
     if (seen[0] == 0)
       return null;
 
-    final float[][] training = Arrays.copyOf(sample, sampled[0]);
+    final float[][] reservoir = Arrays.copyOf(sample, sampled[0]);
     final int k = listsWanted(seen[0]);
+    // The queries of the probe measure. When the sample is at most half the corpus, a few sample vectors are held out of the k-means
+    // for it: most corpus vectors, and the queries, are then vectors the k-means never saw, and one it saw sits nearer its centroids
+    // (at 30 sample vectors per list, measuring on training vectors under-counted the probes by a third). Unless the lists wanted need
+    // every sample vector. A sample of most of the corpus trains on all of it, exactly as before the measure existed, and the measure
+    // asks some of its own vectors, each skipping itself: there the corpus vectors are training vectors too
+    final boolean measure = ivfMetadata.similarity != IVFSimilarity.HAMMING;
+    final boolean holdOut = measure && seen[0] >= 2L * reservoir.length
+        && reservoir.length - IVFProbeCalibration.heldOut(reservoir.length) >= k;
+    final float[][][] split = holdOut ? IVFProbeCalibration.split(reservoir) :
+        new float[][][] { reservoir, measure ? IVFProbeCalibration.pick(reservoir) : new float[0][] };
+    final float[][] training = split[0];
     final long trainingStart = System.currentTimeMillis();
     final IVFCentroids trained = IVFKMeans.train(training, ivfMetadata.dimensions, k, ivfMetadata.kmeansIterations, 0,
         projectionSeed(ivfMetadata), random);
-    final IVFCentroids effective = ivfMetadata.similarity == IVFSimilarity.HAMMING ? withHammingThresholds(trained) : trained;
+    final IVFCentroids coded = ivfMetadata.similarity == IVFSimilarity.HAMMING ? withHammingThresholds(trained) : trained;
     // A large partition is assigned and searched through a graph over its centroids, built before pass 2 assigns every vector
-    effective.buildGraph();
+    coded.buildGraph();
+    // How many lists a search must probe on this partition, measured on the sample: it follows the intrinsic dimension of the data,
+    // which no fixed nprobe can know (HAMMING answers bit counts, whose ties the measure cannot rank)
+    final int probes = IVFProbeCalibration.calibrate(training, split[1], seen[0], coded,
+        ivfMetadata.similarity == IVFSimilarity.DOT_PRODUCT);
+    final IVFCentroids effective = probes > 0 ? coded.withCalibratedProbes(probes) : coded;
     if (effective.nlist < k)
       LogManager.instance().log(this, Level.WARNING,
           "IVF index '%s': %d lists wanted but the training sample of %d vectors made %d; raise 'trainingSample' (heap permitting)", null,
           getName(), k, training.length, effective.nlist);
-    LogManager.instance().log(this, Level.INFO, "IVF index '%s': trained %d centroids (%d coarse) on %d of %d vectors in %dms",
-        getName(), effective.nlist, effective.coarseCount, training.length, seen[0], System.currentTimeMillis() - trainingStart);
+    LogManager.instance().log(this, Level.INFO, "IVF index '%s': trained %d centroids (%d coarse) on %d of %d vectors in %dms, %d probes measured",
+        getName(), effective.nlist, effective.coarseCount, training.length, seen[0], System.currentTimeMillis() - trainingStart, probes);
     return new Training(effective, seen[0]);
   }
 
@@ -2203,6 +2266,8 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
     stats.put("centroids", resident == null ? 0L : (long) resident.nlist);
     stats.put("trained", resident != null && resident.trained ? 1L : 0L);
     stats.put("centroidGraph", resident != null && resident.hasGraph() ? 1L : 0L);
+    stats.put("calibratedProbes", resident == null ? 0L : (long) resident.calibratedProbes);
+    stats.put("defaultProbes", resident == null ? 0L : (long) defaultProbes(resident));
     stats.put("residentBytes", getResidentBytes());
     stats.put("searches", searches.get());
     stats.put("scannedEntries", scannedEntries.get());

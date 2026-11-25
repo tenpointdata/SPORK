@@ -84,6 +84,8 @@ public class IVFPostingsComponent extends PaginatedComponent {
   static final int H_LOC_ENTRIES   = 84;
   /** Live entries the last training saw (0 in a file written before it was kept): the automatic retraining's baseline. */
   static final int H_TRAINED_AT    = 92;
+  /** Posting lists a search probes by default on this layout, measured by its training (0 in a file written before it was kept). */
+  static final int H_PROBES        = 100;
 
   // Posting page offsets
   public static final int P_CENTROID    = 0;
@@ -210,7 +212,7 @@ public class IVFPostingsComponent extends PaginatedComponent {
         IVFRerankCode.values()[page.readByte(H_RERANK_CODE)], page.readByte(H_TRAINED) != 0, page.readInt(H_VERSION),
         page.readInt(H_THRESHOLDS), page.readInt(H_COARSE_PAGE), page.readInt(H_FINE_PAGE), page.readInt(H_STARTS_PAGE),
         page.readInt(H_DIRECTORY), page.readInt(H_DIR_PAGES), page.readLong(H_TOTAL_ENTRIES), page.readLong(H_LIVE_ENTRIES),
-        page.readInt(H_PROJECTION), page.readLong(H_TRAINED_AT));
+        page.readInt(H_PROJECTION), page.readLong(H_TRAINED_AT), page.readInt(H_PROBES));
   }
 
   /** The centroid version alone, the cheapest check a search makes to learn whether its resident centroids are current. */
@@ -230,7 +232,7 @@ public class IVFPostingsComponent extends PaginatedComponent {
   public record Header(int dimensions, int nlist, int coarseCount, IVFSimilarity similarity, IVFScanCode scanCode,
                        IVFRerankCode rerankCode, boolean trained, int version, int thresholdsPage, int coarsePage, int finePage,
                        int startsPage, int directoryPage, int directoryPages, long totalEntries, long liveEntries,
-                       int projectionSeed, long trainedAt) {
+                       int projectionSeed, long trainedAt, int calibratedProbes) {
   }
 
   // ---------------------------------------------------------------- layout
@@ -293,6 +295,7 @@ public class IVFPostingsComponent extends PaginatedComponent {
     header.writeLong(H_TOTAL_ENTRIES, totalEntries);
     header.writeLong(H_LIVE_ENTRIES, liveEntries);
     header.writeInt(H_PROJECTION, centroids.projectionSeed);
+    header.writeInt(H_PROBES, centroids.calibratedProbes);
     if (fresh) {
       header.writeLong(H_TRAINED_AT, 0L);
       new IVFLocator(this).init(header);
@@ -361,7 +364,8 @@ public class IVFPostingsComponent extends PaginatedComponent {
     final int[] starts = readInts(header.startsPage(), header.coarseCount() + 1, shared);
     if (starts[0] != 0 || starts[header.coarseCount()] != header.nlist())
       return null;
-    return new IVFCentroids(dimensions, fine, coarse, starts, thresholds, header.version(), header.trained(), header.projectionSeed());
+    return new IVFCentroids(dimensions, fine, coarse, starts, thresholds, header.version(), header.trained(), header.projectionSeed(),
+        header.calibratedProbes());
   }
 
   /** The last page a section of {@code rows} rows of {@code rowBytes} bytes starting at {@code firstPage} occupies. */

@@ -58,6 +58,11 @@ public final class IVFCentroids {
   public final int     projectionSeed;
   /** The projection itself ({@code dimensions x dimensions}), rebuilt from the seed; null when the seed is 0. */
   public final float[] projection;
+  /**
+   * Posting lists a search has to probe for its default recall on this partition, measured by the training on its own sample
+   * ({@link IVFProbeCalibration}); 0 when not measured (an untrained set, a HAMMING index, a file written before it was kept).
+   */
+  public final int     calibratedProbes;
   /** The graph over the fine centroids once built (see {@link #graphMinLists}); the two levels serve until then. */
   private volatile IVFCentroidGraph graph;
   private volatile boolean          graphRequested;
@@ -69,6 +74,12 @@ public final class IVFCentroids {
 
   public IVFCentroids(final int dimensions, final float[] fine, final float[] coarse, final int[] coarseStart,
       final float[] thresholds, final int version, final boolean trained, final int projectionSeed) {
+    this(dimensions, fine, coarse, coarseStart, thresholds, version, trained, projectionSeed, 0);
+  }
+
+  public IVFCentroids(final int dimensions, final float[] fine, final float[] coarse, final int[] coarseStart,
+      final float[] thresholds, final int version, final boolean trained, final int projectionSeed, final int calibratedProbes) {
+    this.calibratedProbes = calibratedProbes;
     this.projectionSeed = projectionSeed;
     this.projection = projectionSeed == 0 ? null : IVFCodec.gaussianProjection(projectionSeed, dimensions);
     this.dimensions = dimensions;
@@ -92,12 +103,21 @@ public final class IVFCentroids {
 
   /** This set with another projection seed (a HAMMING index wants none) and the thresholds given. */
   public IVFCentroids withCodes(final float[] newThresholds, final int newProjectionSeed) {
-    return new IVFCentroids(dimensions, fine, coarse, coarseStart, newThresholds, version, trained, newProjectionSeed);
+    return new IVFCentroids(dimensions, fine, coarse, coarseStart, newThresholds, version, trained, newProjectionSeed, calibratedProbes);
+  }
+
+  /** This set with the probe count a calibration measured on it, sharing its arrays and its graph. */
+  public IVFCentroids withCalibratedProbes(final int probes) {
+    final IVFCentroids copy = new IVFCentroids(dimensions, fine, coarse, coarseStart, thresholds, version, trained, projectionSeed, probes);
+    copy.graph = graph;
+    copy.graphRequested = graphRequested;
+    return copy;
   }
 
   /** This set under another version (a training laid out by a transaction that numbers it), sharing its arrays and its graph. */
   public IVFCentroids withVersion(final int newVersion) {
-    final IVFCentroids copy = new IVFCentroids(dimensions, fine, coarse, coarseStart, thresholds, newVersion, trained, projectionSeed);
+    final IVFCentroids copy = new IVFCentroids(dimensions, fine, coarse, coarseStart, thresholds, newVersion, trained, projectionSeed,
+        calibratedProbes);
     copy.graph = graph;
     copy.graphRequested = graphRequested;
     return copy;
@@ -237,9 +257,45 @@ public final class IVFCentroids {
     return topFine(query, 0, candidateIds.length, candidateIds, wanted);
   }
 
-  /** The {@code wanted} nearest fine centroids among {@code ids} (or the range when {@code ids} is null), nearest first. */
+  /**
+   * The {@code wanted} nearest fine centroids among {@code ids} (or the range when {@code ids} is null), nearest first. A probe of a
+   * small share of the candidates keeps a bounded max-heap of {@code wanted} instead of sorting every candidate: O(count log wanted)
+   * and two arrays of {@code wanted}, where the sort cost O(count log count) and two arrays of {@code count} per query.
+   */
   private int[] topFine(final float[] query, final int from, final int to, final int[] ids, final int wanted) {
     final int count = to - from;
+    final int n = Math.min(wanted, count);
+    if (n > 0 && n * 4 < count) {
+      final float[] heapDistances = new float[n];
+      final int[] heapIds = new int[n];
+      int size = 0;
+      for (int i = 0; i < count; i++) {
+        final int f = ids == null ? from + i : ids[from + i];
+        final float distance = IVFCodec.squaredDistance(query, fine, f * dimensions);
+        if (size < n) {
+          int at = size++;
+          while (at > 0) {
+            final int parent = (at - 1) >>> 1;
+            if (heapDistances[parent] >= distance)
+              break;
+            heapDistances[at] = heapDistances[parent];
+            heapIds[at] = heapIds[parent];
+            at = parent;
+          }
+          heapDistances[at] = distance;
+          heapIds[at] = f;
+        } else if (distance < heapDistances[0])
+          replaceRoot(heapDistances, heapIds, size, distance, f);
+      }
+      // Pop the worst to the end, one at a time: nearest first
+      final int[] result = new int[n];
+      for (int end = n - 1; end >= 0; end--) {
+        result[end] = heapIds[0];
+        if (end > 0)
+          replaceRoot(heapDistances, heapIds, end, heapDistances[end], heapIds[end]);
+      }
+      return result;
+    }
     final float[] distances = new float[count];
     for (int i = 0; i < count; i++) {
       final int f = ids == null ? from + i : ids[from + i];
@@ -250,6 +306,26 @@ public final class IVFCentroids {
     for (int i = 0; i < result.length; i++)
       result[i] = ids == null ? from + order[i] : ids[from + order[i]];
     return result;
+  }
+
+  /** Puts ({@code distance}, {@code id}) at the root of the max-heap of {@code size} and sifts it down. */
+  private static void replaceRoot(final float[] distances, final int[] ids, final int size, final float distance, final int id) {
+    int at = 0;
+    while (true) {
+      final int left = 2 * at + 1;
+      if (left >= size)
+        break;
+      int child = left;
+      if (left + 1 < size && distances[left + 1] > distances[left])
+        child = left + 1;
+      if (distances[child] <= distance)
+        break;
+      distances[at] = distances[child];
+      ids[at] = ids[child];
+      at = child;
+    }
+    distances[at] = distance;
+    ids[at] = id;
   }
 
   /** The indexes of {@code values} in ascending order of value, an allocation-light insertion/merge sort on primitives. */

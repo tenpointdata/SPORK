@@ -35,10 +35,24 @@ import java.util.Set;
  * its posting lists are pages, and a search reads {@link #nprobe} of them. The settings here size the two:
  * {@link #nlist} or {@link #targetPostingSize} decide how many centroids the build trains, {@link #scanCode} and
  * {@link #rerankCode} decide what every posting entry carries.
+ * <p>
+ * Three settings adapt to the data when they are not given. {@link #scanCode} and {@link #rerankCode} are chosen by the dimension
+ * when the index is created ({@link #resolveCodes()}) and persisted as chosen, so the page layout of an index never depends on a
+ * rule that may change later. {@link #nprobe} 0 probes what the training measured the partition needs
+ * ({@code IVFProbeCalibration}), never fewer than {@link #DEFAULT_NPROBE}. A setting given explicitly keeps its meaning.
  */
 public class LSMIVFVectorIndexMetadata extends IndexMetadata {
   public static final int DEFAULT_TARGET_POSTING_SIZE = 200;
+  /** The fewest lists a search probes when {@link #nprobe} is 0 (automatic), and the probe of an index trained before calibration. */
   public static final int DEFAULT_NPROBE              = 32;
+  /**
+   * Dimensions below which an index created without a {@code scanCode} scans INT8 codes instead of BINARY ones. A one-bit code of
+   * fewer than 128 dimensions has fewer than 129 distinct Hamming distances to rank by: measured at 24-d, its 2,000-candidate rerank
+   * pool held the true neighbours no better than chance among ties (recall@20 0.47 at 5M). An INT8 code is also its own rerank, so the
+   * entry is smaller than BINARY + INT8 at every dimension; what BINARY buys is a cheaper scan per entry, which is worth it only where
+   * the bits resolve the angle.
+   */
+  public static final int INT8_SCAN_BELOW_DIMENSIONS  = 128;
   public static final int DEFAULT_RERANK_OVERSAMPLE   = 10;
   public static final int DEFAULT_TRAINING_SAMPLE     = 100_000;
   public static final int DEFAULT_KMEANS_ITERATIONS   = 10;
@@ -72,10 +86,15 @@ public class LSMIVFVectorIndexMetadata extends IndexMetadata {
   public int           nlist             = 0;
   /** Vectors per posting list the build aims at when {@link #nlist} is 0: {@code nlist = ceil(count / targetPostingSize)}. */
   public int           targetPostingSize = DEFAULT_TARGET_POSTING_SIZE;
-  public IVFScanCode   scanCode          = IVFScanCode.BINARY;
-  public IVFRerankCode rerankCode        = IVFRerankCode.INT8;
-  /** Posting lists a search scans when the query does not say. */
-  public int           nprobe            = DEFAULT_NPROBE;
+  /** The scan code of every entry; null until {@link #resolveCodes()} chooses it by the dimension (not given at creation). */
+  public IVFScanCode   scanCode          = null;
+  /** The rerank code of every entry; null until {@link #resolveCodes()} chooses it (not given at creation). */
+  public IVFRerankCode rerankCode        = null;
+  /**
+   * Posting lists a search scans when the query does not say; 0 (default) for what the training measured the partition needs, at
+   * least {@link #DEFAULT_NPROBE}.
+   */
+  public int           nprobe            = 0;
   /**
    * Candidates per requested neighbour the scan keeps for the rerank; 0 reranks nothing. The default budget of a search is
    * {@code max(k * rerankOversample, rerankCandidates)}; a query that names its own oversample ({@code {rerank: n}}) gets
@@ -195,7 +214,7 @@ public class LSMIVFVectorIndexMetadata extends IndexMetadata {
       setScanCode(metadata.getString("scanCode"));
     if (metadata.has("rerankCode"))
       setRerankCode(metadata.getString("rerankCode"));
-    this.nprobe = metadata.getInt("nprobe", DEFAULT_NPROBE);
+    this.nprobe = metadata.getInt("nprobe", 0);
     this.rerankOversample = metadata.getInt("rerankOversample", DEFAULT_RERANK_OVERSAMPLE);
     this.rerankCandidates = metadata.getInt("rerankCandidates", DEFAULT_RERANK_CANDIDATES);
     this.exactFilterThreshold = metadata.getInt("exactFilterThreshold", DEFAULT_EXACT_FILTER_THRESHOLD);
@@ -203,6 +222,25 @@ public class LSMIVFVectorIndexMetadata extends IndexMetadata {
     this.exactRerank = metadata.getInt("exactRerank", DEFAULT_EXACT_RERANK);
     this.trainingSample = metadata.getInt("trainingSample", DEFAULT_TRAINING_SAMPLE);
     this.kmeansIterations = metadata.getInt("kmeansIterations", DEFAULT_KMEANS_ITERATIONS);
+    // A persisted definition always names both codes (they are chosen before the index exists); this only guards a hand-written one
+    resolveCodes();
+  }
+
+  /**
+   * Chooses the codes not given, once, before the index is created: an index with no {@code scanCode} scans INT8 below
+   * {@link #INT8_SCAN_BELOW_DIMENSIONS} dimensions and BINARY from there (HAMMING, and an INT4 rerank code, which needs a BINARY
+   * scan, always BINARY); an index with no {@code rerankCode} reranks on INT8 behind a BINARY scan and on nothing behind an INT8
+   * one, which is its own rerank (HAMMING: nothing). A code given explicitly is left as it is.
+   */
+  public void resolveCodes() {
+    if (scanCode == null) {
+      if (similarity == IVFSimilarity.HAMMING || rerankCode == IVFRerankCode.INT4)
+        scanCode = IVFScanCode.BINARY;
+      else
+        scanCode = dimensions > 0 && dimensions < INT8_SCAN_BELOW_DIMENSIONS ? IVFScanCode.INT8 : IVFScanCode.BINARY;
+    }
+    if (rerankCode == null)
+      rerankCode = similarity == IVFSimilarity.HAMMING || scanCode != IVFScanCode.BINARY ? IVFRerankCode.NONE : IVFRerankCode.INT8;
   }
 
   /** Writes every setting into {@code json}, the persisted shape {@link #fromJSON(JSONObject)} reads back. */
@@ -211,6 +249,7 @@ public class LSMIVFVectorIndexMetadata extends IndexMetadata {
     json.put("similarity", similarity.name());
     json.put("nlist", nlist);
     json.put("targetPostingSize", targetPostingSize);
+    resolveCodes();
     json.put("scanCode", scanCode.name());
     json.put("rerankCode", rerankCode.name());
     json.put("nprobe", nprobe);
@@ -266,8 +305,8 @@ public class LSMIVFVectorIndexMetadata extends IndexMetadata {
   }
 
   public void setNprobe(final int nprobe) {
-    if (nprobe < 1)
-      throw new IndexException("nprobe must be at least 1");
+    if (nprobe < 0)
+      throw new IndexException("nprobe must be >= 0 (0 = what the training measured the partition needs, at least " + DEFAULT_NPROBE + ")");
     this.nprobe = nprobe;
   }
 

@@ -126,10 +126,52 @@ public final class IVFCodec {
     final int dimensions = query.length;
     int dot = 0;
     int squares = 0;
-    for (int d = 0; d < dimensions; d++) {
-      final int c = page.get(position + d);
-      dot += query[d] * c;
-      squares += c * c;
+    if (page.hasArray()) {
+      // The page's own array: a plain loop over two byte arrays, which the JIT unrolls and keeps free of per-byte buffer checks
+      // (measured at 24-d, the per-entry cost of an INT8 scan). The squares only matter to EUCLIDEAN
+      final byte[] array = page.array();
+      final int at = page.arrayOffset() + position;
+      dot = int8Dot(query, array, at);
+      if (similarity == IVFSimilarity.EUCLIDEAN)
+        squares = int8Squares(array, at, dimensions);
+    } else
+      for (int d = 0; d < dimensions; d++) {
+        final int c = page.get(position + d);
+        dot += query[d] * c;
+        squares += c * c;
+      }
+    final float scale = page.getFloat(position + dimensions);
+    final float dotProduct = dot * queryScale * scale;
+    return switch (similarity) {
+      case COSINE -> 1f - dotProduct;
+      case DOT_PRODUCT -> -dotProduct;
+      case EUCLIDEAN -> querySquaredNorm + squares * scale * scale - 2f * dotProduct;
+      case HAMMING -> throw new IllegalStateException("HAMMING has no INT8 code");
+    };
+  }
+
+  /**
+   * {@link #int8Distance(IVFSimilarity, byte[], float, float, ByteBuffer, int)} with the query {@link IVFInt8Dot#widen widened}
+   * once per search: on a page backed by an array the dot product runs on the Vector API when the JVM has it ({@link IVFInt8Dot}).
+   */
+  public static float int8Distance(final IVFSimilarity similarity, final short[] queryWide, final int dimensions, final float queryScale,
+      final float querySquaredNorm, final ByteBuffer page, final int position) {
+    final int dot;
+    int squares = 0;
+    if (page.hasArray()) {
+      final byte[] array = page.array();
+      final int at = page.arrayOffset() + position;
+      dot = IVFInt8Dot.dot(queryWide, array, at, dimensions);
+      if (similarity == IVFSimilarity.EUCLIDEAN)
+        squares = int8Squares(array, at, dimensions);
+    } else {
+      int sum = 0;
+      for (int d = 0; d < dimensions; d++) {
+        final int c = page.get(position + d);
+        sum += queryWide[d] * c;
+        squares += c * c;
+      }
+      dot = sum;
     }
     final float scale = page.getFloat(position + dimensions);
     final float dotProduct = dot * queryScale * scale;
@@ -139,6 +181,23 @@ public final class IVFCodec {
       case EUCLIDEAN -> querySquaredNorm + squares * scale * scale - 2f * dotProduct;
       case HAMMING -> throw new IllegalStateException("HAMMING has no INT8 code");
     };
+  }
+
+  /** The integer dot product of {@code query} and the {@code query.length} bytes of {@code code} from {@code at}. */
+  static int int8Dot(final byte[] query, final byte[] code, final int at) {
+    int dot = 0;
+    for (int d = 0; d < query.length; d++)
+      dot += query[d] * code[at + d];
+    return dot;
+  }
+
+  private static int int8Squares(final byte[] code, final int at, final int dimensions) {
+    int squares = 0;
+    for (int d = 0; d < dimensions; d++) {
+      final int c = code[at + d];
+      squares += c * c;
+    }
+    return squares;
   }
 
   /** Same as {@link #int8Distance(IVFSimilarity, byte[], float, float, ByteBuffer, int)} on an in-memory code. */

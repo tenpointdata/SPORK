@@ -62,18 +62,19 @@ public class TypeLSMIVFVectorIndexBuilder extends TypeIndexBuilder {
     return this;
   }
 
-  /** BINARY (default) or INT8. */
+  /** BINARY or INT8; not given, INT8 below 128 dimensions and BINARY from there (see {@link LSMIVFVectorIndexMetadata#resolveCodes()}). */
   public TypeLSMIVFVectorIndexBuilder withScanCode(final String scanCode) {
     ivfMetadata().setScanCode(scanCode);
     return this;
   }
 
-  /** INT8 (default), INT4 (residual, a quarter of the bytes) or NONE. */
+  /** INT8, INT4 (residual, a quarter of the bytes) or NONE; not given, INT8 behind a BINARY scan and NONE behind an INT8 one. */
   public TypeLSMIVFVectorIndexBuilder withRerankCode(final String rerankCode) {
     ivfMetadata().setRerankCode(rerankCode);
     return this;
   }
 
+  /** Lists a search probes by default; 0 (default) for what the training measured the partition needs, at least 32. */
   public TypeLSMIVFVectorIndexBuilder withNprobe(final int nprobe) {
     ivfMetadata().setNprobe(nprobe);
     return this;
