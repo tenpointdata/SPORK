@@ -32,10 +32,12 @@ import com.arcadedb.index.vector.GroupAdmissionState;
 import com.arcadedb.query.selection.SelectionStore;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.Result;
+import com.arcadedb.query.sql.executor.RidSetSubquery;
 import com.arcadedb.query.sql.parser.Identifier;
 import com.arcadedb.schema.DocumentType;
 import com.arcadedb.utility.IntHashSet;
 import com.arcadedb.utility.NumberUtils;
+import com.arcadedb.utility.RidBitmap;
 import com.arcadedb.utility.RidBitmapSet;
 
 import java.util.ArrayList;
@@ -72,7 +74,9 @@ import java.util.function.Function;
  * @author Luca Garulli (l.garulli--(at)--arcadedata.com)
  */
 public abstract class SQLFunctionVectorAbstract extends SQLFunctionAbstract {
-  private static final String VECTOR_PREFIX = "vector.";
+  private static final String VECTOR_PREFIX    = "vector.";
+  /** The context variable holding the last {@code filter} list converted to a RID set, and the set: see {@link #parseRidFilter}. */
+  private static final String RID_FILTER_CACHE = "$$$RID_FILTER_LIST$$$";
   private final String       alias;
   private final List<String> aliases;
 
@@ -491,27 +495,28 @@ public abstract class SQLFunctionVectorAbstract extends SQLFunctionAbstract {
    * @return {@code null} when neither option is set (no filter); an EMPTY set when no record can satisfy them, which the
    * caller must answer with no rows (issue #8959)
    */
-  public static Set<RID> parsePreFilter(final List<?> filter, final Object where, final String functionName,
+  public static Set<RID> parsePreFilter(final Collection<?> filter, final Object where, final String functionName,
       final CommandContext context) {
     return parsePreFilter(filter, where, null, functionName, context);
   }
 
   /**
-   * {@link #parsePreFilter(List, Object, String, CommandContext)} restricted to a saved selection as well
+   * {@link #parsePreFilter(Collection, Object, String, CommandContext)} restricted to a saved selection as well
    * (docs/spork/03-f1-selections-design.md, 2.5): the {@code selection} option. Alone it is the allow-list as the read-only
    * view over its bitmap, never copied; with {@code filter} the filter's RIDs outside it are dropped.
    *
    * @param selection the name of a saved selection, or null for none
    */
-  public static Set<RID> parsePreFilter(final List<?> filter, final Object where, final String selection, final String functionName,
-      final CommandContext context) {
+  public static Set<RID> parsePreFilter(final Collection<?> filter, final Object where, final String selection,
+      final String functionName, final CommandContext context) {
     Set<RID> candidates = parseRidFilter(filter, functionName, context);
     if (selection != null) {
-      final RidBitmapSet members = new RidBitmapSet(new SelectionStore(context.getDatabase(), functionName).require(selection).members());
+      final RidBitmap members = new SelectionStore(context.getDatabase(), functionName).require(selection).members();
       if (candidates == null)
-        candidates = members;
+        candidates = new RidBitmapSet(members);
       else
-        candidates.removeIf(rid -> !members.contains(rid));
+        // A NEW SET: THE FILTER'S MAY BE SHARED BY EVERY CALL OF THE STATEMENT (RidSetSubquery)
+        candidates = new RidBitmapSet(RidBitmap.and(((RidBitmapSet) candidates).bitmap(), members));
     }
     // `where` restricts the candidates by a predicate on their record, tested as the search meets them instead of listing
     // every RID in scope up front as a `filter` subquery has to (issue #10169)
@@ -525,16 +530,28 @@ public abstract class SQLFunctionVectorAbstract extends SQLFunctionAbstract {
    * level of nesting is flattened, so {@code (SELECT list(@rid) AS l ...).l} is accepted as well. Anything else keeps
    * throwing, so a typo in the subquery projection stays loud rather than silently filtering nothing.
    * <p>
+   * The set is a read-only {@link RidBitmapSet}, about two bytes per member, which every vector index probes with a primitive
+   * (bucket, position) pair. A sub-query written as the option's value arrives as that set already, built by
+   * {@link RidSetSubquery} without a row per RID, and is answered as it is. A list is converted once per statement: the same
+   * list met again (a LET variable read by every row of the statement) answers the set it was converted to.
+   * <p>
    * Returns {@code null} only when the option is absent (no filter). A filter that resolves to no RIDs returns an EMPTY set,
    * which callers must answer with an empty result: no record can satisfy it, and handing it to the index as-is would read as
    * "no filter" and return records outside it (issue #8959).
    */
-  protected static Set<RID> parseRidFilter(final List<?> items, final String functionName, final CommandContext context) {
+  protected static RidBitmapSet parseRidFilter(final Collection<?> items, final String functionName,
+      final CommandContext context) {
     if (items == null)
       return null;
+    if (items instanceof RidBitmapSet set)
+      return set;
+
+    final Object[] cached = (Object[]) context.getVariable(RID_FILTER_CACHE);
+    if (cached != null && cached[0] == items)
+      return (RidBitmapSet) cached[1];
 
     final BasicDatabase db = context.getDatabase();
-    final Set<RID> out = new HashSet<>(items.size());
+    final RidBitmap out = new RidBitmap();
     for (final Object item : items) {
       if (item == null)
         continue;
@@ -543,11 +560,28 @@ public abstract class SQLFunctionVectorAbstract extends SQLFunctionAbstract {
         // ONE LEVEL OF NESTING: A LIST OF LISTS OF RIDS. A DEEPER LEVEL IS REJECTED BY ridOf() BELOW
         for (final Object inner : nested)
           if (inner != null)
-            out.add(ridOf(inner, functionName, db));
+            addRid(out, ridOf(inner, functionName, db));
       } else
-        out.add(ridOf(item, functionName, db));
+        addRid(out, ridOf(item, functionName, db));
     }
-    return out;
+    final RidBitmapSet result = new RidBitmapSet(out);
+    // ONE ENTRY, BY IDENTITY: THE ENTRY HOLDS THE LIST, SO NO OTHER LIST CAN TAKE ITS IDENTITY WHILE THE STATEMENT RUNS
+    context.setVariable(RID_FILTER_CACHE, new Object[] { items, result });
+    return result;
+  }
+
+  /** A RID of no stored record (a temporary or malformed one) cannot match a candidate, and has no place in a bitmap. */
+  private static void addRid(final RidBitmap bitmap, final RID rid) {
+    if (rid.getBucketId() >= 0 && rid.getPosition() >= 0)
+      bitmap.add(rid.getBucketId(), rid.getPosition());
+  }
+
+  /**
+   * The RID one element of the {@code filter} option names, by the rules of {@link #parseRidFilter}: what
+   * {@link RidSetSubquery} reads each row of a sub-query with when the index alone cannot answer it.
+   */
+  public static RID filterItemRid(final Object item, final String functionName, final BasicDatabase db) {
+    return ridOf(item, functionName, db);
   }
 
   private static RID ridOf(final Object item, final String functionName, final BasicDatabase db) {

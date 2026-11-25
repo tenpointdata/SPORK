@@ -114,6 +114,36 @@ public final class RidBitmap implements Iterable<RID> {
     return size == 0;
   }
 
+  /** How many members {@code bucketId} holds, without walking them. */
+  public long cardinality(final int bucketId) {
+    long total = 0;
+    for (int i = 0; i < size; i++)
+      if ((int) (keys[i] >>> 32) == bucketId)
+        total += chunks[i].getLongCardinality();
+    return total;
+  }
+
+  /**
+   * The positions {@code bucketId} holds, ascending, in one primitive array: what a per-bucket filter is built from without a
+   * {@link RID} per member.
+   */
+  public long[] positions(final int bucketId) {
+    final long count = cardinality(bucketId);
+    if (count > Integer.MAX_VALUE - 8)
+      throw new IllegalStateException("Too many positions in bucket " + bucketId + ": " + count);
+    final long[] positions = new long[(int) count];
+    int n = 0;
+    for (int i = 0; i < size; i++) {
+      if ((int) (keys[i] >>> 32) != bucketId)
+        continue;
+      final long high = (keys[i] & 0xFFFF_FFFFL) << 32;
+      final IntIterator it = chunks[i].getIntIterator();
+      while (it.hasNext())
+        positions[n++] = high | (it.next() & 0xFFFF_FFFFL);
+    }
+    return positions;
+  }
+
   /** The distinct buckets holding a member, ascending, read off the keys without walking a single member. */
   public int[] bucketIds() {
     final int[] buckets = new int[size];
@@ -422,8 +452,11 @@ public final class RidBitmap implements Iterable<RID> {
 
   /** The index of {@code key}, or {@code -(insertionPoint + 1)} as {@link Arrays#binarySearch} answers. */
   private int indexOf(final long key) {
-    if (lastIndex < size && keys[lastIndex] == key)
-      return lastIndex;
+    // READ ONCE: A SET NO LONGER CHANGED IS PROBED BY SEVERAL THREADS AT ONCE (THE ALLOW-LIST OF A PARALLEL k-NN SEARCH), AND THE
+    // REMEMBERED INDEX IS A BENIGN RACE ONLY WHILE THE INDEX TESTED IS THE INDEX ANSWERED
+    final int last = lastIndex;
+    if (last < size && keys[last] == key)
+      return last;
     final int index = Arrays.binarySearch(keys, 0, size, key);
     if (index >= 0)
       lastIndex = index;

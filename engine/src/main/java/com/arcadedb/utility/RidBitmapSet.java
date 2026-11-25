@@ -30,6 +30,9 @@ import java.util.Iterator;
  * {@code HashSet} at about 100 bytes per member (docs/spork/03-f1-selections-design.md, 2.5). {@link #contains} is a bitmap
  * probe and {@link #size} its cardinality; iteration is in bucket, then position, order.
  * <p>
+ * It is also the allow-list a k-NN {@code filter} option is read into, from a sub-query or a list of RIDs
+ * (docs/spork/workstreams/vector-filter-allowlist.md), so both vector index kinds probe one structure.
+ * <p>
  * The view does not copy the bitmap, which its holder must therefore not change afterwards.
  */
 public final class RidBitmapSet extends AbstractSet<RID> {
@@ -73,26 +76,26 @@ public final class RidBitmapSet extends AbstractSet<RID> {
 
   @Override
   public boolean add(final RID rid) {
-    throw new UnsupportedOperationException("A selection's RID set is read-only");
+    throw new UnsupportedOperationException("This RID set is read-only");
   }
 
   @Override
   public boolean remove(final Object o) {
-    throw new UnsupportedOperationException("A selection's RID set is read-only");
+    throw new UnsupportedOperationException("This RID set is read-only");
   }
 
   @Override
   public boolean retainAll(final Collection<?> c) {
-    throw new UnsupportedOperationException("A selection's RID set is read-only");
+    throw new UnsupportedOperationException("This RID set is read-only");
   }
 
   @Override
   public boolean removeAll(final Collection<?> c) {
-    throw new UnsupportedOperationException("A selection's RID set is read-only");
+    throw new UnsupportedOperationException("This RID set is read-only");
   }
 
   @Override
   public void clear() {
-    throw new UnsupportedOperationException("A selection's RID set is read-only");
+    throw new UnsupportedOperationException("This RID set is read-only");
   }
 }

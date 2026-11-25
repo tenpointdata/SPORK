@@ -20,6 +20,7 @@ package com.arcadedb.index.vector;
 
 import com.arcadedb.database.RID;
 import com.arcadedb.query.sql.executor.RidSet;
+import com.arcadedb.utility.RidBitmap;
 import com.arcadedb.utility.RidHashSet;
 
 import java.lang.invoke.MethodHandles;
@@ -937,6 +938,20 @@ public class VectorLocationIndex {
    * primitive pair as well.
    */
   public boolean isLocationIn(final int vectorId, final RidSet allowed) {
+    final Chunk chunk = chunkOf(vectorId);
+    if (chunk == null)
+      return false;
+    final int slot = vectorId & CHUNK_MASK;
+    if (!isPresent(chunk, slot))
+      return false;
+    return allowed.contains((int) INTS.getAcquire(chunk.bucketId, slot), (long) LONGS.getAcquire(chunk.position, slot));
+  }
+
+  /**
+   * {@link #isLocationIn(int, RidHashSet)} for the compressed {@link RidBitmap} behind a {@code filter} sub-query or a saved
+   * selection, which answers a primitive pair as well.
+   */
+  public boolean isLocationIn(final int vectorId, final RidBitmap allowed) {
     final Chunk chunk = chunkOf(vectorId);
     if (chunk == null)
       return false;
