@@ -377,6 +377,9 @@
                     <argLine>
                         @{argLine}
                         -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy.version}/byte-buddy-agent-${byte-buddy.version}.jar
+                        <!-- Headless, as on CI: on macOS the first AWT use (ImageIO in the similarity hashes) otherwise
+                             makes the fork a Dock app, and a Quit sent to it ends the run with System.exit(0) -->
+                        -Djava.awt.headless=true
                         --add-exports java.management/sun.management=ALL-UNNAMED
                         --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
                         --add-opens java.base/java.nio.channels.spi=ALL-UNNAMED
@@ -438,6 +441,9 @@
                     <argLine>
                         @{itCoverageAgent}
                         -javaagent:${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy.version}/byte-buddy-agent-${byte-buddy.version}.jar
+                        <!-- Headless, as on CI: on macOS the first AWT use (ImageIO in the similarity hashes) otherwise
+                             makes the fork a Dock app, and a Quit sent to it ends the run with System.exit(0) -->
+                        -Djava.awt.headless=true
                         --add-exports java.management/sun.management=ALL-UNNAMED
                         --add-opens java.base/java.util.concurrent.atomic=ALL-UNNAMED
                         --add-opens java.base/java.nio.channels.spi=ALL-UNNAMED
