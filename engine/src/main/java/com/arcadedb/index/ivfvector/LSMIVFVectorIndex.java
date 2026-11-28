@@ -54,6 +54,7 @@ import com.arcadedb.serializer.json.JSONObject;
 import com.arcadedb.utility.IntHashSet;
 import com.arcadedb.utility.LongHashSet;
 import com.arcadedb.utility.Pair;
+import com.arcadedb.utility.RidBitmapSet;
 
 import java.io.File;
 import java.io.IOException;
@@ -1518,16 +1519,25 @@ public class LSMIVFVectorIndex implements Index, IndexInternal {
      *                   asked about the pending entries of the transaction
      */
     static PositionFilter of(final Set<RID> rids, final int bucketId, final int sortedUpTo) {
-      long[] positions = new long[rids.size()];
+      long[] positions;
       int n = 0;
       long max = -1;
-      for (final RID rid : rids)
-        if (rid.getBucketId() == bucketId) {
-          final long position = rid.getPosition();
-          positions[n++] = position;
-          if (position > max)
-            max = position;
-        }
+      if (rids instanceof RidBitmapSet compressed) {
+        // A filter SUB-QUERY OR A SAVED SELECTION: THIS BUCKET'S POSITIONS, ASCENDING, WITHOUT A RID PER MEMBER
+        positions = compressed.bitmap().positions(bucketId);
+        n = positions.length;
+        if (n > 0)
+          max = positions[n - 1];
+      } else {
+        positions = new long[rids.size()];
+        for (final RID rid : rids)
+          if (rid.getBucketId() == bucketId) {
+            final long position = rid.getPosition();
+            positions[n++] = position;
+            if (position > max)
+              max = position;
+          }
+      }
       if (n == 0)
         return new PositionFilter(0, null, null, null, null, null);
       if (sortedFilter || n <= sortedUpTo) {

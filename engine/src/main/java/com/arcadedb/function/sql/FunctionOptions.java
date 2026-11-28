@@ -21,6 +21,7 @@ package com.arcadedb.function.sql;
 import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.utility.NumberUtils;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -178,5 +179,16 @@ public class FunctionOptions {
       return l;
     throw new CommandSQLParsingException(
         "Option '" + key + "' for function '" + functionName + "' must be a list, got: " + v.getClass().getSimpleName());
+  }
+
+  /**
+   * {@link #getList} that accepts a {@link Set} as well: the {@code filter} option of a k-NN function holds the RID set a
+   * sub-query was materialized into (see {@code RidSetSubquery}) rather than a list.
+   */
+  public Collection<?> getCollection(final String key) {
+    final Object v = options.get(key);
+    if (v instanceof Set<?> set)
+      return set;
+    return getList(key);
   }
 }

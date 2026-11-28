@@ -23,8 +23,10 @@ import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.OperationHeapLimit;
 import com.arcadedb.query.sql.executor.Result;
 import com.arcadedb.query.sql.executor.ResultSet;
+import com.arcadedb.query.sql.executor.RidSetSubquery;
 import com.arcadedb.query.sql.parser.BaseExpression;
 import com.arcadedb.query.sql.parser.SelectStatement;
+import com.arcadedb.utility.RidBitmapSet;
 
 import java.util.Map;
 
@@ -66,6 +68,13 @@ public class SubqueryExpression extends BaseExpression {
   }
 
   private Object executeSubquery(final CommandContext context) {
+    if (modifier == null && statement.getRidSetConsumer() != null) {
+      // THE filter OPTION OF A k-NN FUNCTION: THE RIDS AS THE SET THE INDEX PROBES, NOT A LIST OF ROWS (RidSetSubquery). NULL
+      // ONLY WHEN AN INDEX IT READS WAS DROPPED MEANWHILE: THE STATEMENT BELOW PLANS AGAIN
+      final RidBitmapSet rids = RidSetSubquery.materialize(statement, context);
+      if (rids != null)
+        return rids;
+    }
     final ResultSet rs = statement.execute(context.getDatabase(), context.getInputParameters(), context);
 
     // Always keep Result objects so that modifiers (field access) work correctly.

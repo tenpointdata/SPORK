@@ -129,7 +129,7 @@ public class SQLFunctionVectorNeighbors extends SQLFunctionVectorAbstract {
         nprobe = opts.getInt("nprobe", -1);
         if (opts.get("nprobe") != null && nprobe < 1)
           throw new CommandSQLParsingException(NAME + " nprobe must be >= 1, got " + nprobe);
-        allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
+        allowedRIDs = parsePreFilter(opts.getCollection("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
         groupBy = opts.getString("groupBy", null);
         groupSize = opts.getInt("groupSize", 1);
         if (groupSize < 1)

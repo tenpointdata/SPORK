@@ -110,7 +110,7 @@ public class SQLFunctionVectorSparseNeighbors extends SQLFunctionVectorAbstract 
       if (params[4] instanceof Map<?, ?> rawMap) {
         final FunctionOptions opts = new FunctionOptions(NAME, rawMap, OPTIONS);
         // Same `where`, `filter` and `selection` pre-filter as vector.neighbors (issue #10169, docs/spork/03-f1-selections-design.md)
-        allowedRIDs = parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
+        allowedRIDs = parsePreFilter(opts.getCollection("filter"), opts.get("where"), opts.getString("selection", null), NAME, context);
         groupBy = opts.getString("groupBy", null);
         groupSize = opts.getInt("groupSize", 1);
         if (groupSize < 1)

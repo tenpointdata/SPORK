@@ -32,6 +32,7 @@ import com.arcadedb.query.sql.executor.IndexedFunctionPushdown;
 import com.arcadedb.query.sql.executor.FunctionAggregationContext;
 import com.arcadedb.query.sql.executor.IndexableSQLFunction;
 import com.arcadedb.query.sql.executor.Result;
+import com.arcadedb.query.sql.executor.RidSetSubquery;
 import com.arcadedb.query.sql.executor.SQLFunction;
 
 import java.util.ArrayList;
@@ -47,6 +48,8 @@ public class FunctionCall extends SimpleNode {
   /** {@code count(DISTINCT x)}: the aggregate sees each distinct value of its arguments once (issue #8889) */
   public boolean          distinct = false;
   private   SQLFunction      cachedFunction;
+  // Whether markRidFilterSubqueries() ran on this node
+  private transient boolean  ridFilterMarked;
 
   public FunctionCall() {
   }
@@ -127,6 +130,7 @@ public class FunctionCall extends SimpleNode {
         }
       }
     }
+    markRidFilterSubqueries();
     for (final Expression expr : this.params) {
       if (record instanceof Identifiable identifiable) {
         paramValues.add(expr.execute(identifiable, context));
@@ -431,6 +435,18 @@ public class FunctionCall extends SimpleNode {
   public void extractSubQueries(final SubQueryCollector collector) {
     for (final Expression param : this.params)
       param.extractSubQueries(collector);
+  }
+
+  /**
+   * Marks the {@code filter} sub-query of a k-NN call so it is materialized as the RID set the index probes (see
+   * {@link RidSetSubquery}). Once per node: the answer depends on the syntax alone.
+   */
+  private void markRidFilterSubqueries() {
+    if (ridFilterMarked)
+      return;
+    if (name != null)
+      RidSetSubquery.markFilterSubqueries(name.getStringValue(), params);
+    ridFilterMarked = true;
   }
 
   /**

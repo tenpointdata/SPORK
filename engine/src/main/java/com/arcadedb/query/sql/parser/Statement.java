@@ -27,6 +27,7 @@ import com.arcadedb.exception.CommandSQLParsingException;
 import com.arcadedb.query.sql.executor.CommandContext;
 import com.arcadedb.query.sql.executor.InternalExecutionPlan;
 import com.arcadedb.query.sql.executor.ResultSet;
+import com.arcadedb.query.sql.executor.RidSetSubquery;
 import com.arcadedb.query.sql.executor.SqlAstInspector;
 
 import com.arcadedb.query.OperationType;
@@ -61,6 +62,10 @@ public class Statement extends SimpleNode {
   private transient volatile ParameterBounds positionalParameterBounds;
   // Memo of placeholders(): the ? and :name nodes of the tree, in the order the walk meets them, or null when it cannot be read
   private transient volatile InputParameter[] placeholders;
+  // The k-NN function whose `filter` option this sub-query is the value of, or null (RidSetSubquery): its rows are then
+  // materialized as a RID set rather than a list. Decided by the syntax around the statement, so every thread that marks a
+  // shared tree writes the same value; transient so the AST walkers never mistake it for part of the tree
+  private transient volatile String ridSetConsumer;
 
   /**
    * How many positional values a statement must be bound to ({@code required}) and may be bound to ({@code accepted}).
@@ -256,6 +261,17 @@ public class Statement extends SimpleNode {
 
   public Statement copy() {
     throw new UnsupportedOperationException("IMPLEMENT copy() ON " + getClass().getSimpleName());
+  }
+
+  /**
+   * The k-NN function this sub-query is the {@code filter} option of, or null: see {@link RidSetSubquery}.
+   */
+  public String getRidSetConsumer() {
+    return ridSetConsumer;
+  }
+
+  public void setRidSetConsumer(final String functionName) {
+    this.ridSetConsumer = functionName;
   }
 
   public boolean refersToParent() {

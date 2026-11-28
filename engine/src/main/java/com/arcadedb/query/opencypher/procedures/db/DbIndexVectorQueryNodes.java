@@ -215,7 +215,7 @@ public class DbIndexVectorQueryNodes implements CypherProcedure {
       throw new CommandSQLParsingException(
           DISPLAY_NAME + "(): options must be a map such as {where: {tenant: $tenant}}, got " + options.getClass().getSimpleName());
     final FunctionOptions opts = new FunctionOptions(DISPLAY_NAME, map, OPTIONS);
-    return SQLFunctionVectorAbstract.parsePreFilter(opts.getList("filter"), opts.get("where"), opts.getString("selection", null),
+    return SQLFunctionVectorAbstract.parsePreFilter(opts.getCollection("filter"), opts.get("where"), opts.getString("selection", null),
         DISPLAY_NAME, context);
   }
 

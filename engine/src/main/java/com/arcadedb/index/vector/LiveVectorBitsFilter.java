@@ -21,6 +21,8 @@ package com.arcadedb.index.vector;
 import com.arcadedb.database.RID;
 import com.arcadedb.query.sql.executor.RidSet;
 import com.arcadedb.query.sql.executor.WorkGuard;
+import com.arcadedb.utility.RidBitmap;
+import com.arcadedb.utility.RidBitmapSet;
 import com.arcadedb.utility.RidHashSet;
 import io.github.jbellis.jvector.util.Bits;
 
@@ -73,9 +75,10 @@ import java.util.Set;
  */
 public class LiveVectorBitsFilter implements Bits {
   private final Set<RID>            allowedRIDs;
-  // THE ALLOW-LIST IN A FORM THAT ANSWERS A PRIMITIVE (bucket, position) PAIR: AT MOST ONE OF THE THREE IS SET
+  // THE ALLOW-LIST IN A FORM THAT ANSWERS A PRIMITIVE (bucket, position) PAIR: AT MOST ONE OF THE FOUR IS SET
   private final RidHashSet          allowedPrimitive;
   private final RidSet              allowedBitmap;
+  private final RidBitmap           allowedCompressed;
   private final int[]               ordinalToVectorIdSnapshot;
   // NOT a snapshot, unlike the ordinal map: this is the live location map, read at traversal time so the filter
   // answers exactly what the post-filter on the search output will.
@@ -194,9 +197,16 @@ public class LiveVectorBitsFilter implements Bits {
     if (allowedRIDs != null && allowedRIDs.getClass() == RidSet.class && !allowedRIDs.isEmpty()) {
       // THE QUERY EXECUTOR'S SET ANSWERS A PRIMITIVE PAIR: NO RID PER VISITED NODE
       this.allowedBitmap = (RidSet) allowedRIDs;
+      this.allowedCompressed = null;
+      this.allowedRIDs = null;
+    } else if (allowedRIDs instanceof RidBitmapSet compressed && !compressed.isEmpty()) {
+      // A filter SUB-QUERY OR A SAVED SELECTION (A FINAL CLASS): ANSWERS A PRIMITIVE PAIR AS WELL
+      this.allowedBitmap = null;
+      this.allowedCompressed = compressed.bitmap();
       this.allowedRIDs = null;
     } else {
       this.allowedBitmap = null;
+      this.allowedCompressed = null;
       this.allowedRIDs = allowedRIDs != null && !allowedRIDs.isEmpty() ? allowedRIDs : null;
     }
     this.ordinalToVectorIdSnapshot = ordinalToVectorIdSnapshot;
@@ -268,6 +278,11 @@ public class LiveVectorBitsFilter implements Bits {
     }
     if (allowedBitmap != null) {
       if (!vectorIndex.isLocationIn(vectorId, allowedBitmap))
+        return false;
+      return supersededRIDs == null || !supersededRIDs.contains(vectorIndex.getRid(vectorId));
+    }
+    if (allowedCompressed != null) {
+      if (!vectorIndex.isLocationIn(vectorId, allowedCompressed))
         return false;
       return supersededRIDs == null || !supersededRIDs.contains(vectorIndex.getRid(vectorId));
     }
