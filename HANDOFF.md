@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-28. See Current state and Deltas.
+**Last updated:** 2026-11-28 07:53 MST, by codex-mcp-client: Consolidated the existing Current state section and shortened the handoff stamp. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
