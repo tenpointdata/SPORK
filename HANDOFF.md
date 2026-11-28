@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-28 08:06 MST, by codex-mcp-client: Verified the current handoff check and documented its remaining issue-tracker limitation. Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-28 09:33 MST, by codex-mcp-client: Verified card c-d29648 was already diagnosed and fixed by c341a80f9: macOS Quit reached an AWT-registered test fork. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -33,6 +33,9 @@ hot data.
 | Deploy target | None yet. Production is a 4-node cluster (126 GB RAM each, no GPU, 4 TB drives); WS1 builds it |
 
 ## Current state
+
+On 2026-11-28, the headless test-fork guard and `PdqBandsTest` passed together on macOS (3 tests, JDK 26). The
+2026-11-18 fix for the clean fork exit is already present; the separate load flakes in open work 56 remain open.
 
 The following project and design status was recorded on 2026-11-09; see the dated updates below for later work.
 
@@ -579,11 +582,12 @@ others) and have the repository's `CLAUDE.md` import that file with `@AGENTS.md`
 ## Deltas
 
 <!-- composite:deltas · newest first; Composite rewrites this block on every merge (ej handoff merge / merge_handoff) -->
+- **2026-11-28 09:33 MST** · codex-mcp-client · `ej/20261128-093149-f3bcba` at `947db26`, no commits · `h-d0191c` — Verified card c-d29648 was already diagnosed and fixed by c341a80f9: macOS Quit reached an AWT-registered test fork. HeadlessTestForkTest and PdqBandsTest passed (3 tests) on macOS with JDK 26. **Next:** The other load flakes in open work 56 remain under active investigation; a full suite with the headless fix was not run in this investigation. **Decided:** Retain the existing root Surefire and Failsafe headless flags and guard; no additional code change was justified.
 - **2026-11-28 08:06 MST** · codex-mcp-client · `ej/20261128-080528-6e3858` at `0a1bb64`, no commits · `h-cb01f8` — Verified the current handoff check and documented its remaining issue-tracker limitation. **Next:** Owner enables GitHub issues (open work 27), then migrate the numbered work and triage to real issue references. **Decided:** Preserve the existing ranked triage and work list; do not invent issue numbers to satisfy the checker.
 - **2026-11-28 07:53 MST** · codex-mcp-client · `ej/20261128-075311-e9d798` at `68ca482`, no commits · `h-65822c` — Consolidated the existing Current state section and shortened the handoff stamp. **Next:** Enable GitHub issues before migrating the recorded open work; DatabaseChecker post-drop retry coverage remains open. **Decided:** Kept the older project status dated and removed its obsolete main revision; retained later updates and open work.
 - **2026-11-28 07:43 MST** · codex-mcp-client · `ej/20261128-074151-1d94ad` at `378906c`, no commits · `h-7a8991` — Reviewed DatabaseChecker's post-drop index rebuild retries against the SQL failure; no matching invalid TypeIndex call found. Recorded the missing deterministic post-drop checker regression as open work 58. **Next:** Add a deterministic checker test that injects a retryable failure during index creation after drop, including full-text metadata and counters. **Decided:** Leave checker logic unchanged: it reads bucket metadata and file IDs on retry rather than calling isCompacting on the invalid TypeIndex.
-- **2026-11-18 11:09 MST** · claude-code · `main` `1faed9f`→`94d920c` (1 commit) · `h-04ed06` — The goal was to fix a failing test case involving index rebuilding under live ingestion. The failure stemmed from the `REBUILD INDEX` command failing on retry because the index was already dropped. Work done: Edited RebuildIndexRetryAfterDropTest.java and IndexMetadata.java; Rewrote the rebuild section in RebuildIndexStatement.java; Ran new regression tests and the original failing test multiple times; Committed the fix and added a HANDOFF.md note. **Decided:** The fix targeted the `REBUILD INDEX` statement logic, not the test itself; The index definition is now read once before the initial drop; Retries now only re-create the index from the stored definition.
 - _Older hand-offs, a line each; `ej handoff log` has them whole:_
+- **2026-11-18 11:09 MST** · claude-code · `h-04ed06` — The goal was to fix a failing test case involving index rebuilding under live ingestion.
 - **2026-11-15 21:56 MST** · claude-code · `h-cb0e7d` — The spork maven suite passes again: `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` gave BUILD SUCCESS in 1 h 09 min, 0 failures, 0 flakes. **Next:** The intermittent engine fork exit (code 0, no dump) seen once on PdqBandsTest stays under Open work 56.
 - **2026-11-15 08:11 MST** · claude-code · `h-e6557c` — Finished the spork maven suite fix begun by agent 20261114-141834-412462 (fork h-0f50d8). **Next:** Open work 57: write a deterministic reproduction of a bucket index losing its header page after kill() and reopen (Issue10051Bm25CounterRepairTest), then fix recovery or explain the loss.
 - **2026-11-09 09:06 MST** · local-agent-mode-eng-journal · `h-bc7d3a` — Built HANDOFF open work 34: every SHARED evidence row of identity.compare, cohesion, candidates and features now names the records behind it (recordsA / recordsB as {record, at} per member, cut at the new evidenceRecords option, default 10) and each side's fi… **Next:** 37 (the (website, urlHash) index on Record) and 35 (a from/to window on identity.compare) are the next small items in the agents' lane; 42 is now unblocked, since a candidate row explains itself. **Issues:** closed #34.
