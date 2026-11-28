@@ -1,6 +1,6 @@
 # SPORK handoff
 
-**Last updated:** 2026-11-28 09:55 MST, by codex-mcp-client: Investigated c-322ebc: prior loginwindow evidence identified macOS Quit of the AWT-registered fork; existing c341a80f9 headless fix and guard remain in place. Earlier hand-offs are under Deltas and in `ej handoff log`.
+**Last updated:** 2026-11-28 10:01 MST, by codex-mcp-client: Linked all ranked triage entries to stable local numbered open-work records; checked 55 unique anchors and 19 links. Earlier hand-offs are under Deltas and in `ej handoff log`.
 
 The single entry point for whoever picks this repository up next (Claude, Codex, Gemini, Antigravity or a human). Read
 this first, then [docs/spork/README.md](docs/spork/README.md) for the design.
@@ -102,7 +102,7 @@ Train 1 modules, on `main`:
 
 ### Later updates
 
-As of 2026-11-28: `ej handoff check .` recognizes Current state and the short stamp. It still reports no triage issues
+As of 2026-11-28: triage links to stable local open-work anchors. `ej handoff check .` recognizes Current state and the short stamp. It still reports no triage issues
 and 64 open-work lines without issue references: the ranked triage and numbered open-work list are present, but GitHub
 issues remain disabled. Item 27 is the owner gate for enabling issues and migrating the list; do not invent issue numbers
 to silence the checker.
@@ -120,8 +120,9 @@ lost in a crash) needs an engine investigation.
 
 ## Triage
 
-What to pick up next, ranked. Numbers are the items under [Open work](#open-work); take the top unclaimed one in the
-agents' lane unless you were given a task, and claim it (`fork_handoff` with `claim=#N`). Items 29 to 31 are claimed by
+What to pick up next, ranked. Links point to the numbered records under [Open work](#open-work). Take the top unclaimed item in the
+agents' lane unless you were given a task; record its number in the handoff intent. Composite issue claims require a
+real GitHub issue and cannot claim these local numbers. Items 29 to 31 are claimed by
 the retrieval-speed worktrees named on their lines. Re-rank when you finish: drop what you closed, add what you found,
 move items between lanes when that changed.
 
@@ -129,35 +130,35 @@ move items between lanes when that changed.
 
 | Item | Size | Done looks like |
 |---|---|---|
-| 37 `(website, urlHash)` index on `Record` | small | The index is in schema v1 and a URL's capture set is one lookup |
-| 35 period window on the association question | small | `from` / `to` on compare, scored on the window, with in-window and out-of-window sighting counts per identifier |
-| 36 rejected candidates stay rejected | medium | `identity.candidates` excludes or flags groups with a rejected link or unlink decision, with an option to include them |
-| 42 candidate thresholds rank, never drop | small | No threshold on the `identity.candidates` path removes a group silently; caps are explicit, overridable and reported |
-| 41 selector class and interval discount the evidence weight | medium | A shared VoIP or aggregator number, or one whose sightings never overlap, scores below a shared private one, and the row says why |
-| 43 provenance rung enforced at the boundary | medium | The rung is typed and mandatory on every connection a route returns, and a test forbids rung-0/1 connections being described in rung-2/3 language |
-| 4 WS2 follow-ups (schema still to add, ETL, offline GraphBatch build) | medium | Each sub-item of the WS2 line, in that doc's order |
-| 5 WS3 next slices, in order from intake and `GET /records/{id}` | large | Each slice green with its tests, in the order the line gives |
+| [37](#work-37) `(website, urlHash)` index on `Record` | small | The index is in schema v1 and a URL's capture set is one lookup |
+| [35](#work-35) period window on the association question | small | `from` / `to` on compare, scored on the window, with in-window and out-of-window sighting counts per identifier |
+| [36](#work-36) rejected candidates stay rejected | medium | `identity.candidates` excludes or flags groups with a rejected link or unlink decision, with an option to include them |
+| [42](#work-42) candidate thresholds rank, never drop | small | No threshold on the `identity.candidates` path removes a group silently; caps are explicit, overridable and reported |
+| [41](#work-41) selector class and interval discount the evidence weight | medium | A shared VoIP or aggregator number, or one whose sightings never overlap, scores below a shared private one, and the row says why |
+| [43](#work-43) provenance rung enforced at the boundary | medium | The rung is typed and mandatory on every connection a route returns, and a test forbids rung-0/1 connections being described in rung-2/3 language |
+| [4](#work-4) WS2 follow-ups (schema still to add, ETL, offline GraphBatch build) | medium | Each sub-item of the WS2 line, in that doc's order |
+| [5](#work-5) WS3 next slices, in order from intake and `GET /records/{id}` | large | Each slice green with its tests, in the order the line gives |
 
 **For a human (owner or product decision first)**
 
 | Item | Why it needs a person |
 |---|---|
-| 39 analyst assessment state | The shape is a Recon product decision (what a subject is, what states exist, who sees whose assessments) before it can be schema |
-| 44 reserve the assessment type in schema v1 | Owner call, narrower than 39: reserve the type and key in Q1 so the product decision needs no migration later |
-| 38 record-group route | Depends on 39, and on how Recon wants a group presented |
-| 40 basis on a place assertion | Someone has to define what counts as corroborated presence, and governance has to agree the label is not an assertion of fact |
-| 27 enable GitHub issues, then move Open work into issues | Owner-only on the remote |
-| 28 commit-policy conflict between `CLAUDE.md` and `docs/spork/README.md` | Owner call |
-| 25 refresh `docs/spork/README.md` "Engine work" | Owned by the architecture session |
+| [39](#work-39) analyst assessment state | The shape is a Recon product decision (what a subject is, what states exist, who sees whose assessments) before it can be schema |
+| [44](#work-44) reserve the assessment type in schema v1 | Owner call, narrower than 39: reserve the type and key in Q1 so the product decision needs no migration later |
+| [38](#work-38) record-group route | Depends on 39, and on how Recon wants a group presented |
+| [40](#work-40) basis on a place assertion | Someone has to define what counts as corroborated presence, and governance has to agree the label is not an assertion of fact |
+| [27](#work-27) enable GitHub issues, then move Open work into issues | Owner-only on the remote |
+| [28](#work-28) commit-policy conflict between `CLAUDE.md` and `docs/spork/README.md` | Owner call |
+| [25](#work-25) refresh `docs/spork/README.md` "Engine work" | Owned by the architecture session |
 
 **Blocked**
 
 | Item | On what |
 |---|---|
-| 32 latency A/B on a cluster node | One idle 126 GB node, about 2 hours |
-| 2 IVF recall gate | Phase 0 data and the 4 TB drives |
-| 11 E19 and WS15a first spaces | The 4 TB drives and the backfill window |
-| 33 HA hazard with `arcadedb.backup.enabled=false` | Needs a reproduction on a cluster, not the shared Mac |
+| [32](#work-32) latency A/B on a cluster node | One idle 126 GB node, about 2 hours |
+| [2](#work-2) IVF recall gate | Phase 0 data and the 4 TB drives |
+| [11](#work-11) E19 and WS15a first spaces | The 4 TB drives and the backfill window |
+| [33](#work-33) HA hazard with `arcadedb.backup.enabled=false` | Needs a reproduction on a cluster, not the shared Mac |
 
 ## Setup, run, test
 
@@ -184,71 +185,101 @@ Deploy: there is no deployment yet. The node configuration to start from is `doc
 ## Open work
 
 GitHub issues are disabled on `tenpointdata/SPORK`. Until they are enabled this list is the record of open work; when
-they are, file each item as an issue and replace its line with a link. Sizes and gates are in
+they are, file each item as an issue and replace its line with a link. Stable `work-N` anchors link triage to these
+local records; they are not GitHub issue numbers. Sizes and gates are in
 [01-architecture.md section 8](docs/spork/01-architecture.md).
 
 ### Train 1, Q1 (Recon onto SPORK, until about 2027-01-29)
 
+<a id="work-1"></a>
 1. **Phase 0 measurements and drills.** P0a 10% rehearsal (29M records, bytes per record, Raft log bytes per day); P0b 1M
    image face sample (selects low, mid or high); P0c chaos drills (leader kill, empty-node replacement, formation at full
    size); P0d external answers. Done when each gate in section 8 has its number.
+<a id="work-2"></a>
 2. **IVF recall gate** on `LSM_IVF_VECTOR`: 90% recall at 100 with nprobe <= 128 and oversample <= 50, at no fewer than 66
    items per posting at mid. Due by the end of Phase 0 week 4. Fail path: re-scope E18 (4-bit or PQ codes) and ship the
    first spaces on the existing indexes. Notes: `docs/spork/workstreams/ivf-vector.md`.
+<a id="work-3"></a>
 3. **WS1 infrastructure.** LVM on LUKS, XFS, TLS/mTLS, 4-node Raft group with the E0 settings, Prometheus with Raft log
    alerts.
+<a id="work-4"></a>
 4. **WS2 follow-ups** (`docs/spork/workstreams/ws2-keys-schema.md`): TS port of `SporkKeys` in Recon with the golden
    files; the ETL from upstream NDJSON; offline GraphBatch build on n4 (10M-record gate); initial formation by
    leader-shipped snapshots; the schema still to add (`ops` and `audit` databases, df table, `ChainHead`, Outbox types,
    `Review`, `Image.pdq` and `pdqBands`); open questions on the `Url` key, `textHash` width, `ImageHash` packing,
    `stateCode`.
+<a id="work-5"></a>
 5. **WS3 `spork-recon`, remaining slices** (`docs/spork/workstreams/ws3-recon-plugin.md`, "Next slices"), in order:
    intake and `GET /records/{id}`; the rest of search (substring arms, `q`, `imageHash`, keyset pages, count); pivot and
    partial; group-by and timeline; feed and recent; board with OCC and deconfliction; audit API; image grants;
    read-consistency headers and the leader append route for audited follower reads; set-scoped routes; compaction
    scheduler. Also: per-tenant authorization, marking permission names, purpose gates, and adding the plugin to the
    `package` distribution.
+<a id="work-6"></a>
 6. **WS4** Recon `SporkSource` as a materializing cache, generated TS client, gateway routing, and the shadow-diff
    harness that accepts every train.
+<a id="work-7"></a>
 7. **WS5** continuous ingest saga (NDJSON route, Outbox, SSE change feed).
+<a id="work-8"></a>
 8. **WS6** full-text search v1 (derived property, RRF merge, df table, gram and phonetic lists, degree counters).
+<a id="work-9"></a>
 9. **WS12 follow-ups** (`docs/spork/workstreams/ws12-pdq.md`): the ingest hook in the enrichment worker, the `Image`
    PDQ properties, a real hash gate (PhotoDNA and known-hash lists are owner and legal decisions), S-PDQ on IVF.
+<a id="work-10"></a>
 10. **WS13 follow-ups** (`docs/spork/workstreams/ws13-encoder.md`): image stages (libvips, YuNet, AuraFace) once P0d
     answers; re-measure on the nodes in P0a; probe-cache warm-up; the sparse leg.
+<a id="work-11"></a>
 11. **E19 and WS15a, the System 1 first spaces**: `HAMMING` similarity for binary codes, S-PDQ and S-TEXT built over every
     partition, `/similar/pdq` and `/similar/text` behind `SPORK_S1_*` flags. Needs the 4 TB drives and the backfill
     (13.4 days of CPU, starting by about 2027-01-16).
 
 ### Train 2, Q2
 
+<a id="work-12"></a>
 12. E1 cold install (before 2027-02-15) with E0.5 Raft log preservation.
+<a id="work-13"></a>
 13. WS7 retention: DeletionOrder saga, aging protocol (before 2027-03-22).
+<a id="work-14"></a>
 14. WS11 ObjectSet service and graph procedures; WS11b intel-platform writes; E20 allow-list bitmaps in the IVF scan.
+<a id="work-15"></a>
 15. W8 ROC tier and the CPU face and scene pass; WS15b S-FACE; S-IMG, S-TATTOO, S-DOC; S-STYLE onto IVF; WS8 style
     vectors; E22 per-leg calibration.
+<a id="work-16"></a>
 16. E8a and E8 block-max full-text postings (a changed format: never on a Recon path before it).
+<a id="work-17"></a>
 17. WS14 decision layer; WS9 Outbox detectors; WS10 watch and mission state.
+<a id="work-18"></a>
 18. Replication robustness: E2, E14, E5, E3; E25b and E25c versioning follow-ups.
+<a id="work-19"></a>
 19. W3d backups streamed to the object store; CSV subgraph export; registry-only GAV on n4.
+<a id="work-20"></a>
 20. Recon cutover behind `SPORK_*` flags, paced by the shadow-diff harness; Recon S1 panels.
 
 ### Train 3, Q3
 
+<a id="work-21"></a>
 21. E26 in production by about 2027-07 (warm partitions on 2 of 4 nodes; patch already on `main`; open points in
     `docs/spork/workstreams/e26-spike.md`).
+<a id="work-22"></a>
 22. E17 plugin-keyed FULL_TEXT, then valves 4 and 2 (warm text and the non-representative gallery to the object store).
+<a id="work-23"></a>
 23. E4 listener role, E16 forced installs off the apply thread, W3e restore-then-join, E15 replicated commit events.
+<a id="work-24"></a>
 24. E13 engine row and property filters (markings); E23 per-edge-type adjacency chains.
 
 ### Housekeeping
 
+<a id="work-58"></a>
 58. **DatabaseChecker post-drop rebuild retry coverage**: existing lock-contention tests cover failures before drop, not a retryable failure during creation after drop. Add a deterministic regression that forces that path and checks the rebuilt bucket index and metadata, including full-text counters.
 
+<a id="work-25"></a>
 25. Refresh `docs/spork/README.md` "Engine work" now that every worktree is merged (owner: architecture session).
+<a id="work-26"></a>
 26. Delete the superseded branch `worktree-agent-abfed0420842cfa29` and prune merged worktrees under `.claude/worktrees/`
     once the owner agrees.
+<a id="work-27"></a>
 27. Enable GitHub issues on `tenpointdata/SPORK` (owner) and move this list into issues.
+<a id="work-28"></a>
 28. Resolve the commit-policy conflict: `CLAUDE.md` lets sessions commit and push (explicit paths only), while the
     `docs/spork/README.md` "Conventions" line still says no commits from Claude sessions.
 
@@ -259,20 +290,25 @@ Recon-shaped records, three interleaved rounds per leg) is in
 `.claude/worktrees/bench-main-combined/target/cpucost/comparison.md`. Its harness changes (the `cpucost` stage and the
 opt-in IVF variant) are uncommitted in the `bench-main-combined` and `read-bench-63f0a8` worktrees.
 
+<a id="work-29"></a>
 29. **Ordered index scan with early LIMIT** (worktree `wf_e48018eb-d84-1`, in progress): the `structured` query
     (equality on `state`, ranges, `ORDER BY tsPosted DESC LIMIT 100`) costs about 755 ms CPU at 5M, 96% of the mix.
     Done when the planner walks `Record[state,tsPosted]` newest-first and stops at the limit, with result-equivalence
     tests and no regression on `feed24h`.
+<a id="work-30"></a>
 30. **Filtered vector kNN allow-lists** (worktree `wf_e48018eb-d84-2`, in progress): about 280 ms CPU and 220 MB
     allocated per query because the `filter` subquery becomes a `HashSet<RID>` per call. Done when the allow-list is
     index-only and primitive, about 10x cheaper, same neighbors.
+<a id="work-31"></a>
 31. **IVF defaults on low-dimensional vectors** (worktree `wf_e48018eb-d84-3`, in progress): on 24-d style vectors the
     defaults give recall@20 0.47 against 0.91 for `LSM_VECTOR`, at 1.7x the CPU. Done at recall@20 >= 0.9 with CPU no
     worse than `LSM_VECTOR` and the filtered advantage (41% less CPU) kept. Related to item 2.
+<a id="work-32"></a>
 32. **Latency A/B on a cluster node**: latency (p50/p99 at 1, 8, 32 clients) cannot be measured on the shared Mac (it never
     had a quiet window in 18 hours). Needs one idle 126 GB node for about 2 hours, Java 21, about 20 GB disk. Blocked on
     node provisioning. The interleaved, contention-gated runner is
     `.claude/worktrees/bench-main-combined/target/gated/gated-ab.sh`.
+<a id="work-33"></a>
 33. **HA hazard with `arcadedb.backup.enabled=false`** (any chunked index build, not IVF-specific): a leader write during a
     session build longer than `HA_QUORUM_TIMEOUT` ships a `TX_ENTRY` for a file only the leader's uncommitted session
     has, so followers can diverge. Details in `docs/spork/workstreams/ivf-vector.md`, round 6/7.
@@ -290,6 +326,7 @@ they impose (records immutable, the four-rung provenance ladder, the four clocks
 anchor) and the open questions back to the analyst are in
 [docs/spork/10-analyst-requirements.md](docs/spork/10-analyst-requirements.md).
 
+<a id="work-34"></a>
 34. ~~**Evidence rows name no supporting records and no sighting dates.**~~ **Done 2026-11-09** (see Current state and
     Done). Kept here with its number so the references to it elsewhere still land. What it was: `identity.compare`, `identity.cohesion` and
     `identity.candidates` return evidence as `{type, kind, identifier, countA, countB, frequency, gapDays, weight,
@@ -300,12 +337,14 @@ anchor) and the open questions back to the analyst are in
     carries, under a cap, the supporting member RIDs per side and each side's first and last sighting of that
     identifier, with no extra record reads on the unshared path (`ClusterProfile` already holds the per-member sorted
     time arrays, and a shared identifier is already read once for its frequency).
+<a id="work-35"></a>
 35. **The association question cannot be scoped to a period.** The analyst's phone question is not "who owns this
     number" but "what supports the association of this person to this number during the relevant time period". Today
     the caller has to pre-filter both clusters to the window, and the evidence rows do not say which sightings fell
     inside it, so "this number ties to her through 2023 and not after" is not one call. Done when compare takes a
     `from` / `to` window (procedure option, and the plugin route over it) and reports in-window and out-of-window
     sighting counts per identifier, scored on the window while the out-of-window sightings stay visible.
+<a id="work-36"></a>
 36. **A rejected candidate comes back on the next call.** 2.6 keeps rejected soft edges "so recomputation never
     re-creates them", but `identity.candidates` blocks and scores straight off the graph with no filter on rejected
     links or prior `ResolutionDecision`s, so an identity the analyst has already ruled out is re-surfaced every time.
@@ -313,11 +352,13 @@ anchor) and the open questions back to the analyst are in
     when new info appears". Done when candidates excludes, or returns flagged with the decision id and date, any group
     with a rejected link or an unlink decision against the cluster; an option includes them; and reassessment is a new
     decision that supersedes rather than an overwrite.
+<a id="work-37"></a>
 37. **Re-ingest of the same source is not an indexed question.** `Record.urlHash` is a property with no index (2.1
     schema table; the `Url` key is still an open question in `workstreams/ws2-keys-schema.md`), and `upstreamRid` only
     makes ingest idempotent when upstream minted the same rid. So the first of the three cases the analyst needs
     separated, "the same source being ingested more than once", cannot be answered without a scan. Done when
     `(website, urlHash)` is a NOTUNIQUE HASH index on `Record` and a capture set for a URL is one lookup.
+<a id="work-38"></a>
 38. **Record grouping for review is not a route.** Storage dedup (exact-byte `textHash` on `TextBody`, SHA-256 on
     `Image`, PDQ clusters) never collapses records, which is the right half of "grouped, not necessarily collapsed in a
     way that removes their individual value"; what is missing is the other half, a group an analyst can review once.
@@ -327,6 +368,7 @@ anchor) and the open questions back to the analyst are in
     surface what each member adds, not hide it. Done when a WS3 record-group route returns, for a record, its capture
     siblings, its attribute-sharing siblings with the shared identifiers named, and its identity siblings, each with
     its basis and its review state (39), and search rows carry the group id.
+<a id="work-39"></a>
 39. **There is no analyst assessment state.** `Review` in the schema is the upstream RedLight ad review vertex, not
     analyst triage. `ResolutionDecision` covers identity merges, splits, links and unlinks, and `BoardLabel` covers
     board work, but nothing records "I have looked at this record, or this candidate pair, and it is supported,
@@ -335,6 +377,7 @@ anchor) and the open questions back to the analyst are in
     rejected or unresolved, the evidence snapshot it was made against, the actor Entry account and its audit entry, a
     versioned type so a later reassessment supersedes rather than overwrites, and it is returned on every search row
     and every candidate row. 36 and 38 both depend on it.
+<a id="work-40"></a>
 40. **Listed location is not distinguished from corroborated presence.** `Record.placeId`, `city`, `lat` and `lon` are
     what the ad listed, and nothing marks a place as independently corroborated, so the timeline and geo routes present
     listed cities as a trajectory. Analysts need the patterns "without automatically treating it as verified
@@ -345,6 +388,7 @@ anchor) and the open questions back to the analyst are in
     timeline and geo routes return the basis per point and can filter on it, and no route labels a listed sequence as
     movement.
 
+<a id="work-41"></a>
 41. **A shared selector scores the same whatever kind of number it is.** The analyst's hardest cases are VoIP and
     burner accounts: "shared info is not automatically a verified identity or relationship", and "the use of VoIP makes
     this so much more difficult for me". A selector is a time-boxed, shared, reassignable handle, but
@@ -354,6 +398,7 @@ anchor) and the open questions back to the analyst are in
     handle), the class is on the evidence row so the analyst can see why a match was discounted, and the class table is
     data rather than code so it can be corrected without a release. Depends on 35 for the interval. The class tiers
     themselves are a question for the analyst (`docs/spork/10-analyst-requirements.md` 7.5).
+<a id="work-42"></a>
 42. **Thresholds that drop candidate rows, rather than rank them.** The analyst wants more potential connections to
     review, not fewer, on the condition that she can see what connects them: she would "generally prefer more potential
     connections I just have to review", provided she can "quickly see what exactly connects them". Every instinct
@@ -361,6 +406,7 @@ anchor) and the open questions back to the analyst are in
     threshold on the `identity.candidates` path is either a ranking input or an explicit, documented,
     caller-overridable cap, no scoring threshold silently removes a group from the result, and the result says how many
     were capped. Depended on 34, which is done, so a row now explains itself and recall is affordable.
+<a id="work-43"></a>
 43. **The provenance ladder is not enforced at the boundary.** Four rungs have to stay apart end to end: records
     sharing a selector, a source associating a selector with a person, an analyst having assessed that record, and an
     analyst asserting the relationship (`docs/spork/10-analyst-requirements.md` P3). Soft edges carry `method`,
@@ -370,6 +416,7 @@ anchor) and the open questions back to the analyst are in
     property on every connection a route can return, the write routes refuse a connection without one, the export and
     expand paths carry it, and a test asserts that no response field describes a rung-0 or rung-1 connection in rung-2
     or rung-3 language.
+<a id="work-44"></a>
 44. **Reserve the assessment type in schema v1 (Q1), ahead of the product decision in 39.** 39 is correctly a product
     decision, but its *shape* should land with schema v1 rather than with its routes: every day Recon runs on SPORK
     without it is a day of analyst judgements that are not captured and cannot be recovered afterwards, and
@@ -385,32 +432,40 @@ The report (8 issues) was worked on two branches off `main`: `optimization` (iss
 both pushed and green on their targeted lanes, neither merged yet. Design and guidance: 
 `docs/spork/workstreams/ha-commit-pipelining.md` and `docs/spork/workstreams/http-client-guidance.md`.
 
+<a id="work-48"></a>
 48. **Leader crash after about 15 h of sustained writes (report issue 8).** df1db5 dropped all connections at
     2026-11-11 06:23:49 UTC and was back as leader by 06:35; no data lost. Blocked on the server log, journal / OOM
     killer output and any `hs_err_pid*.log` from df1db5 and the HA log of df1db6. Fix branch `fix/leader-crash` once
     the cause is known.
+<a id="work-49"></a>
 49. **HA same-file commit pipelining (report issue 4).** A leader commit keeps its file commit locks from phase 1 to
     `completeCommit`, across the Raft round trip, so one bucket caps at 1 / round trip. Design in
     `ha-commit-pipelining.md`, blocked on the six engine invariants listed there. Relief today: more buckets per type
     on HA databases (`typeDefaultBuckets` 8 to 16 before the schema); that operator note belongs in
     `docs/spork/config/README.md` (architecture session).
+<a id="work-50"></a>
 50. **Hub edge-list head conflicts (report issue 5).** Every whole-script retry in the in-JVM reproduction
     (`MultiTypeUploadConflictBenchmark`) is two transactions flipping the same hub vertex's edge-list head. Options:
     replay the head flip at commit under the edge-list lock, or a per-type initial chunk size (`edgeListInitialChunkSize=512`
     cut retries to 0.002/upload but is JVM-wide; see C7 and E24). First read `txRetries` and
     `pageConflictsByFile.top` on the cluster to confirm the lab numbers.
+<a id="work-51"></a>
 51. **Heap per upload (report issue 5).** About two 64 KB copies of every touched page per commit, 14 to 25 MB per
     upload with zero conflicts. Copy only the touched range, or smaller bucket pages.
+<a id="work-52"></a>
 52. **More client errors to surface (report issue 3 follow-up).** Plan-time `CommandExecutionException` refusals are
     still a bare 500 in production; move the ones a caller can fix to client-error types. `PageConflictStats` also has
     no HTTP reset route.
+<a id="work-53"></a>
 53. **Two `docs/spork/config/` files edited outside their owner.** `README.md` and `read-node.properties` gained the
     `httpQueryElevatedMaxResultRows` note on `optimization`; the architecture session should confirm or move them.
+<a id="work-54"></a>
 54. **The Composite pipeline runs the unit lane only.** `composite.pipeline.json` leaves out the `slow`, `vector` and
     `benchmark` tags, the `-Pintegration` ITs and `e2e`, which upstream CI runs as separate lanes
     (`.github/workflows/mvn-test.yml`). Done means: either optional (`"required": false`) Composite suites for the
     engine `slow` and `vector` lanes with their own timeouts, or a decision recorded here that GitHub CI alone covers
     them. The unit lane is also one sequential JVM per module; engine alone takes about 29 minutes on this Mac.
+<a id="work-55"></a>
 55. **Wildcard-bound test fixtures lose their traffic on a busy Mac.** A fixture that listens with
     `new ServerSocket(0)` (wildcard) and is dialled at `127.0.0.1` is bypassed when any other process binds
     `127.0.0.1` on the same port: macOS routes the connection to the specific bind (measured 2026-11-14). It made
@@ -418,6 +473,7 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     ("expected size N but was 0", "JSONObject[result] not found"). Every site under `network/src/test` now binds
     `InetAddress.getLoopbackAddress()`. Still bare: about 10 sites in `ha-raft` tests and `BoltPortConfigIT`. Done means
     those bind loopback too, and `HardcodedTestServerPortsTest` flags a bare `new ServerSocket(0)` in tests.
+<a id="work-56"></a>
 56. **Engine unit-lane flakes under machine load (2026-11-14, load average 10 to 16).** One full run of 3 failed
     these, each green 3 of 3 when rerun alone: `Issue5587TxRetryExponentialBackoffTest.laterRetriesBackOffFurtherThanEarlierOnes`
     (asserts measured millisecond gaps, "gaps [91, 38, 0, 31] ... [56, 0, 0, 28]": move it to
@@ -434,6 +490,7 @@ both pushed and green on their targeted lanes, neither merged yet. Design and gu
     hashes made the non-headless fork a Dock app ("ForkedBooter" in loginwindow's log, two forks quit in the same
     second), and AWT answers Quit with `System.exit(0)`. The root pom now runs surefire and failsafe with
     `-Djava.awt.headless=true`, and `HeadlessTestForkTest` fails if that goes.
+<a id="work-57"></a>
 57. **A bucket index created just before a crash can come back with no header page (2026-11-15).**
     `Issue10051Bm25CounterRepairTest.afterACrashTheFirstSearchRepairsTheCountersTheLogDoesNotCarry` failed once in
     the unit lane (`totalDocs` 8 where 12 was expected). The test commits `CREATE INDEX ... FULL_TEXT` on a 3-bucket type
@@ -584,11 +641,12 @@ others) and have the repository's `CLAUDE.md` import that file with `@AGENTS.md`
 ## Deltas
 
 <!-- composite:deltas · newest first; Composite rewrites this block on every merge (ej handoff merge / merge_handoff) -->
+- **2026-11-28 10:01 MST** · codex-mcp-client · `ej/20261128-100109-00cbc9` at `3c517ed`, no commits · `h-5cd56f` — Linked all ranked triage entries to stable local numbered open-work records; checked 55 unique anchors and 19 links. **Next:** Owner enables GitHub issues and migrates the open work (item 27); checker still requires issue references. Separate Maven flakes remain under item 56. **Decided:** Local anchors provide navigation without inventing GitHub issues or implying Composite can claim local numbers.
 - **2026-11-28 09:55 MST** · codex-mcp-client · `ej/20261128-095227-3b1878` at `ca24267`, no commits · `h-bb4519` — Investigated c-322ebc: prior loginwindow evidence identified macOS Quit of the AWT-registered fork; existing c341a80f9 headless fix and guard remain in place. Reran HeadlessTestForkTest and PdqBandsTest successfully (3 tests) on macOS JDK 26. **Next:** Separate load flakes remain in open work 56; a full suite with the headless fix was not run in this investigation. The sender of the original Quit remains unknown. **Decided:** Retain the existing Surefire and Failsafe headless settings and guard; no additional code change was justified.
 - **2026-11-28 09:33 MST** · codex-mcp-client · `ej/20261128-093149-f3bcba` at `947db26`, no commits · `h-d0191c` — Verified card c-d29648 was already diagnosed and fixed by c341a80f9: macOS Quit reached an AWT-registered test fork. HeadlessTestForkTest and PdqBandsTest passed (3 tests) on macOS with JDK 26. **Next:** The other load flakes in open work 56 remain under active investigation; a full suite with the headless fix was not run in this investigation. **Decided:** Retain the existing root Surefire and Failsafe headless flags and guard; no additional code change was justified.
 - **2026-11-28 08:06 MST** · codex-mcp-client · `ej/20261128-080528-6e3858` at `0a1bb64`, no commits · `h-cb01f8` — Verified the current handoff check and documented its remaining issue-tracker limitation. **Next:** Owner enables GitHub issues (open work 27), then migrate the numbered work and triage to real issue references. **Decided:** Preserve the existing ranked triage and work list; do not invent issue numbers to satisfy the checker.
-- **2026-11-28 07:53 MST** · codex-mcp-client · `ej/20261128-075311-e9d798` at `68ca482`, no commits · `h-65822c` — Consolidated the existing Current state section and shortened the handoff stamp. **Next:** Enable GitHub issues before migrating the recorded open work; DatabaseChecker post-drop retry coverage remains open. **Decided:** Kept the older project status dated and removed its obsolete main revision; retained later updates and open work.
 - _Older hand-offs, a line each; `ej handoff log` has them whole:_
+- **2026-11-28 07:53 MST** · codex-mcp-client · `h-65822c` — Consolidated the existing Current state section and shortened the handoff stamp. **Next:** Enable GitHub issues before migrating the recorded open work; DatabaseChecker post-drop retry coverage remains open.
 - **2026-11-28 07:43 MST** · codex-mcp-client · `h-7a8991` — Reviewed DatabaseChecker's post-drop index rebuild retries against the SQL failure; no matching invalid TypeIndex call found. **Next:** Add a deterministic checker test that injects a retryable failure during index creation after drop, including full-text metadata and counters.
 - **2026-11-18 11:09 MST** · claude-code · `h-04ed06` — The goal was to fix a failing test case involving index rebuilding under live ingestion.
 - **2026-11-15 21:56 MST** · claude-code · `h-cb0e7d` — The spork maven suite passes again: `mvn -B verify -DexcludedGroups=slow,benchmark,vector -Dsurefire.rerunFailingTestsCount=2 -pl !e2e` gave BUILD SUCCESS in 1 h 09 min, 0 failures, 0 flakes. **Next:** The intermittent engine fork exit (code 0, no dump) seen once on PdqBandsTest stays under Open work 56.
