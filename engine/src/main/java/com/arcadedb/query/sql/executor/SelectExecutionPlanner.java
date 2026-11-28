@@ -5320,6 +5320,15 @@ public class SelectExecutionPlanner {
         } else
           result.add(new FilterStep(createWhereFrom(desc.getRemainingCondition()), context));
       }
+
+      if (!indexOrderApplied && allowDeferredLetFilter) {
+        final OrderedIndexLimitStep raced = orderedIndexLimitStep(clazz, info, context, desc, result, filterClusters, filterClusterIds);
+        if (raced != null) {
+          result = new ArrayList<>(1);
+          result.add(raced);
+          info.orderApplied = true;
+        }
+      }
     } else {
       // Defensive, and not reachable through a SELECT today: handleTypeAsTargetWithIndexedFunction() runs first at
       // both call sites and claims every multi-block WHERE, so an OR reaches its own per-branch planning - which
@@ -5338,6 +5347,143 @@ public class SelectExecutionPlanner {
       }
     }
     return result;
+  }
+
+  /**
+   * {@code WHERE a = :a AND <rest> ORDER BY k LIMIT n} where the index search the planner chose answers {@code <rest>} and
+   * does not serve the order, while another index leads with keys the WHERE binds by equality and continues with the sort
+   * key: the ordered walk of that index races the chosen plan and the plans on the other indexes the WHERE can search, see
+   * {@link OrderedIndexLimitStep}. Null when the statement is
+   * not of that shape, in which case the chosen plan stays as it is.
+   * <p>
+   * Only a plain row stream qualifies: no aggregation, GROUP BY, DISTINCT, expand() or UNWIND (they change what the LIMIT
+   * counts), one branch of WHERE, no per-record LET (the residual is tested inside the step), a type without subtypes, and an
+   * ORDER BY whose every item sorts in the same direction on a property of the record, which the step's fallback sorts the
+   * records on before the projection.
+   *
+   * @param chosenSteps the steps of the chosen plan: they become the first rival's plan, followed by the sort they need
+   */
+  private OrderedIndexLimitStep orderedIndexLimitStep(final DocumentType clazz, final QueryPlanningInfo info,
+      final CommandContext context, final IndexSearchDescriptor chosen, final List<ExecutionStepInternal> chosenSteps,
+      final Set<String> filterClusters, final List<Integer> bucketIds) {
+    if (info.limit == null || info.orderBy == null || info.orderBy.getItems() == null || info.orderBy.getItems().isEmpty())
+      return null;
+    if (info.flattenedWhereClause == null || info.flattenedWhereClause.size() != 1)
+      return null;
+    if (info.groupBy != null || info.aggregateProjection != null || info.distinct || info.distinctRewrittenAsGroupBy || info.expand
+        || info.unwind != null || info.perRecordLetClause != null || info.deferredLetWhereClause != null)
+      return null;
+    if (!clazz.getSubTypes().isEmpty())
+      return null;
+    if (!context.getDatabase().getConfiguration().getValueAsBoolean(GlobalConfiguration.QUERY_ORDERED_INDEX_LIMIT))
+      return null;
+    final Boolean ascending = getOrderDirection(info);
+    if (ascending == null || !(chosenSteps.getFirst() instanceof FetchFromIndexStep))
+      return null;
+    final OrderBy sortOnRecords = orderByRecordProperties(info);
+    if (sortOnRecords == null)
+      return null;
+
+    final AndBlock block = info.flattenedWhereClause.getFirst();
+    final String chosenName = chosen.getIndex().getName();
+    IndexSearchDescriptor walked = null;
+    final List<IndexSearchDescriptor> others = new ArrayList<>();
+    for (final TypeIndex index : plannableIndexes(clazz.getAllIndexes(true))) {
+      try {
+        if (index.getName().equals(chosenName))
+          continue;
+        final IndexSearchDescriptor candidate = buildIndexSearchDescriptor(context, index, block, clazz);
+        if (candidate == null || !(candidate.keyCondition instanceof AndBlock key) || key.getSubBlocks().isEmpty())
+          continue;
+        // a key with an IN or a CONTAINS opens one cursor per value, read one after the other: not one ordered stream
+        if (index.getType() == Schema.INDEX_TYPE.LSM_TREE && index.supportsOrderedIterations() && !holdsFoldedKeys(index)
+            && !candidate.requiresMultipleIndexLookups() && fullySorted(info, key, index)) {
+          if (walked == null || candidate.blockCount() > walked.blockCount()) {
+            if (walked != null)
+              others.add(walked);
+            walked = candidate;
+            continue;
+          }
+        }
+        others.add(candidate);
+      } catch (final IndexException e) {
+        // Dropped or rebuilt while planning: not a candidate
+        logSkippedIndex(index, e);
+      }
+    }
+    if (walked == null)
+      return null;
+
+    // The rivals: the planner's choice first, as it planned it, then the other searches the WHERE allows, the ones
+    // that answer more of it first. Every rival costs the walk one index entry per entry it reads, so they are capped
+    final long timeout = info.timeout != null ? info.timeout.getVal().longValue() : -1;
+    final Integer cap = sortCap(info, context);
+    final List<OrderedIndexLimitStep.Rival> rivals = new ArrayList<>(MAX_ORDERED_WALK_RIVALS);
+    rivals.add(rival(chosenName, chosenSteps, sortOnRecords, cap, timeout, context));
+    others.sort(Comparator.comparingInt(IndexSearchDescriptor::blockCount).reversed());
+    for (final IndexSearchDescriptor other : others) {
+      if (rivals.size() >= MAX_ORDERED_WALK_RIVALS)
+        break;
+      final List<ExecutionStepInternal> steps = new ArrayList<>(4);
+      steps.add(new FetchFromIndexStep((RangeIndex) other.getIndex(), other.keyCondition, other.additionalRangeCondition, context));
+      steps.add(new GetValueFromIndexEntryStep(context, bucketIds, scanFallbackFor(other, clazz, filterClusters, info, context)));
+      if (other.requiresDistinctStep())
+        steps.add(new DistinctExecutionStep(context));
+      if (needsFilterStep(other.getRemainingCondition(), context))
+        steps.add(new FilterStep(createWhereFrom(other.getRemainingCondition()), context));
+      rivals.add(rival(other.getIndex().getName(), steps, sortOnRecords, cap, timeout, context));
+    }
+
+    final WhereClause residual = needsFilterStep(walked.getRemainingCondition(), context) ?
+        createWhereFrom(walked.getRemainingCondition()) :
+        null;
+    return new OrderedIndexLimitStep((RangeIndex) walked.getIndex(), (AndBlock) walked.keyCondition, walked.additionalRangeCondition,
+        ascending, residual, bucketIds, walked.requiresDistinctStep(), rivals, info.skip == null ? null : info.skip.copy(),
+        info.limit.copy(), context);
+  }
+
+  /** Most index searches an ordered walk races, the planner's choice included. */
+  private static final int MAX_ORDERED_WALK_RIVALS = 4;
+
+  /** A rival of an ordered walk: its index search followed by the sort, and a copy of its index read to count the entries. */
+  private static OrderedIndexLimitStep.Rival rival(final String indexName, final List<ExecutionStepInternal> steps,
+      final OrderBy sortOnRecords, final Integer cap, final long timeout, final CommandContext context) {
+    final SelectExecutionPlan plan = new SelectExecutionPlan(context, 0);
+    steps.forEach(plan::chain);
+    plan.chain(new OrderByStep(sortOnRecords.copy(), cap, context, timeout));
+    return new OrderedIndexLimitStep.Rival(indexName, (FetchFromIndexStep) steps.getFirst().copy(context), plan);
+  }
+
+  /**
+   * The ORDER BY as a sort on properties of the record, for a sort that runs before the projection: an alias resolves to the
+   * property it projects (a generated one too, see {@link #addOrderByProjections}). Null when an item sorts on anything else.
+   */
+  private static OrderBy orderByRecordProperties(final QueryPlanningInfo info) {
+    final List<OrderByItem> items = new ArrayList<>(info.orderBy.getItems().size());
+    for (final OrderByItem item : info.orderBy.getItems()) {
+      // a record attribute (@rid) has no alias, and an expression, a modifier or a bound direction resolve to null
+      final String property = item.getAlias() != null ? orderByPropertyName(item, info) : null;
+      if (property == null)
+        return null;
+      final OrderByItem onRecord = new OrderByItem();
+      onRecord.setAlias(property);
+      onRecord.setType(item.getType() == null ? OrderByItem.ASC : item.getType());
+      items.add(onRecord);
+    }
+    final OrderBy orderBy = new OrderBy();
+    orderBy.setItems(items);
+    return orderBy;
+  }
+
+  /** SKIP + LIMIT when the planner can read them, as {@link #handleOrderBy} caps its sort; null otherwise. */
+  private static Integer sortCap(final QueryPlanningInfo info, final CommandContext context) {
+    try {
+      final int skip = info.skip == null ? 0 : info.skip.getValue(context);
+      final int limit = info.limit.getValue(context);
+      return skip < 0 || limit < 0 ? null : skip + limit;
+    } catch (final Exception e) {
+      return null;
+    }
   }
 
   /**

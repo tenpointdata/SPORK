@@ -1138,6 +1138,13 @@ public enum GlobalConfiguration {
       index order. 0 disables it, so every index search is served in index order""",
       Float.class, 0.6f),
 
+  QUERY_ORDERED_INDEX_LIMIT("arcadedb.queryOrderedIndexLimit", SCOPE.DATABASE, """
+      Serve ORDER BY k LIMIT n by walking an index whose leading keys the WHERE binds by equality and whose next key is k, \
+      in the requested direction, stopping after n matches, when the planner would otherwise read another index and \
+      sort what it returns. The walk races the other index entry for entry and gives way to the previous plan as soon \
+      as it has read more entries than the other index holds, so it never costs much more than that plan""",
+      Boolean.class, true),
+
   QUERY_PARALLEL_SCAN("arcadedb.queryParallelScan", SCOPE.DATABASE,
       """
       Enable parallel scanning of multiple buckets during full table scans. \
